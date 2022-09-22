@@ -8,6 +8,7 @@ const TRACKED: Record<string, Record<string, boolean>> = {
     getListener: true,
     untrack: true,
     batch: true,
+    startTransition: true,
     createDeferred: true,
   },
 };
@@ -155,6 +156,31 @@ function transformUntrack(
   }
 }
 
+function transformStartTransition(
+  path: NodePath<t.CallExpression>,
+) {
+  // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/rendering.ts#L488
+  const arg = path.node.arguments[0];
+  if (t.isExpression(arg)) {
+    if (t.isArrowFunctionExpression(arg) && t.isExpression(arg.body)) {
+      path.replaceWith(arg.body);
+    } else {
+      path.replaceWith(t.callExpression(arg, []));
+    }
+  } else if (t.isSpreadElement(arg)) {
+    path.replaceWith(
+      t.callExpression(
+        t.memberExpression(
+          arg.argument,
+          t.numericLiteral(0),
+          true,
+        ),
+        [],
+      ),
+    );
+  }
+}
+
 function transformCreateDeferred(
   path: NodePath<t.CallExpression>,
 ) {
@@ -194,6 +220,9 @@ function runTransform(path: NodePath<t.CallExpression>, targetName: string) {
     case 'batch':
       transformBatch(path);
       break;
+    case 'startTransition':
+      transformStartTransition(path);
+      break;
     case 'createDeferred':
       transformCreateDeferred(path);
       break;
@@ -215,6 +244,7 @@ export default function solidOptimizerPlugin(): PluginObj<State> {
             getListener: new Set(),
             untrack: new Set(),
             batch: new Set(),
+            startTransition: new Set(),
             createDeferred: new Set(),
           },
         },

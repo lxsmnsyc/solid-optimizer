@@ -23,11 +23,14 @@ pnpm add -D solid-optimizer
 > **Warning**
 > The following features are only for SSR
 
-### `createEffect` and `onMount`
+### Trimming no-op
 
-Since `createEffect` and `onMount` are no-op in SSR, their calls are removed to enable tree-shaking unwanted code.
+The following are no-op functions in SSR, their calls are removed to enable tree-shaking unwanted code.
 
-### `untrack` and `batch`
+- `createEffect`
+- `onMount`
+
+### `untrack`, `batch` and `startTransition`
 
 Passed argument is inlined and called synchronously. For arrow functions, if the function doesn't have the body, it's return expression is inlined instead.
 

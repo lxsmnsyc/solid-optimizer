@@ -1,0 +1,73 @@
+// Vitest Snapshot v1
+
+exports[`startTransition > callbacks w/o body > should work for ImportSpecifier 1`] = `
+"import { startTransition } from 'solid-js';
+update();"
+`;
+
+exports[`startTransition > callbacks w/o body > should work for aliased ImportSpecifier 1`] = `
+"import { startTransition as x } from 'solid-js';
+update();"
+`;
+
+exports[`startTransition > callbacks w/o body > should work for aliased string ImportSpecifier 1`] = `
+"import { 'startTransition' as x } from 'solid-js';
+update();"
+`;
+
+exports[`startTransition > callbacks w/o body > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+update();"
+`;
+
+exports[`startTransition > callbacks with body > should work for ImportSpecifier 1`] = `
+"import { startTransition } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`startTransition > callbacks with body > should work for aliased ImportSpecifier 1`] = `
+"import { startTransition as x } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`startTransition > callbacks with body > should work for aliased string ImportSpecifier 1`] = `
+"import { 'startTransition' as x } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`startTransition > callbacks with body > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`startTransition > spreads > should work for ImportSpecifier 1`] = `
+"import { startTransition } from 'solid-js';
+example[0]();"
+`;
+
+exports[`startTransition > spreads > should work for aliased ImportSpecifier 1`] = `
+"import { startTransition as x } from 'solid-js';
+example[0]();"
+`;
+
+exports[`startTransition > spreads > should work for aliased string ImportSpecifier 1`] = `
+"import { 'startTransition' as x } from 'solid-js';
+example[0]();"
+`;
+
+exports[`startTransition > spreads > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+example[0]();"
+`;

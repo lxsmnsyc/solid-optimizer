@@ -39,14 +39,14 @@
     "dev": "pridepack dev",
     "test": "vitest"
   },
-  "description": "Compile-time reactivity for JS",
+  "description": "Experimental compile-time optimizer for SolidJS",
   "repository": {
-    "url": "https://github.com/lxsmnsyc/silmaril.git",
+    "url": "https://github.com/lxsmnsyc/solid-optimizer.git",
     "type": "git"
   },
-  "homepage": "https://github.com/lxsmnsyc/silmaril/packages/silmaril",
+  "homepage": "https://github.com/lxsmnsyc/solid-optimizer/packages/solid-optimizer",
   "bugs": {
-    "url": "https://github.com/lxsmnsyc/silmaril/issues"
+    "url": "https://github.com/lxsmnsyc/solid-optimizer/issues"
   },
   "publishConfig": {
     "access": "public"
