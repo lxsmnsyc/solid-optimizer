@@ -1,0 +1,73 @@
+// Vitest Snapshot v1
+
+exports[`batch > callbacks w/o body > should work for ImportSpecifier 1`] = `
+"import { batch } from 'solid-js';
+update();"
+`;
+
+exports[`batch > callbacks w/o body > should work for aliased ImportSpecifier 1`] = `
+"import { batch as x } from 'solid-js';
+update();"
+`;
+
+exports[`batch > callbacks w/o body > should work for aliased string ImportSpecifier 1`] = `
+"import { 'batch' as x } from 'solid-js';
+update();"
+`;
+
+exports[`batch > callbacks w/o body > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+update();"
+`;
+
+exports[`batch > callbacks with body > should work for ImportSpecifier 1`] = `
+"import { batch } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`batch > callbacks with body > should work for aliased ImportSpecifier 1`] = `
+"import { batch as x } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`batch > callbacks with body > should work for aliased string ImportSpecifier 1`] = `
+"import { 'batch' as x } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`batch > callbacks with body > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`batch > spreads > should work for ImportSpecifier 1`] = `
+"import { batch } from 'solid-js';
+example[0]();"
+`;
+
+exports[`batch > spreads > should work for aliased ImportSpecifier 1`] = `
+"import { batch as x } from 'solid-js';
+example[0]();"
+`;
+
+exports[`batch > spreads > should work for aliased string ImportSpecifier 1`] = `
+"import { 'batch' as x } from 'solid-js';
+example[0]();"
+`;
+
+exports[`batch > spreads > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+example[0]();"
+`;

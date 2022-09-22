@@ -1,0 +1,45 @@
+// Vitest Snapshot v1
+
+exports[`createDeferred > Expression arguments > should work for ImportSpecifier 1`] = `
+"import { createDeferred } from 'solid-js';
+
+() => update();"
+`;
+
+exports[`createDeferred > Expression arguments > should work for aliased ImportSpecifier 1`] = `
+"import { createDeferred as x } from 'solid-js';
+
+() => update();"
+`;
+
+exports[`createDeferred > Expression arguments > should work for aliased string ImportSpecifier 1`] = `
+"import { 'createDeferred' as x } from 'solid-js';
+
+() => update();"
+`;
+
+exports[`createDeferred > Expression arguments > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+
+() => update();"
+`;
+
+exports[`createDeferred > spreads > should work for ImportSpecifier 1`] = `
+"import { createDeferred } from 'solid-js';
+example[0];"
+`;
+
+exports[`createDeferred > spreads > should work for aliased ImportSpecifier 1`] = `
+"import { createDeferred as x } from 'solid-js';
+example[0];"
+`;
+
+exports[`createDeferred > spreads > should work for aliased string ImportSpecifier 1`] = `
+"import { 'createDeferred' as x } from 'solid-js';
+example[0];"
+`;
+
+exports[`createDeferred > spreads > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+example[0];"
+`;

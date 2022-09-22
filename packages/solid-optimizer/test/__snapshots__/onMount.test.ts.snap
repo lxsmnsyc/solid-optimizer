@@ -1,0 +1,9 @@
+// Vitest Snapshot v1
+
+exports[`onMount > should work for ImportSpecifier 1`] = `"import { onMount } from 'solid-js';"`;
+
+exports[`onMount > should work for aliased ImportSpecifier 1`] = `"import { onMount as x } from 'solid-js';"`;
+
+exports[`onMount > should work for aliased string ImportSpecifier 1`] = `"import { 'onMount' as x } from 'solid-js';"`;
+
+exports[`onMount > should work for namespace 1`] = `"import * as solid from 'solid-js';"`;

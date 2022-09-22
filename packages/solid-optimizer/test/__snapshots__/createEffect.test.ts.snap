@@ -1,0 +1,9 @@
+// Vitest Snapshot v1
+
+exports[`createEffect > should work for ImportSpecifier 1`] = `"import { createEffect } from 'solid-js';"`;
+
+exports[`createEffect > should work for aliased ImportSpecifier 1`] = `"import { createEffect as x } from 'solid-js';"`;
+
+exports[`createEffect > should work for aliased string ImportSpecifier 1`] = `"import { 'createEffect' as x } from 'solid-js';"`;
+
+exports[`createEffect > should work for namespace 1`] = `"import * as solid from 'solid-js';"`;

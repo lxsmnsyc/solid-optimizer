@@ -1,0 +1,73 @@
+// Vitest Snapshot v1
+
+exports[`untrack > callbacks w/o body > should work for ImportSpecifier 1`] = `
+"import { untrack } from 'solid-js';
+update();"
+`;
+
+exports[`untrack > callbacks w/o body > should work for aliased ImportSpecifier 1`] = `
+"import { untrack as x } from 'solid-js';
+update();"
+`;
+
+exports[`untrack > callbacks w/o body > should work for aliased string ImportSpecifier 1`] = `
+"import { 'untrack' as x } from 'solid-js';
+update();"
+`;
+
+exports[`untrack > callbacks w/o body > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+update();"
+`;
+
+exports[`untrack > callbacks with body > should work for ImportSpecifier 1`] = `
+"import { untrack } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`untrack > callbacks with body > should work for aliased ImportSpecifier 1`] = `
+"import { untrack as x } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`untrack > callbacks with body > should work for aliased string ImportSpecifier 1`] = `
+"import { 'untrack' as x } from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`untrack > callbacks with body > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+
+(() => {
+  update();
+})();"
+`;
+
+exports[`untrack > spreads > should work for ImportSpecifier 1`] = `
+"import { untrack } from 'solid-js';
+example[0]();"
+`;
+
+exports[`untrack > spreads > should work for aliased ImportSpecifier 1`] = `
+"import { untrack as x } from 'solid-js';
+example[0]();"
+`;
+
+exports[`untrack > spreads > should work for aliased string ImportSpecifier 1`] = `
+"import { 'untrack' as x } from 'solid-js';
+example[0]();"
+`;
+
+exports[`untrack > spreads > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+example[0]();"
+`;

@@ -1,0 +1,21 @@
+// Vitest Snapshot v1
+
+exports[`getListener > should work for ImportSpecifier 1`] = `
+"import { getListener } from 'solid-js';
+null;"
+`;
+
+exports[`getListener > should work for aliased ImportSpecifier 1`] = `
+"import { getListener as x } from 'solid-js';
+null;"
+`;
+
+exports[`getListener > should work for aliased string ImportSpecifier 1`] = `
+"import { 'getListener' as x } from 'solid-js';
+null;"
+`;
+
+exports[`getListener > should work for namespace 1`] = `
+"import * as solid from 'solid-js';
+null;"
+`;
