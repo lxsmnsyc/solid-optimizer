@@ -22,7 +22,6 @@ update();"
 
 exports[`startTransition > callbacks with body > should work for ImportSpecifier 1`] = `
 "import { startTransition } from 'solid-js';
-
 (() => {
   update();
 })();"
@@ -30,7 +29,6 @@ exports[`startTransition > callbacks with body > should work for ImportSpecifier
 
 exports[`startTransition > callbacks with body > should work for aliased ImportSpecifier 1`] = `
 "import { startTransition as x } from 'solid-js';
-
 (() => {
   update();
 })();"
@@ -38,7 +36,6 @@ exports[`startTransition > callbacks with body > should work for aliased ImportS
 
 exports[`startTransition > callbacks with body > should work for aliased string ImportSpecifier 1`] = `
 "import { 'startTransition' as x } from 'solid-js';
-
 (() => {
   update();
 })();"
@@ -46,7 +43,6 @@ exports[`startTransition > callbacks with body > should work for aliased string 
 
 exports[`startTransition > callbacks with body > should work for namespace 1`] = `
 "import * as solid from 'solid-js';
-
 (() => {
   update();
 })();"

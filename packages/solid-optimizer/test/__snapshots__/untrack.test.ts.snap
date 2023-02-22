@@ -22,7 +22,6 @@ update();"
 
 exports[`untrack > callbacks with body > should work for ImportSpecifier 1`] = `
 "import { untrack } from 'solid-js';
-
 (() => {
   update();
 })();"
@@ -30,7 +29,6 @@ exports[`untrack > callbacks with body > should work for ImportSpecifier 1`] = `
 
 exports[`untrack > callbacks with body > should work for aliased ImportSpecifier 1`] = `
 "import { untrack as x } from 'solid-js';
-
 (() => {
   update();
 })();"
@@ -38,7 +36,6 @@ exports[`untrack > callbacks with body > should work for aliased ImportSpecifier
 
 exports[`untrack > callbacks with body > should work for aliased string ImportSpecifier 1`] = `
 "import { 'untrack' as x } from 'solid-js';
-
 (() => {
   update();
 })();"
@@ -46,7 +43,6 @@ exports[`untrack > callbacks with body > should work for aliased string ImportSp
 
 exports[`untrack > callbacks with body > should work for namespace 1`] = `
 "import * as solid from 'solid-js';
-
 (() => {
   update();
 })();"

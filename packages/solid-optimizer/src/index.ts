@@ -1,8 +1,18 @@
 import { NodePath, PluginObj, PluginPass } from '@babel/core';
 import * as t from '@babel/types';
+import unwrapNode from './unwrap-node';
 
 const TRACKED: Record<string, Record<string, boolean>> = {
   'solid-js': {
+    createEffect: true,
+    onMount: true,
+    getListener: true,
+    untrack: true,
+    batch: true,
+    startTransition: true,
+    createDeferred: true,
+  },
+  'solid-js/web': {
     createEffect: true,
     onMount: true,
     getListener: true,
@@ -112,10 +122,18 @@ function transformBatch(
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L107
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
-    if (t.isArrowFunctionExpression(arg) && t.isExpression(arg.body)) {
-      path.replaceWith(arg.body);
-    } else {
-      path.replaceWith(t.callExpression(arg, []));
+    const trueArrow = unwrapNode(arg, t.isArrowFunctionExpression);
+    if (trueArrow) {
+      if (t.isExpression(trueArrow.body)) {
+        path.replaceWith(trueArrow.body);
+      } else {
+        path.replaceWith(t.callExpression(trueArrow, []));
+      }
+      return;
+    }
+    const trueFunc = unwrapNode(arg, t.isFunctionExpression);
+    if (trueFunc) {
+      path.replaceWith(trueFunc.body);
     }
   } else if (t.isSpreadElement(arg)) {
     path.replaceWith(
@@ -137,10 +155,18 @@ function transformUntrack(
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L111
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
-    if (t.isArrowFunctionExpression(arg) && t.isExpression(arg.body)) {
-      path.replaceWith(arg.body);
-    } else {
-      path.replaceWith(t.callExpression(arg, []));
+    const trueArrow = unwrapNode(arg, t.isArrowFunctionExpression);
+    if (trueArrow) {
+      if (t.isExpression(trueArrow.body)) {
+        path.replaceWith(trueArrow.body);
+      } else {
+        path.replaceWith(t.callExpression(trueArrow, []));
+      }
+      return;
+    }
+    const trueFunc = unwrapNode(arg, t.isFunctionExpression);
+    if (trueFunc) {
+      path.replaceWith(trueFunc.body);
     }
   } else if (t.isSpreadElement(arg)) {
     path.replaceWith(
@@ -162,10 +188,18 @@ function transformStartTransition(
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/rendering.ts#L488
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
-    if (t.isArrowFunctionExpression(arg) && t.isExpression(arg.body)) {
-      path.replaceWith(arg.body);
-    } else {
-      path.replaceWith(t.callExpression(arg, []));
+    const trueArrow = unwrapNode(arg, t.isArrowFunctionExpression);
+    if (trueArrow) {
+      if (t.isExpression(trueArrow.body)) {
+        path.replaceWith(trueArrow.body);
+      } else {
+        path.replaceWith(t.callExpression(trueArrow, []));
+      }
+      return;
+    }
+    const trueFunc = unwrapNode(arg, t.isFunctionExpression);
+    if (trueFunc) {
+      path.replaceWith(trueFunc.body);
     }
   } else if (t.isSpreadElement(arg)) {
     path.replaceWith(
@@ -247,9 +281,19 @@ export default function solidOptimizerPlugin(): PluginObj<State> {
             startTransition: new Set(),
             createDeferred: new Set(),
           },
+          'solid-js/web': {
+            createEffect: new Set(),
+            onMount: new Set(),
+            getListener: new Set(),
+            untrack: new Set(),
+            batch: new Set(),
+            startTransition: new Set(),
+            createDeferred: new Set(),
+          },
         },
         namespaces: {
           'solid-js': new Set(),
+          'solid-js/web': new Set(),
         },
       };
     },
@@ -258,25 +302,30 @@ export default function solidOptimizerPlugin(): PluginObj<State> {
         extractImportIdentifiers(state.ctx, path);
       },
       CallExpression(path, state) {
-        const { callee } = path.node;
-        if (t.isIdentifier(callee)) {
-          const binding = path.scope.getBindingIdentifier(callee.name);
+        const trueIdentifier = unwrapNode(path.node.callee, t.isIdentifier);
+        if (trueIdentifier) {
+          const binding = path.scope.getBindingIdentifier(trueIdentifier.name);
           if (binding) {
             const targetName = checkValidIdentifierImport(state.ctx, binding);
             if (targetName) {
               runTransform(path, targetName);
             }
           }
-        } else if (
-          t.isMemberExpression(callee)
-          && t.isIdentifier(callee.object)
-          && t.isIdentifier(callee.property)
-          && !callee.computed
+          return;
+        }
+        const trueMemberExpr = unwrapNode(path.node.callee, t.isMemberExpression);
+        if (
+          trueMemberExpr
+          && t.isIdentifier(trueMemberExpr.property)
+          && !trueMemberExpr.computed
         ) {
-          const targetName = callee.property.name;
-          const binding = path.scope.getBindingIdentifier(callee.object.name);
-          if (binding && checkValidNamespaceImport(state.ctx, binding, targetName)) {
-            runTransform(path, targetName);
+          const source = unwrapNode(trueMemberExpr.object, t.isIdentifier);
+          if (source) {
+            const targetName = trueMemberExpr.property.name;
+            const binding = path.scope.getBindingIdentifier(source.name);
+            if (binding && checkValidNamespaceImport(state.ctx, binding, targetName)) {
+              runTransform(path, targetName);
+            }
           }
         }
       },
