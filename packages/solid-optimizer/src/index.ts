@@ -1,4 +1,4 @@
-import { NodePath, PluginObj, PluginPass } from '@babel/core';
+import type { NodePath, PluginObj, PluginPass } from '@babel/core';
 import * as t from '@babel/types';
 import unwrapNode from './unwrap-node';
 
@@ -44,7 +44,7 @@ function isValidSpecifier(
 function extractImportIdentifiers(
   ctx: StateContext,
   path: NodePath<t.ImportDeclaration>,
-) {
+): void {
   if (MODULES.has(path.node.source.value)) {
     const modulePath = path.node.source.value;
     for (let i = 0, len = path.node.specifiers.length; i < len; i += 1) {
@@ -67,7 +67,7 @@ function extractImportIdentifiers(
 function checkValidIdentifierImport(
   ctx: StateContext,
   identifier: t.Identifier,
-) {
+): string | undefined {
   for (const mod of MODULES) {
     const identifiers = ctx.identifiers[mod];
     for (const key of Object.keys(identifiers)) {
@@ -83,7 +83,7 @@ function checkValidNamespaceImport(
   ctx: StateContext,
   object: t.Identifier,
   property: string,
-) {
+): boolean {
   for (const mod of MODULES) {
     const namespace = ctx.namespaces[mod];
     if (namespace.has(object) && property in TRACKED[mod]) {
@@ -95,7 +95,7 @@ function checkValidNamespaceImport(
 
 function transformCreateEffect(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L78
   // Just remove it
   path.remove();
@@ -103,7 +103,7 @@ function transformCreateEffect(
 
 function transformOnMount(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L131
   // Just remove it
   path.remove();
@@ -111,14 +111,14 @@ function transformOnMount(
 
 function transformGetListener(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L157
   path.replaceWith(t.nullLiteral());
 }
 
 function transformBatch(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L107
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
@@ -151,7 +151,7 @@ function transformBatch(
 
 function transformUntrack(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L111
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
@@ -184,7 +184,7 @@ function transformUntrack(
 
 function transformStartTransition(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/rendering.ts#L488
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
@@ -217,7 +217,7 @@ function transformStartTransition(
 
 function transformCreateDeferred(
   path: NodePath<t.CallExpression>,
-) {
+): void {
   // https://github.com/solidjs/solid/blob/main/packages/solid/src/server/reactive.ts#L99
   const arg = path.node.arguments[0];
   if (t.isExpression(arg)) {
@@ -237,7 +237,7 @@ interface State extends PluginPass {
   ctx: StateContext;
 }
 
-function runTransform(path: NodePath<t.CallExpression>, targetName: string) {
+function runTransform(path: NodePath<t.CallExpression>, targetName: string): void {
   switch (targetName) {
     case 'createEffect':
       transformCreateEffect(path);
@@ -268,7 +268,7 @@ function runTransform(path: NodePath<t.CallExpression>, targetName: string) {
 export default function solidOptimizerPlugin(): PluginObj<State> {
   return {
     name: 'solid-optimizer',
-    pre() {
+    pre(): void {
       this.ctx = {
         hooks: new Map(),
         identifiers: {
@@ -298,10 +298,10 @@ export default function solidOptimizerPlugin(): PluginObj<State> {
       };
     },
     visitor: {
-      ImportDeclaration(path, state) {
+      ImportDeclaration(path, state): void {
         extractImportIdentifiers(state.ctx, path);
       },
-      CallExpression(path, state) {
+      CallExpression(path, state): void {
         const trueIdentifier = unwrapNode(path.node.callee, t.isIdentifier);
         if (trueIdentifier) {
           const binding = path.scope.getBindingIdentifier(trueIdentifier.name);

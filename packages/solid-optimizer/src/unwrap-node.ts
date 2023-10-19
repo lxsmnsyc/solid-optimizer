@@ -14,16 +14,16 @@ export default function unwrapNode<K extends TypeFilter>(
   if (key(node)) {
     return node as TypeCheck<K>;
   }
-  if (
-    t.isParenthesizedExpression(node)
-    || t.isTypeCastExpression(node)
-    || t.isTSAsExpression(node)
-    || t.isTSSatisfiesExpression(node)
-    || t.isTSNonNullExpression(node)
-    || t.isTSTypeAssertion(node)
-    || t.isTSInstantiationExpression(node)
-  ) {
-    return unwrapNode(node.expression, key);
+  switch (node.type) {
+    case 'ParenthesizedExpression':
+    case 'TypeCastExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSNonNullExpression':
+    case 'TSTypeAssertion':
+    case 'TSInstantiationExpression':
+      return unwrapNode(node.expression, key);
+    default:
+      return undefined;
   }
-  return undefined;
 }
