@@ -1,9 +1,7 @@
-import * as t from '@babel/types';
+import type * as t from '@babel/types';
 
-type TypeCheck<K> =
-  K extends (node: t.Node) => node is (infer U extends t.Node)
-    ? U
-    : never;
+type BroadTypeFilter<K extends t.Node> = (node: t.Node) => node is K;
+type TypeCheck<K> = K extends BroadTypeFilter<infer U> ? U : never;
 
 type TypeFilter = (node: t.Node) => boolean;
 
