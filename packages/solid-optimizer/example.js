@@ -12,7 +12,7 @@ async function compile(code) {
 }
 
 compile(`
-import { batch as x } from 'solid-js';
+import { createEffect as x } from 'solid-js';
 
 x(() => update());
 `).then(console.log);
