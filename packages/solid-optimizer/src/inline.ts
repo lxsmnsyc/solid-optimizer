@@ -40,6 +40,10 @@
  * intrinsic elements and fragments around it, so it is created exactly once
  * each time that function runs.
  *
+ * This also keeps context lookups where they were. A context provider is a
+ * component, so a component rendered inside one is never in a position its
+ * statements can move out of, and `useContext` still runs under the provider.
+ *
  * # Accepted differences
  *
  * - A prop that is a function and is called as `props.name()` runs with
@@ -629,7 +633,12 @@ class Inliner {
     }
   }
 
-  private childrenValue(element: JSXElement): PropValue | undefined {
+  private childrenValue(
+    element: JSXElement,
+    reads: readonly PropRead[],
+    fresh: (base: string) => string,
+    snapshots: string[],
+  ): PropValue | undefined {
     const { children } = element;
     if (children.some((child) => child.type === 'JSXSpreadChild')) {
       return undefined;
@@ -647,8 +656,14 @@ class Inliner {
       if (only.expression.type === 'JSXEmptyExpression') {
         return undefined;
       }
-      text = textOf(this.context, only.expression);
-      primary = isPrimary(only.expression);
+      // A single expression is passed like an attribute value, such as a
+      // render function that has to stay one function.
+      const value = this.expressionValue(only.expression, 'children', reads, fresh, snapshots);
+      if (value.kind !== 'expression' || value.text !== textOf(this.context, only.expression)) {
+        return value;
+      }
+      text = value.text;
+      primary = value.primary;
     } else {
       text = textOf(this.context, only);
     }
@@ -689,6 +704,20 @@ class Inliner {
     if (expression.type === 'JSXEmptyExpression') {
       return undefined;
     }
+    const name = attribute.name.type === 'JSXIdentifier' ? attribute.name.name : 'prop';
+    return this.expressionValue(expression, name, reads, fresh, snapshots);
+  }
+
+  /**
+   * How an expression passed as a prop reads in a copy of the component.
+   */
+  private expressionValue(
+    expression: Expression,
+    name: string,
+    reads: readonly PropRead[],
+    fresh: (base: string) => string,
+    snapshots: string[],
+  ): PropValue {
     const text = textOf(this.context, expression);
     const inner = unwrap(expression);
     if (inner.type === 'JSXElement' || inner.type === 'JSXFragment') {
@@ -703,9 +732,9 @@ class Inliner {
     if (reads.length === 1 && read && !read.repeated) {
       return { kind: 'expression', text, primary };
     }
-    const name = fresh(attribute.name.type === 'JSXIdentifier' ? attribute.name.name : 'prop');
-    snapshots.push(`const ${name} = ${text};`);
-    return { kind: 'expression', text: name, primary: true };
+    const local = fresh(name);
+    snapshots.push(`const ${local} = ${text};`);
+    return { kind: 'expression', text: local, primary: true };
   }
 
   /**
@@ -784,7 +813,7 @@ class Inliner {
     for (const [name, reads] of readsByName) {
       let value: PropValue | undefined;
       if (name === 'children' && !attributes.has('children')) {
-        value = this.childrenValue(element);
+        value = this.childrenValue(element, reads, fresh, snapshots);
       } else {
         value = this.propValue(attributes.get(name), reads, fresh, snapshots);
       }
