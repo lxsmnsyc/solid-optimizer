@@ -231,6 +231,28 @@ export const App = () => <nav><Button icon="home">Home</Button></nav>;
     expect(templateCount(output)).toBe(1);
   });
 
+  it('inlines a call nested in another call after the component it calls settles', () => {
+    // `Card` is ready first, but `Counter` sits inside it and waits on `Button`.
+    const code = `
+const Icon = (props) => <i class={props.name} />;
+const Button = (props) => <button><Icon name={props.icon} />{props.children}</button>;
+function Counter(props) {
+  const [count, setCount] = createSignal(props.start);
+  return <p>{count()} <Button icon="plus">Add</Button></p>;
+}
+const Card = (props) => <section>{props.children}</section>;
+export function Home() {
+  return <Card><Counter start={0} /></Card>;
+}
+`;
+    const output = inlined(code);
+    expect(output).toContain('const [count$1, setCount$1] = createSignal(0);');
+    expect(output).toContain(
+      'return <section><p>{count$1()} <button><i class={"plus"} />Add</button></p></section>;',
+    );
+    expect(templateCount(output)).toBe(1);
+  });
+
   it('keeps the declaration of a component used elsewhere', () => {
     const code = `
 export function Title(props) {

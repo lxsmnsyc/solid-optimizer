@@ -127,6 +127,18 @@ describe('control-flow components', () => {
     expect(lower(spliced)).toContain('_$template(`<div>abc`)');
   });
 
+  it('ignores comment children when picking what a fold renders', () => {
+    expect(folded('const view = <Show when={true}>{/* note */}<div /></Show>;')).toBe(
+      'const view = <div />;',
+    );
+  });
+
+  it('splices a fragment that is a JSX child', () => {
+    const code = folded('const view = <div>a<><b />c</>d</div>;');
+    expect(code).toBe('const view = <div>a<b />c{}d</div>;');
+    expect(lower(code)).toContain('_$template(`<div>a<b></b>cd`)');
+  });
+
   it('only folds a tag that resolves to Solid’s component', () => {
     expect(
       lowered('import { Show } from "solid-js";\nconst view = <Show when={true}><div /></Show>;'),

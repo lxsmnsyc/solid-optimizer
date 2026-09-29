@@ -65,8 +65,8 @@ import type {
 } from 'oxc-parser';
 import {
   forEachChild,
-  isFilteredText,
   isFunctionNode,
+  isInsignificant,
   isIntrinsicTag,
   isJSXChild,
   isPrimary,
@@ -118,7 +118,9 @@ function isWithin(node: Node, container: Node): boolean {
 
 /**
  * Orders call sites so every call inside a component's body comes before
- * the calls to that component.
+ * the calls to that component, and every call nested inside another call's
+ * element comes before that call. An outer call copies the current text of
+ * the calls inside it, so they must be done first.
  */
 function inBodyOrder(sites: readonly CallSite[]): CallSite[] {
   const pending = [...sites];
@@ -126,7 +128,11 @@ function inBodyOrder(sites: readonly CallSite[]): CallSite[] {
   while (pending.length > 0) {
     const ready = pending.filter(
       (site) =>
-        !pending.some((other) => other !== site && isWithin(other.element, site.component.fn)),
+        !pending.some(
+          (other) =>
+            other !== site &&
+            (isWithin(other.element, site.component.fn) || isWithin(other.element, site.element)),
+        ),
     );
     // A cycle cannot happen, since a component that renders itself is not
     // inlined, but falling back to the original order keeps this finite.
@@ -628,7 +634,7 @@ class Inliner {
     if (children.some((child) => child.type === 'JSXSpreadChild')) {
       return undefined;
     }
-    const significant = children.filter((child) => !isFilteredText(child));
+    const significant = children.filter((child) => !isInsignificant(child));
     const only = significant.at(0);
     if (only === undefined) {
       return { kind: 'children', children: [], text: 'void 0', primary: false };
@@ -750,7 +756,7 @@ class Inliner {
     if (!attributes) {
       return false;
     }
-    const hasChildren = element.children.some((child) => !isFilteredText(child));
+    const hasChildren = element.children.some((child) => !isInsignificant(child));
     if (hasChildren && attributes.has('children')) {
       return false;
     }

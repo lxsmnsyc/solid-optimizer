@@ -24,7 +24,7 @@ import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter } from 'vite';
 import type { CompileOptions } from '../compile';
 import { compile } from '../compile';
-import { MARKER, addMarker, importedNames, linkHelpers, readMarkers } from './runtime';
+import { MARKER, addMarker, generatedImports, linkHelpers, readMarkers } from './runtime';
 
 export interface OptimizerOptions extends Pick<CompileOptions, 'fold' | 'inline' | 'maxPasses'> {
   /**
@@ -244,7 +244,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
 
     const lowering = jsxOptions(false);
     const dryRun = await solidCompiler.transformAsync(code, { ...lowering, filename });
-    const needed = importedNames(dryRun.code, filename, moduleName);
+    const needed = generatedImports(dryRun.code, filename, moduleName);
     if (needed.length > 0) {
       const marked = addMarker(code, filename, {
         moduleName,

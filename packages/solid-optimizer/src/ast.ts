@@ -147,6 +147,17 @@ export function isFilteredText(child: JSXChild): boolean {
 }
 
 /**
+ * Whether a JSX child renders nothing: dropped whitespace, or a container
+ * that only holds a comment, like `{/* note *\/}`.
+ */
+export function isInsignificant(child: JSXChild): boolean {
+  return (
+    isFilteredText(child) ||
+    (child.type === 'JSXExpressionContainer' && child.expression.type === 'JSXEmptyExpression')
+  );
+}
+
+/**
  * Whether a JSX element or fragment sits in a list of JSX children.
  */
 export function isJSXChild(node: Node, parents: Parents): boolean {

@@ -44,7 +44,7 @@ import type {
 } from 'oxc-parser';
 import {
   forEachChild,
-  isFilteredText,
+  isInsignificant,
   isIntrinsicTag,
   isJSXChild,
   isPrimary,
@@ -584,7 +584,7 @@ class Folder {
   private foldSwitch(element: JSXElement): Fold | undefined {
     const matches: { element: JSXElement; when: boolean | undefined }[] = [];
     for (const child of element.children) {
-      if (isFilteredText(child)) {
+      if (isInsignificant(child)) {
         continue;
       }
       // Anything else in a `<Switch>` is outside what this pass models.
@@ -681,7 +681,7 @@ class Folder {
       case 'expression':
         return resolved.primary ? resolved.text : `(${resolved.text})`;
       default: {
-        const significant = resolved.children.filter((child) => !isFilteredText(child));
+        const significant = resolved.children.filter((child) => !isInsignificant(child));
         const only = significant.at(0);
         if (only === undefined) {
           return 'null';
@@ -709,6 +709,13 @@ class Folder {
     const pieces: Piece[] = [];
     let folded = false;
     for (const child of parent.children) {
+      // A fragment among JSX children is the same as its children, and Solid's
+      // JSX transform only compiles the spliced form.
+      if (child.type === 'JSXFragment') {
+        folded = true;
+        pieces.push(splicePiece(this.context.s, child, child.children));
+        continue;
+      }
       const resolved = child.type === 'JSXElement' ? this.foldFlow(child) : undefined;
       if (!resolved) {
         pieces.push(keptPiece(child));

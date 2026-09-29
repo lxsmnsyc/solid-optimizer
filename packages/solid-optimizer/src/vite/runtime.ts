@@ -14,7 +14,7 @@
  * the fold pass still recognizes `Show` after the bundler renamed it.
  */
 import MagicString from 'magic-string';
-import type { Node } from 'oxc-parser';
+import type { ImportDeclarationSpecifier, ImportSpecifier, Node } from 'oxc-parser';
 import { collectParents, parse } from '../ast';
 import type { ScopeAnalysis } from '../scope';
 import { analyzeScopes, lookup, scopeAt } from '../scope';
@@ -45,9 +45,22 @@ function freshName(scopes: ScopeAnalysis, base: string): string {
 }
 
 /**
- * The names a module imports from `source`, as the module exports them.
+ * Whether an import specifier was added by Solid's JSX transform, which
+ * names every helper it imports `_$name`.
  */
-export function importedNames(code: string, filename: string, source: string): string[] {
+function isGeneratedSpecifier(specifier: ImportDeclarationSpecifier): boolean {
+  return specifier.type === 'ImportSpecifier' && specifier.local.name.startsWith('_$');
+}
+
+function exportedName(specifier: ImportSpecifier): string {
+  return specifier.imported.type === 'Literal' ? specifier.imported.value : specifier.imported.name;
+}
+
+/**
+ * The helpers Solid's JSX transform imported from `source` into its output.
+ * The module's own imports, including type imports, are left out.
+ */
+export function generatedImports(code: string, filename: string, source: string): string[] {
   const program = parse(filename, code);
   const names: string[] = [];
   for (const statement of program.body) {
@@ -55,12 +68,8 @@ export function importedNames(code: string, filename: string, source: string): s
       continue;
     }
     for (const specifier of statement.specifiers) {
-      if (specifier.type === 'ImportSpecifier') {
-        names.push(
-          specifier.imported.type === 'Literal'
-            ? specifier.imported.value
-            : specifier.imported.name,
-        );
+      if (specifier.type === 'ImportSpecifier' && isGeneratedSpecifier(specifier)) {
+        names.push(exportedName(specifier));
       }
     }
   }
@@ -111,8 +120,7 @@ export function addMarker(
       if (specifier.type !== 'ImportSpecifier' || specifier.importKind === 'type') {
         continue;
       }
-      const imported =
-        specifier.imported.type === 'Literal' ? specifier.imported.value : specifier.imported.name;
+      const imported = exportedName(specifier);
       if (options.builtIns.has(imported)) {
         entries.push(`${JSON.stringify(BUILT_IN_PREFIX + imported)}: ${specifier.local.name}`);
       }
@@ -212,11 +220,7 @@ export function linkHelpers(
     if (
       statement.type !== 'ImportDeclaration' ||
       statement.source.value !== moduleName ||
-      // The JSX transform names every helper it imports `_$name`.
-      !statement.specifiers.every(
-        (specifier) =>
-          specifier.type === 'ImportSpecifier' && specifier.local.name.startsWith('_$'),
-      )
+      !statement.specifiers.every(isGeneratedSpecifier)
     ) {
       continue;
     }
@@ -224,8 +228,7 @@ export function linkHelpers(
       if (specifier.type !== 'ImportSpecifier') {
         continue;
       }
-      const imported =
-        specifier.imported.type === 'Literal' ? specifier.imported.value : specifier.imported.name;
+      const imported = exportedName(specifier);
       const target = helpers.get(imported);
       if (target === undefined) {
         throw new Error(
