@@ -8,9 +8,21 @@ export default defineConfig({
     '**/node_modules/**',
     // Test fixtures are sample apps for the Vite plugin, compiled without JSX types.
     '**/test/fixtures/**',
+    // The showcase source is untyped JSX, so it reads short in the comparison image.
+    'examples/showcase/App.jsx',
   ],
   rules: {
     // Modules use named exports, even when they have one export.
     'import/prefer-default-export': 'off',
   },
+  overrides: [
+    {
+      // Example components return JSX, and spelling out the return type adds noise to the demos.
+      files: ['examples/**'],
+      rules: {
+        'typescript/explicit-function-return-type': 'off',
+        'typescript/explicit-module-boundary-types': 'off',
+      },
+    },
+  ],
 });

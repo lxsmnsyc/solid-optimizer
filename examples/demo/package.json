@@ -1,0 +1,23 @@
+{
+  "name": "demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm build:optimized && pnpm build:plain",
+    "build:optimized": "vite build",
+    "build:plain": "OPTIMIZER=off vite build",
+    "dev": "vite",
+    "serve": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.0-rc.11",
+    "solid-js": "2.0.0-rc.11"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.46",
+    "solid-optimizer": "workspace:*",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
