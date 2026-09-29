@@ -43,6 +43,19 @@ export interface CompileOptions {
    */
   moduleSources?: readonly string[];
   /**
+   * Top-level names that refer to Solid's built-in components, mapped to the
+   * built-in's name. A bundler renames bindings, so a chunk can call `Show`
+   * something else, or declare it instead of importing it.
+   */
+  builtInAliases?: Readonly<Record<string, string>>;
+  /**
+   * Treat a top-level `var` that nothing writes to as a constant. Bundlers
+   * turn top-level `const` into `var`, so this is on for bundled chunks.
+   *
+   * @default false
+   */
+  constantVars?: boolean;
+  /**
    * The most passes to run. One pass can expose work for the next, such as
    * an inlined component whose props now fold. Compilation stops early once
    * a pass changes nothing.
@@ -130,6 +143,8 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   const resolved: ResolvedOptions = {
     builtIns: new Set(options.builtIns ?? DEFAULT_BUILT_INS),
     moduleSources: options.moduleSources ?? DEFAULT_MODULE_SOURCES,
+    builtInAliases: new Map(Object.entries(options.builtInAliases ?? {})),
+    constantVars: options.constantVars ?? false,
   };
   const passes: Pass[] = [];
   if (options.fold ?? true) {

@@ -52,7 +52,7 @@ import {
   startsLikeStatement,
 } from './ast';
 import type { PassContext } from './context';
-import { textOf } from './context';
+import { isConstantDeclaration, textOf } from './context';
 import type { Piece } from './jsx';
 import {
   findAttribute,
@@ -203,11 +203,8 @@ class Folder {
     }
     let value: Const | undefined;
     const { declaration } = binding;
-    // `var` is excluded. A read before its declaration sees `undefined`
-    // rather than throwing, so folding it to the initializer would change the result.
     if (
-      (binding.kind === 'const' || binding.kind === 'let') &&
-      !binding.mutated &&
+      isConstantDeclaration(binding, this.context.options) &&
       declaration.type === 'VariableDeclarator' &&
       declaration.id === binding.identifier &&
       declaration.init &&
@@ -412,9 +409,13 @@ class Folder {
       return undefined;
     }
     const binding = references.get(name);
+    const { builtInAliases } = this.context.options;
     let identity: string | undefined;
     if (!binding) {
       identity = name.name;
+    } else if (binding.scope.parent === undefined && builtInAliases.has(binding.name)) {
+      // A bundled chunk declares or imports its built-ins under names the bundler chose.
+      identity = builtInAliases.get(binding.name);
     } else if (
       binding.kind === 'import' &&
       binding.source !== undefined &&

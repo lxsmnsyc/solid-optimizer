@@ -48,6 +48,44 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 > **Warning**
 > The output changes the shape of the rendered tree, and with it the hydration keys. Compile a server build and its client build from the same code with the same options.
 
+## Vite
+
+`solid-optimizer/vite` replaces `@solidjs/vite-plugin`. It takes the same options and wraps the official plugin, so SSR, server functions, and HMR keep working.
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import solid from 'solid-optimizer/vite';
+
+export default defineConfig({
+  plugins: [solid({ ssr: true })],
+});
+```
+
+`@solidjs/vite-plugin` and `vite` are peer dependencies.
+
+The plugin optimizes in one of two modes.
+
+- **Chunk mode** is for client builds that do not hydrate. JSX is kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
+- **Module mode** is for everything else. Each module is optimized before the official plugin lowers it. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so hydrating builds only inline within a module.
+
+The optimizer is off while serving. Set `optimizer.dev` to run module mode in dev too.
+
+### Options
+
+The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
+
+- `optimizer: false` uses `@solidjs/vite-plugin` as it is.
+- `optimizer.fold`, `optimizer.inline`, and `optimizer.maxPasses` work like the `compile` options.
+- `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
+- `optimizer.dev` also optimizes while serving. Defaults to `false`.
+
+### Limits
+
+- Chunk mode is skipped when the `babel` option is set or `compiler` is `'babel'`, since those passes need each module.
+- Chunk mode imports the runtime helpers a merged tree can need into every module with JSX. A chunk that shares the runtime with another chunk exports these helpers even when nothing uses them.
+- `.tsrx` modules are lowered by the official plugin and are not optimized.
+
 ## Features
 
 ### Component inlining

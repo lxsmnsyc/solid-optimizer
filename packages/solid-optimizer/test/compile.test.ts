@@ -82,8 +82,10 @@ export function App() {
 
   it('respects maxPasses', () => {
     const { code } = compile(APP, { sourceMap: false, maxPasses: 1 });
-    // One round inlines `Panel`, but the `Title` in its copy waits for the next round.
-    expect(code).toContain('<Title text={"Settings"} />');
+    // One round inlines `Title` into `Panel`. `Panel` waits for the next round,
+    // so its copies include the inlined `Title`.
+    expect(code).toContain('<h1>{props.title}</h1>');
+    expect(code).toContain('<Panel title="Settings" initial={false} />');
   });
 
   it('maps output back to the input', () => {

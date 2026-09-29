@@ -81,3 +81,4 @@ typings/
 
 # FuseBox cache
 .fusebox/
+.scratch

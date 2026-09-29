@@ -1,13 +1,34 @@
 import type MagicString from 'magic-string';
 import type { Node, Program } from 'oxc-parser';
 import type { Parents } from './ast';
-import type { ScopeAnalysis } from './scope';
+import type { Binding, ScopeAnalysis } from './scope';
 
 export interface ResolvedOptions {
   /** The control-flow components a tag may resolve to. */
   readonly builtIns: ReadonlySet<string>;
   /** The modules Solid's built-in components are imported from. */
   readonly moduleSources: readonly string[];
+  /** Top-level names that refer to a built-in component, keyed by name. */
+  readonly builtInAliases: ReadonlyMap<string, string>;
+  /** Whether a top-level `var` that nothing writes to counts as a constant. */
+  readonly constantVars: boolean;
+}
+
+/**
+ * Whether a binding keeps the value it was declared with, like a `const`.
+ *
+ * `var` is excluded by default. A read before its declaration sees
+ * `undefined` rather than throwing. A bundler turns top-level `const` into
+ * `var`, so the `constantVars` option counts those too.
+ */
+export function isConstantDeclaration(binding: Binding, options: ResolvedOptions): boolean {
+  if (binding.mutated) {
+    return false;
+  }
+  if (binding.kind === 'const' || binding.kind === 'let') {
+    return true;
+  }
+  return binding.kind === 'var' && options.constantVars && binding.scope.parent === undefined;
 }
 
 /**

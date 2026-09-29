@@ -72,8 +72,8 @@ import {
   isPrimary,
   unwrap,
 } from './ast';
-import type { PassContext } from './context';
-import { textOf } from './context';
+import type { PassContext, ResolvedOptions } from './context';
+import { isConstantDeclaration, textOf } from './context';
 import type { Piece } from './jsx';
 import { keptPiece, replacedPiece, writePieces } from './jsx';
 import type { Binding, Scope } from './scope';
@@ -105,6 +105,38 @@ interface Component {
   readonly locals: readonly Binding[];
   /** References to bindings outside the component, which must mean the same at the call site. */
   readonly outer: readonly OuterReference[];
+}
+
+interface CallSite {
+  readonly component: Component;
+  readonly element: JSXElement;
+}
+
+function isWithin(node: Node, container: Node): boolean {
+  return node.start >= container.start && node.end <= container.end;
+}
+
+/**
+ * Orders call sites so every call inside a component's body comes before
+ * the calls to that component.
+ */
+function inBodyOrder(sites: readonly CallSite[]): CallSite[] {
+  const pending = [...sites];
+  const ordered: CallSite[] = [];
+  while (pending.length > 0) {
+    const ready = pending.filter(
+      (site) =>
+        !pending.some((other) => other !== site && isWithin(other.element, site.component.fn)),
+    );
+    // A cycle cannot happen, since a component that renders itself is not
+    // inlined, but falling back to the original order keeps this finite.
+    const next = ready.length > 0 ? ready : pending;
+    for (const site of next) {
+      ordered.push(site);
+      pending.splice(pending.indexOf(site), 1);
+    }
+  }
+  return ordered;
 }
 
 /**
@@ -266,13 +298,13 @@ function acceptsAnyExpression(context: PassContext, node: Node): boolean {
 /**
  * The function a top-level binding declares, if it declares one.
  */
-function functionOf(binding: Binding): ComponentFunction | undefined {
+function functionOf(binding: Binding, options: ResolvedOptions): ComponentFunction | undefined {
   const { declaration } = binding;
   if (binding.kind === 'function' && declaration.type === 'FunctionDeclaration') {
     return declaration;
   }
   if (
-    binding.kind === 'const' &&
+    isConstantDeclaration(binding, options) &&
     declaration.type === 'VariableDeclarator' &&
     declaration.id === binding.identifier &&
     declaration.init
@@ -375,7 +407,7 @@ class Inliner {
     if (!isCapitalized(binding.name) || binding.mutated) {
       return undefined;
     }
-    const fn = functionOf(binding);
+    const fn = functionOf(binding, this.context.options);
     if (!fn || fn.async || fn.generator || !fn.body || fn.params.length > 1) {
       return undefined;
     }
@@ -889,7 +921,7 @@ class Inliner {
       return;
     }
 
-    const sites: { component: Component; element: JSXElement }[] = [];
+    const sites: CallSite[] = [];
     const otherUses = new Map<Component, number>();
     for (const component of components) {
       let uses = 0;
@@ -911,12 +943,20 @@ class Inliner {
     // Inner call sites first, so an outer one copies their inlined text.
     sites.sort((a, b) => a.element.end - b.element.end);
     const inlined = new Map<Component, JSXElement[]>();
-    for (const site of sites) {
-      if (this.inline(site.component, site.element)) {
+    // A component whose body changed in this pass is copied in the next one,
+    // from its new body. A copy made now would miss what was inlined into it.
+    const changedBodies = new Set<Component>();
+    for (const site of inBodyOrder(sites)) {
+      if (!changedBodies.has(site.component) && this.inline(site.component, site.element)) {
         this.changed = true;
         const elements = inlined.get(site.component) ?? [];
         elements.push(site.element);
         inlined.set(site.component, elements);
+        for (const component of components) {
+          if (isWithin(site.element, component.fn)) {
+            changedBodies.add(component);
+          }
+        }
       } else {
         otherUses.set(site.component, (otherUses.get(site.component) ?? 0) + 1);
       }
