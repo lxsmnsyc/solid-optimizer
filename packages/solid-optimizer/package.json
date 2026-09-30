@@ -1,74 +1,78 @@
 {
   "name": "solid-optimizer",
   "version": "0.2.0",
-  "type": "module",
+  "description": "Experimental compile-time optimizer for SolidJS 1.x",
+  "keywords": [
+    "compiler",
+    "jsx",
+    "optimizer",
+    "solid-js"
+  ],
+  "homepage": "https://github.com/lxsmnsyc/solid-optimizer/tree/main/packages/solid-optimizer",
+  "bugs": {
+    "url": "https://github.com/lxsmnsyc/solid-optimizer/issues"
+  },
+  "license": "MIT",
+  "author": "Alexis Munsayac",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lxsmnsyc/solid-optimizer.git",
+    "directory": "packages/solid-optimizer"
+  },
   "files": [
     "dist",
     "src"
   ],
-  "engines": {
-    "node": ">=10"
-  },
-  "license": "MIT",
-  "keywords": [
-    "pridepack"
-  ],
-  "dependencies": {
-    "@babel/traverse": "^7.26.10",
-    "@babel/types": "^7.26.10"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.26.10",
-    "@types/babel__core": "^7.20.5",
-    "@types/babel__traverse": "^7.20.6",
-    "@types/node": "^22.13.10",
-    "pridepack": "2.6.4",
-    "tslib": "^2.8.1",
-    "typescript": "^5.8.2",
-    "vitest": "^3.0.8"
-  },
-  "peerDependencies": {
-    "@babel/core": "^7.26"
-  },
-  "scripts": {
-    "prepublishOnly": "pridepack clean && pridepack build",
-    "build": "pridepack build",
-    "type-check": "pridepack check",
-    "clean": "pridepack clean",
-    "watch": "pridepack watch",
-    "start": "pridepack start",
-    "dev": "pridepack dev",
-    "test": "vitest"
-  },
-  "description": "Experimental compile-time optimizer for SolidJS",
-  "repository": {
-    "url": "https://github.com/lxsmnsyc/solid-optimizer.git",
-    "type": "git"
-  },
-  "homepage": "https://github.com/lxsmnsyc/solid-optimizer/packages/solid-optimizer",
-  "bugs": {
-    "url": "https://github.com/lxsmnsyc/solid-optimizer/issues"
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./vite": "./dist/vite.mjs",
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
-  "author": "Alexis Munsayac",
-  "private": false,
-  "types": "./dist/types/index.d.ts",
-  "main": "./dist/cjs/production/index.cjs",
-  "module": "./dist/esm/production/index.mjs",
-  "exports": {
-    ".": {
-      "types": "./dist/types/index.d.ts",
-      "development": {
-        "require": "./dist/cjs/development/index.cjs",
-        "import": "./dist/esm/development/index.mjs"
-      },
-      "require": "./dist/cjs/production/index.cjs",
-      "import": "./dist/esm/production/index.mjs"
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "pnpm run build",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit",
+    "watch": "tsdown --watch"
+  },
+  "dependencies": {
+    "@jridgewell/remapping": "^2.3.5",
+    "magic-string": "^1.4.2",
+    "oxc-parser": "^0.151.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@jridgewell/trace-mapping": "^0.3.31",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "^26.6.3",
+    "babel-preset-solid": "^1.9.15",
+    "happy-dom": "^20.14.5",
+    "publint": "^0.3.24",
+    "solid-js": "^1.9.15",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^5.0.2"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0 || ^9.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "vite-plugin-solid": {
+      "optional": true
     }
   },
-  "typesVersions": {
-    "*": {}
+  "engines": {
+    "node": ">=20"
   }
 }
