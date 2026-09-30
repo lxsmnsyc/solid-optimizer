@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Element } from 'happy-dom';
 import { Browser, Window } from 'happy-dom';
-import type { Rollup } from 'vite';
+import type { Plugin, Rollup } from 'vite';
 import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
 import type { Options } from '../src/vite';
@@ -17,12 +17,13 @@ async function bundle(
   options: Options = {},
   input?: { client?: string; server?: string },
   outputOptions: Rollup.OutputOptions = {},
+  plugins: Plugin[] = [],
 ): Promise<Rollup.OutputChunk[]> {
   const result = await build({
     root: path.join(fixtures, fixture),
     configFile: false,
     logLevel: 'silent',
-    plugins: [solid(options)],
+    plugins: [...plugins, solid(options)],
     build: {
       write: false,
       minify: false,
@@ -167,6 +168,36 @@ describe('solid-optimizer/vite', () => {
       expect(code).toContain('<main class=dark><h1>Home');
     }
     expect(await bundle('imported-constants', { optimizer: false })).toHaveLength(2);
+  });
+
+  it('reads imported constants after other plugins transform them', async () => {
+    // A plugin that rewrites the flag makes the value on disk wrong.
+    const enableAdmin: Plugin = {
+      name: 'enable-admin',
+      transform: (code, id) =>
+        id.endsWith('/flags.ts') ? code.replace('ADMIN = false', 'ADMIN = true') : null,
+    };
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('imported-constants', { optimizer: { mode } }, undefined, {}, [
+        enableAdmin,
+      ]);
+      expect(chunks).toHaveLength(2);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('admin tools');
+    }
+  });
+
+  it('keeps comma expressions in JSX valid through bundling', async () => {
+    // Rolldown and `vite:oxc` print a comma expression in a JSX expression
+    // container without its parentheses. A fold that keeps a side effect makes one.
+    const optimized = await run(
+      await bundle('jsx-sequence', {}, undefined, { codeSplitting: false }),
+    );
+    const plain = await run(
+      await bundle('jsx-sequence', { optimizer: false }, undefined, { codeSplitting: false }),
+    );
+    expect(optimized.app.innerHTML).toBe(plain.app.innerHTML);
+    expect(optimized.app.textContent).toBe('on2');
   });
 
   it('renders and updates like the unoptimized build', async () => {

@@ -14,7 +14,6 @@
  *   differently, and hydration needs both to render the same tree, so
  *   hydrating builds only optimize within a module.
  */
-import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import remapping from '@jridgewell/remapping';
 import type * as Babel from '@babel/core';
@@ -33,6 +32,7 @@ import {
   generatedImports,
   linkHelpers,
   readMarkers,
+  repairJSXSequences,
 } from './runtime';
 
 export interface OptimizerOptions extends Pick<
@@ -116,9 +116,6 @@ function withRelated(helpers: readonly string[]): Set<string> {
   }
   return result;
 }
-
-/** Modules whose constants are read from disk: JavaScript and TypeScript sources. */
-const SCRIPT_MODULE = /\.[mc]?[jt]sx?$/i;
 
 function loadCompiler(): Compiler {
   // Use the Babel and preset `vite-plugin-solid` uses, so both lower JSX the same way.
@@ -241,15 +238,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   /** Modules that keep their JSX, which the bundler must parse as JSX. */
   const preserved = new Set<string>();
 
-  /** What each source file imports and the constants it exports, by path. */
+  /** What each module imports and the constants it exports, by module id. */
   const moduleConstants = new Map<string, Promise<ModuleConstants | undefined>>();
 
   /**
-   * The file an import resolves to, when its constants can be read from it:
-   * a script in the project, not a virtual module, a module with a query,
-   * or a dependency.
+   * The module an import resolves to, when its constants can be read.
+   *
+   * A module with JSX is skipped. This plugin's transform may be waiting for
+   * it, and it may be waiting for this one, so loading it could deadlock.
+   * Dependencies are skipped to keep the build fast.
    */
-  async function resolveSourceFile(
+  async function resolveConstantModule(
     context: Rollup.PluginContext,
     specifier: string,
     importer: string,
@@ -261,10 +260,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (
       !resolved ||
       resolved.external ||
-      resolved.id.startsWith('\0') ||
-      resolved.id.includes('?') ||
       resolved.id.includes('/node_modules/') ||
-      !SCRIPT_MODULE.test(resolved.id)
+      isJSXModule(resolved.id)
     ) {
       return undefined;
     }
@@ -274,10 +271,10 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   /**
    * The constants of the modules `code` imports, keyed by import specifier.
    *
-   * Each module is read from disk, as written. A constant that another
-   * plugin would rewrite, like a `define` replacement, is not a literal
-   * there, so it does not fold. A module that imports constants itself
-   * resolves them first, and a cycle leaves the modules in it without them.
+   * Each module is read as the bundler loads it, after every plugin has
+   * transformed it, so a plugin that replaces or rewrites a module is seen.
+   * A module that imports constants itself resolves them first, and a cycle
+   * leaves the modules in it without them.
    */
   async function importedConstants(
     context: Rollup.PluginContext,
@@ -287,12 +284,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   ): Promise<ImportedConstants> {
     const entries = await Promise.all(
       imports.map(async (specifier) => {
-        const file = await resolveSourceFile(context, specifier, importer);
-        if (file === undefined || visiting.has(file)) {
+        const id = await resolveConstantModule(context, specifier, importer);
+        if (id === undefined || visiting.has(id)) {
           return undefined;
         }
-        context.addWatchFile(file);
-        const constants = await constantsOf(context, file, visiting);
+        const constants = await constantsOf(context, id, visiting);
         if (!constants || Object.keys(constants.exports).length === 0) {
           return undefined;
         }
@@ -308,30 +304,30 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
 
   async function constantsOf(
     context: Rollup.PluginContext,
-    file: string,
+    id: string,
     visiting: ReadonlySet<string>,
   ): Promise<ModuleConstants | undefined> {
-    let pending = moduleConstants.get(file);
+    let pending = moduleConstants.get(id);
     if (!pending) {
       pending = (async () => {
-        let code: string;
-        try {
-          code = await readFile(file, 'utf8');
-        } catch {
+        const { code } = await context.load({ id });
+        if (code === null) {
           return undefined;
         }
+        // Loaded code is JavaScript, whatever the module was written in.
+        const filename = `${stripQuery(id)}.js`;
         try {
-          const own = readModuleConstants(code, { filename: file });
+          const own = readModuleConstants(code, { filename });
           if (own.imports.length === 0) {
             return own;
           }
           const imported = await importedConstants(
             context,
             own.imports,
-            file,
-            new Set([...visiting, file]),
+            id,
+            new Set([...visiting, id]),
           );
-          return readModuleConstants(code, { filename: file, importedConstants: imported });
+          return readModuleConstants(code, { filename, importedConstants: imported });
         } catch (error) {
           // A module the parser rejects fails its own transform, with a better error.
           if (error instanceof SyntaxError) {
@@ -340,7 +336,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           throw error;
         }
       })();
-      moduleConstants.set(file, pending);
+      moduleConstants.set(id, pending);
     }
     return pending;
   }
@@ -354,7 +350,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     id: string,
   ): Promise<CompileOptions> {
     const filename = stripQuery(id);
-    if (optimizer.fold === false) {
+    // The dev server cannot give back the code of a loaded module.
+    if (optimizer.fold === false || !isBuild()) {
       return { ...compileOptions, filename };
     }
     const { imports } = readModuleConstants(code, { filename });
@@ -467,7 +464,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           return null;
         }
         const filename = chunk.fileName;
-        const runtime = readMarkers(code, filename);
+        let repaired: { code: string; map: string } | undefined;
+        let runtime: ReturnType<typeof readMarkers>;
+        try {
+          runtime = readMarkers(code, filename);
+        } catch (error) {
+          repaired = error instanceof SyntaxError ? repairJSXSequences(code, filename) : undefined;
+          if (!repaired) {
+            throw error;
+          }
+          runtime = readMarkers(repaired.code, filename);
+        }
         if (!runtime) {
           return null;
         }
@@ -496,7 +503,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         }
         return {
           code: linked.code,
-          map: combineMaps([runtime.map, optimized?.map?.toString(), lowered.map, linked.map]),
+          map: combineMaps([
+            repaired?.map,
+            runtime.map,
+            optimized?.map?.toString(),
+            lowered.map,
+            linked.map,
+          ]),
         };
       },
     },
@@ -510,7 +523,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if (!preserved.has(id)) {
         return null;
       }
-      return { code, moduleType: 'jsx' };
+      // `vite:oxc` prints JSX like Rolldown does, without the parentheses a
+      // comma expression needs in a JSX expression container.
+      const repaired = repairJSXSequences(code, stripQuery(id));
+      return repaired
+        ? { code: repaired.code, map: repaired.map, moduleType: 'jsx' }
+        : { code, moduleType: 'jsx' };
     },
   };
 

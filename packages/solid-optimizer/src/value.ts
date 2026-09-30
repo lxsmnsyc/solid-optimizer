@@ -15,7 +15,8 @@ export interface Const {
 }
 
 /**
- * Looks up the constant an identifier reference resolves to.
+ * Looks up the constant a reference resolves to: an identifier, or a member
+ * of a namespace import.
  */
 export type ConstantLookup = (reference: Node) => Const | undefined;
 
@@ -134,6 +135,7 @@ export function evaluate(node: Node, lookup: ConstantLookup): Const | undefined 
       }
       return undefined;
     case 'Identifier':
+    case 'MemberExpression':
       return lookup(node);
     case 'ParenthesizedExpression':
     case 'TSAsExpression':

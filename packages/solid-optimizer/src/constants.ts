@@ -5,7 +5,7 @@
  * from `importedConstants`, which a caller fills with `constantExports` of
  * each imported module.
  */
-import type { Node, Program } from 'oxc-parser';
+import type { MemberExpression, Node, Program } from 'oxc-parser';
 import type { ResolvedOptions } from './context';
 import { isConstantDeclaration } from './context';
 import type { Binding, ScopeAnalysis } from './scope';
@@ -59,12 +59,39 @@ export class ConstantTable {
     private readonly options: ResolvedOptions,
   ) {
     this.lookup = (reference) => {
+      if (reference.type === 'MemberExpression') {
+        return this.namespaceMember(scopes, reference);
+      }
       if (!scopes.references.has(reference) || reference.type !== 'Identifier') {
         return undefined;
       }
       const binding = scopes.references.get(reference);
       return binding ? this.constantOf(binding) : globalValue(reference.name);
     };
+  }
+
+  /**
+   * The value of `ns.NAME`, where `ns` is `import * as ns` from a module
+   * whose constants are known.
+   */
+  private namespaceMember(scopes: ScopeAnalysis, node: MemberExpression): Const | undefined {
+    const { object, property } = node;
+    if (object.type !== 'Identifier' || node.optional) {
+      return undefined;
+    }
+    const binding = scopes.references.get(object);
+    if (binding?.kind !== 'import' || binding.imported !== '*' || binding.source === undefined) {
+      return undefined;
+    }
+    let name: string | undefined;
+    if (!node.computed && property.type === 'Identifier') {
+      name = property.name;
+    } else if (node.computed && property.type === 'Literal' && typeof property.value === 'string') {
+      name = property.value;
+    }
+    return name === undefined
+      ? undefined
+      : this.options.importedConstants.get(binding.source)?.get(name);
   }
 
   /**
@@ -102,7 +129,7 @@ export class ConstantTable {
 }
 
 /**
- * The modules `program` imports or re-exports named bindings from. Their
+ * The modules `program` imports or re-exports bindings from. Their
  * constant exports are what `importedConstants` can hold.
  */
 export function namedImportSources(program: Program): string[] {
@@ -112,19 +139,18 @@ export function namedImportSources(program: Program): string[] {
       if (
         statement.importKind !== 'type' &&
         statement.specifiers.some(
-          (specifier) =>
-            specifier.type !== 'ImportNamespaceSpecifier' &&
-            !(specifier.type === 'ImportSpecifier' && specifier.importKind === 'type'),
+          (specifier) => !(specifier.type === 'ImportSpecifier' && specifier.importKind === 'type'),
         )
       ) {
         sources.add(statement.source.value);
       }
     } else if (
-      statement.type === 'ExportNamedDeclaration' &&
-      statement.source &&
-      statement.exportKind !== 'type'
+      (statement.type === 'ExportNamedDeclaration' && statement.source) ||
+      (statement.type === 'ExportAllDeclaration' && !statement.exported)
     ) {
-      sources.add(statement.source.value);
+      if (statement.exportKind !== 'type' && statement.source) {
+        sources.add(statement.source.value);
+      }
     }
   }
   return [...sources];
@@ -160,7 +186,21 @@ export function constantExports(
       result[name] = value.value;
     }
   };
+  const starSources: string[] = [];
   for (const statement of program.body) {
+    if (statement.type === 'ExportDefaultDeclaration') {
+      const { declaration } = statement;
+      if (declaration.type !== 'FunctionDeclaration' && declaration.type !== 'ClassDeclaration') {
+        add('default', evaluate(declaration, table.lookup));
+      }
+      continue;
+    }
+    if (statement.type === 'ExportAllDeclaration') {
+      if (!statement.exported && statement.exportKind !== 'type') {
+        starSources.push(statement.source.value);
+      }
+      continue;
+    }
     if (statement.type !== 'ExportNamedDeclaration' || statement.exportKind === 'type') {
       continue;
     }
@@ -190,6 +230,20 @@ export function constantExports(
         add(exported, binding ? table.constantOf(binding) : undefined);
       }
     }
+  }
+  // `export *` never re-exports `default`, and loses to a name the module
+  // exports itself. A name two of them export is ambiguous, so neither counts.
+  const explicit = new Set(Object.keys(result));
+  const starred = new Map<string, Const | null>();
+  for (const source of starSources) {
+    for (const [name, value] of options.importedConstants.get(source) ?? []) {
+      if (name !== 'default' && !explicit.has(name)) {
+        starred.set(name, starred.has(name) ? null : value);
+      }
+    }
+  }
+  for (const [name, value] of starred) {
+    add(name, value ?? undefined);
   }
   return result;
 }

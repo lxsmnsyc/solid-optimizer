@@ -14,6 +14,7 @@
  * the fold pass still recognizes `Show` after the bundler renamed it.
  */
 import MagicString from 'magic-string';
+import { parseSync } from 'oxc-parser';
 import type {
   ExpressionStatement,
   ImportDeclarationSpecifier,
@@ -145,6 +146,38 @@ export function addMarker(
     `\nimport { ${specifiers.join(', ')} } from ${JSON.stringify(options.moduleName)};\n` +
       `${MARKER}({ ${entries.join(', ')} });\n`,
   );
+  return { code: s.toString(), map: generateMap(s, filename) };
+}
+
+/**
+ * Puts back the parentheses around a comma expression that is the whole of a
+ * JSX expression container. Rolldown drops them when it prints a chunk that
+ * kept its JSX, and JSX does not allow the result. Returns `undefined` when
+ * the chunk has none.
+ */
+export function repairJSXSequences(code: string, filename: string): EditResult | undefined {
+  // The chunk does not parse cleanly, which is why this runs, so errors are expected.
+  const { program } = parseSync(filename, code, {
+    lang: 'jsx',
+    sourceType: 'module',
+    preserveParens: true,
+  });
+  const sequences: Node[] = [];
+  const visit = (node: Node): void => {
+    if (node.type === 'JSXExpressionContainer' && node.expression.type === 'SequenceExpression') {
+      sequences.push(node.expression);
+    }
+    forEachChild(node, visit);
+  };
+  visit(program);
+  if (sequences.length === 0) {
+    return undefined;
+  }
+  const s = new MagicString(code);
+  for (const sequence of sequences) {
+    s.appendLeft(sequence.start, '(');
+    s.prependRight(sequence.end, ')');
+  }
   return { code: s.toString(), map: generateMap(s, filename) };
 }
 
