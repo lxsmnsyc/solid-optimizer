@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMarker, generatedImports } from '../src/vite/runtime';
+import { addMarker, generatedImports, repairJSXSequences } from '../src/vite/runtime';
 
 describe('generatedImports', () => {
   it('lists only the helpers the JSX transform added', () => {
@@ -29,5 +29,18 @@ export const list = <For each={[]}>{() => <p />}</For>;
     expect(marked?.code).toContain('"builtin:For": For');
     expect(marked?.code).not.toContain('builtin:Show');
     expect(marked?.code).not.toContain('builtin:Dynamic');
+  });
+});
+
+describe('repairJSXSequences', () => {
+  it('wraps comma expressions in JSX expression containers', () => {
+    const code = 'const a = <p title={b(), 1}>{c(), d}{(e, f)}{[g, h]}</p>;';
+    expect(repairJSXSequences(code, 'a.js')?.code).toBe(
+      'const a = <p title={(b(), 1)}>{(c(), d)}{(e, f)}{[g, h]}</p>;',
+    );
+  });
+
+  it('returns nothing when no container has one', () => {
+    expect(repairJSXSequences('const a = <p>{(b, c)}</p>;', 'a.js')).toBeUndefined();
   });
 });

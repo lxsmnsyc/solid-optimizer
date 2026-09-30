@@ -22,7 +22,7 @@ So each part runs where it has the most effect.
 | Helper marker                      | yes       |               | It has to survive bundling.                                            |
 | Lowering and helper linking        |           | yes           | Only possible once the chunk is final.                                 |
 
-To fold a constant imported from another module, the plugin resolves each import and reads the module from disk, as written. It keeps `export const` bindings whose value folds, a `let` the module never writes to, and names re-exported from another such module. It skips dependencies, virtual modules, and modules with a query. A value another plugin would rewrite, like a `define` replacement, is not a literal on disk, so it does not fold. This is what lets a shared runtime chunk drop `<Dynamic>` or `<Show>` when a constant from a config module folds them away everywhere.
+To fold a constant imported from another module, the plugin resolves each import with `this.resolve` and loads the module with `this.load`. It reads the loaded code, which every other plugin has already transformed. It keeps `export const` bindings whose value folds, a `let` the module never writes to, `export default` of a constant, and names re-exported from another such module, including through `export *`. A read of `ns.NAME` through `import * as ns` folds too. This is what lets a shared runtime chunk drop `<Dynamic>` or `<Show>` when a constant from a config module folds them away everywhere. See [Constants from other modules](#constants-from-other-modules) for the cases this was checked against.
 
 The helper marker only keeps the built-ins a module still uses after folding, so an import that folding left unused does not keep the export alive.
 
@@ -161,3 +161,69 @@ In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the 
 - Calls that always return a new value, such as `Array.from`, `.map`, or `.filter`. Knowing that needs the receiver's type, so they are not treated as new today. Spreading the result into an array literal, as in `[...list.map(fn)]`, makes it count.
 - A memo read once inside another computation, such as the compute function of `createMemo` or `createEffect`. The same rule applies when the read is that function's whole return value.
 - A memo with no reactive reads at all, whose value never changes. It could become a plain value, but proving that a call reads nothing needs knowledge of every callee.
+
+## Constants from other modules
+
+Status: implemented.
+
+The plugin reads imported constants from the module the bundler loads, not from the file on disk. These cases were checked against a build without the optimizer.
+
+Folded, with the same output:
+
+- A relative import, including `./config.js` that resolves to `config.ts`.
+- `resolve.alias`, `resolve.tsconfigPaths`, and a plugin that redirects an import in `resolveId`.
+- A virtual module, with or without the `\0` prefix.
+- A plugin whose `load` hook replaces a real file, and a plugin that rewrites the module in `transform`. Reading from disk gave the wrong value in both cases.
+- JSON imports, `export *` barrels, `export default`, namespace imports, and imports that form a cycle.
+
+Correct, but only folded in `renderChunk`:
+
+- `define` and `import.meta.env`. Rolldown replaces them after transform, so the loaded code still holds the identifier.
+- A constant exported from a module with JSX. See below.
+
+Never folded:
+
+- A `let` the module writes to, a `const enum`, and dependencies in `node_modules`.
+- Any import while serving. The dev server does not return the code of a loaded module.
+
+A module with JSX is never loaded. This plugin's transform can be waiting for that module while that module waits for this one. Two JSX modules that import each other then never finish. The probe that loaded them hung.
+
+### Comma expressions in JSX
+
+Rolldown and `vite:oxc` print a comma expression that is the whole of a JSX expression container without its parentheses. JSX does not allow that, so the next parse fails. A fold that keeps a side effect makes such an expression, as in `{[effect()] ? 'on' : 'off'}`. Rolldown also makes one from that code on its own, with every pass turned off. Chunk mode puts the parentheses back after `vite:oxc` and before `renderChunk` parses the chunk.
+
+## Component inlining across modules
+
+Status: proposed, not implemented.
+
+Hydrating builds only inline components defined in the same module. Most apps keep one component per file, so those builds gain little. The plan is to inline an imported component while its importer is transformed, using the same resolve step as constants. The server and client builds see the same modules, so they make the same decisions.
+
+### Where the component's code comes from
+
+- Resolving is not the problem. Every import goes through `this.resolve`, so aliases, tsconfig paths, and resolver plugins apply.
+- The file on disk is not safe to read. A plugin that replaces or rewrites the module makes it wrong, as the constant probes showed.
+- `this.load` returns the code after Solid's JSX transform in module mode, so the JSX is gone.
+- `this.load` on a module with JSX can deadlock when two modules import each other.
+
+A way through is to record the code of each JSX module at the point this plugin sees it, before Solid's transform. The importer then waits for that record with a check for cycles: it keeps a graph of which transform waits on which, and gives up on an import that would close a cycle. The recorded code misses what plugins after this one do, which has to be accepted or detected.
+
+### When a component can move
+
+Everything the component's body refers to must be reachable from the importer:
+
+- Its props, Solid's exports, and globals.
+- Bindings its module exports, which the importer can import by the module's resolved id.
+
+A reference to a private binding of its module keeps the call. So does a component that other plugins transform, such as one using macros or auto-imports.
+
+### Cost
+
+- The importer gains imports.
+- A component that is still called elsewhere keeps its definition, so its code can appear twice. A size limit is needed, such as only moving JSX-only components or components used once.
+
+## Solid 1 catch-up
+
+Status: planned.
+
+- Port the demo, its report, and the browser check to the `solid-1-compiler` branch, so both branches have the same regression check.
+- Open a pull request for the Solid 1 branch.

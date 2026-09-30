@@ -43,6 +43,7 @@ import type {
   Statement,
   WhileStatement,
 } from 'oxc-parser';
+import type { Parents } from './ast';
 import {
   forEachChild,
   isInsignificant,
@@ -105,6 +106,45 @@ const EMPTY: Fold = { kind: 'empty' };
  * The globals worth folding. They only apply to a reference that binds to
  * nothing, which is when the global is what runs.
  */
+/**
+ * Whether `node` is written to: assigned, updated, deleted, or destructured into.
+ */
+function isWriteTarget(node: Node, parents: Parents): boolean {
+  let current = node;
+  let parent = parents.get(current);
+  // A destructuring pattern writes to every target inside it.
+  while (
+    parent &&
+    (parent.type === 'ArrayPattern' ||
+      parent.type === 'ObjectPattern' ||
+      parent.type === 'RestElement' ||
+      parent.type === 'AssignmentPattern' ||
+      (parent.type === 'Property' && parents.get(parent)?.type === 'ObjectPattern'))
+  ) {
+    if (parent.type === 'AssignmentPattern' && parent.left !== current) {
+      return false;
+    }
+    current = parent;
+    parent = parents.get(current);
+  }
+  if (!parent) {
+    return false;
+  }
+  switch (parent.type) {
+    case 'AssignmentExpression':
+      return parent.left === current;
+    case 'UpdateExpression':
+      return true;
+    case 'UnaryExpression':
+      return parent.operator === 'delete';
+    case 'ForInStatement':
+    case 'ForOfStatement':
+      return parent.left === current;
+    default:
+      return current !== node;
+  }
+}
+
 function isTerminator(statement: Node): boolean {
   return (
     statement.type === 'ReturnStatement' ||
@@ -214,6 +254,12 @@ class Folder {
       case 'BinaryExpression':
       case 'ParenthesizedExpression':
         this.foldConstant(node);
+        break;
+      case 'MemberExpression':
+        // Only a read folds. Writing to a namespace member throws, so it stays.
+        if (!isWriteTarget(node, this.context.parents)) {
+          this.foldConstant(node);
+        }
         break;
       case 'CallExpression':
         this.annotatePure(node);
@@ -341,9 +387,17 @@ class Folder {
     if (takesLeft) {
       this.replace(node, this.keepAfter(node, undefined, node.left));
     } else {
-      const discarded = isSideEffectFree(node.left) ? undefined : node.left;
+      const discarded = this.isSkippable(node.left) ? undefined : node.left;
       this.replace(node, this.keepAfter(node, discarded, node.right));
     }
+  }
+
+  /**
+   * Whether dropping `node` changes nothing. An expression that evaluates to
+   * a constant only reads bindings and runs operators on primitives.
+   */
+  private isSkippable(node: Expression): boolean {
+    return isSideEffectFree(node) || evaluate(node, this.lookup) !== undefined;
   }
 
   private foldConditional(node: ConditionalExpression): void {
@@ -351,7 +405,7 @@ class Folder {
     if (test === undefined) {
       return;
     }
-    const discarded = isSideEffectFree(node.test) ? undefined : node.test;
+    const discarded = this.isSkippable(node.test) ? undefined : node.test;
     this.replace(node, this.keepAfter(node, discarded, test ? node.consequent : node.alternate));
   }
 

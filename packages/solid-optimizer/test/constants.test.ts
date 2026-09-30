@@ -51,7 +51,7 @@ describe('readModuleConstants', () => {
     `,
       { filename: 'input.ts' },
     );
-    expect(imports).toEqual(['./a', './b', './g']);
+    expect(imports).toEqual(['./a', './b', './c', './g']);
   });
 
   it('reads constants it imports and re-exports', () => {
@@ -102,9 +102,8 @@ describe('importedConstants', () => {
   it('leaves imports it has no value for', () => {
     const code = `
       import { OTHER } from './config';
-      import * as config from './config';
       import LIMIT from './config';
-      export const a = [OTHER, config.LIMIT, LIMIT];
+      export const a = [OTHER, LIMIT];
     `;
     expect(optimize(code, { importedConstants })).toBe(code);
   });
@@ -115,5 +114,61 @@ describe('importedConstants', () => {
       export const a = SHOW;
     `;
     expect(optimize(code, { importedConstants })).toBe(code);
+  });
+});
+
+describe('module shapes', () => {
+  it('reads a default export', () => {
+    const { exports } = readModuleConstants(`
+      const ON = true;
+      export default ON && 'yes';
+    `);
+    expect(exports).toEqual({ default: 'yes' });
+  });
+
+  it('re-exports constants through export *', () => {
+    const { imports, exports } = readModuleConstants(
+      `
+      export * from './a';
+      export * from './b';
+      export * as c from './c';
+      export const SHARED = 'own';
+    `,
+      {
+        importedConstants: {
+          './a': { A: 1, BOTH: 1, SHARED: 'a', default: 'a' },
+          './b': { B: 2, BOTH: 2 },
+          './c': { C: 3 },
+        },
+      },
+    );
+    expect(imports).toEqual(['./a', './b']);
+    // `BOTH` is ambiguous, `SHARED` is the module's own, and `default` never re-exports.
+    expect(exports).toEqual({ SHARED: 'own', A: 1, B: 2 });
+  });
+
+  it('folds members of a namespace import', () => {
+    const code = `
+      import * as config from './config';
+      export const a = [config.SHOW, config['THEME'], config.OTHER, config?.LIMIT];
+    `;
+    expect(
+      optimize(code, {
+        importedConstants: { './config': { SHOW: false, THEME: 'dark', LIMIT: 3 } },
+      }),
+    ).toContain('[false, "dark", config.OTHER, config?.LIMIT]');
+  });
+
+  it('leaves writes to a namespace member', () => {
+    const code = `
+      import * as config from './config';
+      config.SHOW = 1;
+      config.SHOW++;
+      delete config.SHOW;
+      [config.SHOW] = [1];
+      ({ a: config.SHOW = 2 } = {});
+      for (config.SHOW of []);
+    `;
+    expect(optimize(code, { importedConstants: { './config': { SHOW: false } } })).toBe(code);
   });
 });
