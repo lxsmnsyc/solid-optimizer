@@ -133,7 +133,9 @@ export function addMarker(
         continue;
       }
       const imported = exportedName(specifier);
-      if (options.builtIns.has(imported)) {
+      // A built-in that folding left unused stays out, so the bundler can drop it.
+      const used = (scopes.root.bindings.get(specifier.local.name)?.references.length ?? 0) > 0;
+      if (options.builtIns.has(imported) && used) {
         entries.push(`${JSON.stringify(BUILT_IN_PREFIX + imported)}: ${specifier.local.name}`);
       }
     }

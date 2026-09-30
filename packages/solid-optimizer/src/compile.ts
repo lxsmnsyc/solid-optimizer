@@ -2,12 +2,15 @@ import type { SourceMap } from '@jridgewell/remapping';
 import remapping from '@jridgewell/remapping';
 import MagicString from 'magic-string';
 import { collectParents, parse } from './ast';
+import type { ImportedConstants } from './constants';
+import { constantExports, namedImportSources, resolveImportedConstants } from './constants';
 import type { PassContext, ResolvedOptions } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
 import { simplifyServer } from './server';
 import { analyzeScopes } from './scope';
+import type { Primitive } from './value';
 
 export interface CompileOptions {
   /**
@@ -78,6 +81,12 @@ export interface CompileOptions {
    */
   constantVars?: boolean;
   /**
+   * The constants imported modules export, keyed by the import specifier as
+   * the code writes it, then by export name. An import of one of them folds
+   * like a local `const`. `constantExports` reads them from a module.
+   */
+  importedConstants?: ImportedConstants;
+  /**
    * The most passes to run. One pass can expose work for the next, such as
    * an inlined component whose props now fold. Compilation stops early once
    * a pass changes nothing.
@@ -113,6 +122,16 @@ const DEFAULT_BUILT_INS = [
 ];
 
 const DEFAULT_MODULE_SOURCES = ['solid-js', 'solid-js/web'];
+
+function resolveOptions(options: CompileOptions): ResolvedOptions {
+  return {
+    builtIns: new Set(options.builtIns ?? DEFAULT_BUILT_INS),
+    moduleSources: options.moduleSources ?? DEFAULT_MODULE_SOURCES,
+    builtInAliases: new Map(Object.entries(options.builtInAliases ?? {})),
+    constantVars: options.constantVars ?? false,
+    importedConstants: resolveImportedConstants(options.importedConstants),
+  };
+}
 
 type Pass = (context: PassContext) => boolean;
 
@@ -162,12 +181,7 @@ function runPass(
 export function compile(code: string, options: CompileOptions = {}): CompileResult {
   const filename = options.filename ?? 'input.jsx';
   const sourceMap = options.sourceMap ?? true;
-  const resolved: ResolvedOptions = {
-    builtIns: new Set(options.builtIns ?? DEFAULT_BUILT_INS),
-    moduleSources: options.moduleSources ?? DEFAULT_MODULE_SOURCES,
-    builtInAliases: new Map(Object.entries(options.builtInAliases ?? {})),
-    constantVars: options.constantVars ?? false,
-  };
+  const resolved = resolveOptions(options);
   const passes: Pass[] = [];
   if (options.fold ?? true) {
     passes.push(fold);
@@ -214,4 +228,35 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   }
   // Each map points at the output of the pass before it, so they chain from the last one.
   return { code: current, map: remapping(maps.reverse(), () => null) };
+}
+
+export interface ModuleConstants {
+  /**
+   * The modules this module imports or re-exports named bindings from, as
+   * written. `importedConstants` of `compile` takes their constants.
+   */
+  imports: string[];
+  /**
+   * The constants this module exports, by export name: `export const`
+   * bindings whose value folds, names exported from them, and names
+   * re-exported from `importedConstants`.
+   */
+  exports: Record<string, Primitive>;
+}
+
+/**
+ * Reads what a module imports and the constants it exports, so that
+ * `compile` can fold them in the modules that import it.
+ *
+ * Only `filename` and `importedConstants` of the options are used.
+ */
+export function readModuleConstants(
+  code: string,
+  options: Pick<CompileOptions, 'filename' | 'importedConstants'> = {},
+): ModuleConstants {
+  const program = parse(options.filename ?? 'input.jsx', code);
+  return {
+    imports: namedImportSources(program),
+    exports: constantExports(program, resolveOptions(options)),
+  };
 }

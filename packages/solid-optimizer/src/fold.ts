@@ -54,7 +54,8 @@ import {
   startsLikeStatement,
 } from './ast';
 import type { PassContext } from './context';
-import { isConstantDeclaration, solidExport, textOf } from './context';
+import { ConstantTable } from './constants';
+import { solidExport, textOf } from './context';
 import type { Piece } from './jsx';
 import {
   findAttribute,
@@ -66,8 +67,7 @@ import {
   splicePiece,
   writePieces,
 } from './jsx';
-import type { Binding } from './scope';
-import type { Const, ConstantLookup } from './value';
+import type { ConstantLookup } from './value';
 import {
   arrayLiteralLength,
   effectfulParts,
@@ -106,19 +106,6 @@ const EMPTY: Fold = { kind: 'empty' };
  * The globals worth folding. They only apply to a reference that binds to
  * nothing, which is when the global is what runs.
  */
-function globalValue(name: string): Const | undefined {
-  switch (name) {
-    case 'undefined':
-      return { value: undefined };
-    case 'NaN':
-      return { value: Number.NaN };
-    case 'Infinity':
-      return { value: Number.POSITIVE_INFINITY };
-    default:
-      return undefined;
-  }
-}
-
 function isTerminator(statement: Node): boolean {
   return (
     statement.type === 'ReturnStatement' ||
@@ -173,51 +160,8 @@ class Folder {
 
   private readonly lookup: ConstantLookup;
 
-  private readonly constants = new Map<Binding, Const | null>();
-
-  private readonly evaluating = new Set<Binding>();
-
   constructor(private readonly context: PassContext) {
-    this.lookup = (reference) => {
-      const { references } = this.context.scopes;
-      if (!references.has(reference) || reference.type !== 'Identifier') {
-        return undefined;
-      }
-      const binding = references.get(reference);
-      return binding ? this.constantOf(binding) : globalValue(reference.name);
-    };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Constants
-  // ---------------------------------------------------------------------------
-
-  /**
-   * The value of a `const`, or of a `let` nothing writes to.
-   *
-   * A reference that runs before its declaration throws at runtime, and
-   * folding turns it into the value. Minifiers make the same trade.
-   */
-  private constantOf(binding: Binding): Const | undefined {
-    const cached = this.constants.get(binding);
-    if (cached !== undefined) {
-      return cached ?? undefined;
-    }
-    let value: Const | undefined;
-    const { declaration } = binding;
-    if (
-      isConstantDeclaration(binding, this.context.options) &&
-      declaration.type === 'VariableDeclarator' &&
-      declaration.id === binding.identifier &&
-      declaration.init &&
-      !this.evaluating.has(binding)
-    ) {
-      this.evaluating.add(binding);
-      value = evaluate(declaration.init, this.lookup);
-      this.evaluating.delete(binding);
-    }
-    this.constants.set(binding, value ?? null);
-    return value;
+    this.lookup = new ConstantTable(context.scopes, context.options).lookup;
   }
 
   // ---------------------------------------------------------------------------

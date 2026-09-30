@@ -1,6 +1,7 @@
 import type MagicString from 'magic-string';
 import type { Node, Program } from 'oxc-parser';
 import type { Parents } from './ast';
+import type { ResolvedImportedConstants } from './constants';
 import type { Binding, ScopeAnalysis } from './scope';
 
 export interface ResolvedOptions {
@@ -12,6 +13,8 @@ export interface ResolvedOptions {
   readonly builtInAliases: ReadonlyMap<string, string>;
   /** Whether a top-level `var` that nothing writes to counts as a constant. */
   readonly constantVars: boolean;
+  /** The constants imported modules export, by import specifier and export name. */
+  readonly importedConstants: ResolvedImportedConstants;
 }
 
 /**
