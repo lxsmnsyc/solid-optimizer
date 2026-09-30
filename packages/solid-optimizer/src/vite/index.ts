@@ -378,17 +378,30 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // its imports and `lazy()` chunks out of the module graph, which the
     // chunk step can no longer do. Inlining waits for the chunk, where the
     // components it can reach are known.
-    const local = compile(source, { ...(await moduleOptions(context, source, id)), inline: false });
+    const moduleCompileOptions = await moduleOptions(context, source, id);
+    const local = compile(source, { ...moduleCompileOptions, inline: false });
     const code = local.code;
-    const dryRun = lower(getCompiler(), code, filename, jsxOptions(false));
-    const needed = generatedImports(dryRun.code, filename, moduleName);
+    // The helpers the module's JSX needs, as written and with its own
+    // components inlined. Inlining can turn a spread into attributes, which
+    // need helpers the spread did not.
+    const inlined =
+      moduleCompileOptions.inline === false
+        ? undefined
+        : compile(code, { ...moduleCompileOptions, sourceMap: false });
+    const needed = new Set<string>();
+    for (const version of new Set([code, inlined?.code ?? code])) {
+      const dryRun = lower(getCompiler(), version, filename, jsxOptions(false));
+      for (const helper of generatedImports(dryRun.code, filename, moduleName)) {
+        needed.add(helper);
+      }
+    }
     preserved.add(id);
-    if (needed.length === 0) {
+    if (needed.size === 0) {
       return local.map ? { code, map: local.map.toString() } : null;
     }
     const marked = addMarker(code, filename, {
       moduleName,
-      helpers: withRelated(needed),
+      helpers: withRelated([...needed]),
       moduleSources,
       // The passes also recognize these primitives, which a chunk renames too.
       builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),

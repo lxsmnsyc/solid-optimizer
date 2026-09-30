@@ -62,6 +62,8 @@ export const CONTEXT_SAFE_PRIMITIVES = [
   'useContext',
   'mapArray',
   'indexArray',
+  'mergeProps',
+  'splitProps',
 ];
 
 /** Primitives that return a getter and a setter, as `[get, set]`. */
@@ -298,8 +300,9 @@ export interface ClosedOptions {
  * above it has no reader that is not in it.
  *
  * Calls are limited to Solid's primitives, signal and memo accessors, and
- * functions nothing else can see. A read of a component's props runs code
- * of its parent, so it counts as a call, unless it is the component's own.
+ * methods of known object literals. A use of another component's props
+ * runs code of its parent, so it counts as a call. A component's own props
+ * are replaced when it is inlined.
  */
 export function isClosed(context: PassContext, root: Node, options: ClosedOptions): boolean {
   let closed = true;
@@ -314,6 +317,12 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
         }
         break;
       case 'JSXSpreadAttribute':
+        // A view of the component's own props is expanded when it inlines.
+        if (!isOwnView(context, node.argument, options.props, 0)) {
+          closed = false;
+          return;
+        }
+        break;
       case 'JSXSpreadChild':
       case 'NewExpression':
       case 'TaggedTemplateExpression':
@@ -332,14 +341,18 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
           return;
         }
         break;
-      case 'MemberExpression': {
-        const object = unwrap(node.object);
-        if (object.type === 'Identifier') {
-          const binding = context.scopes.references.get(object);
-          if (binding?.kind === 'param' && binding !== options.props) {
-            closed = false;
-            return;
-          }
+      case 'Identifier': {
+        // Another component's props run its parent's code when read, and
+        // passing them on, as to `mergeProps()`, reads them somewhere else. A
+        // parameter declared under `root`, like a callback's, is a value.
+        const binding = context.scopes.references.get(node);
+        if (
+          binding?.kind === 'param' &&
+          binding !== options.props &&
+          (binding.identifier.start < root.start || binding.identifier.end > root.end)
+        ) {
+          closed = false;
+          return;
         }
         break;
       }
@@ -350,6 +363,72 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
   };
   visit(root);
   return closed;
+}
+
+/**
+ * Whether an expression is a `mergeProps()` or `splitProps()` view of a
+ * component's own props, with only literal objects and keys besides.
+ */
+function isOwnView(
+  context: PassContext,
+  node: Expression,
+  props: Binding | undefined,
+  depth: number,
+): boolean {
+  const expression = unwrap(node);
+  if (props === undefined || depth > 4) {
+    return false;
+  }
+  let call: Node | undefined = expression;
+  if (expression.type === 'Identifier') {
+    const binding = context.scopes.references.get(expression);
+    if (binding === props) {
+      return true;
+    }
+    call = binding ? viewInit(context, binding) : undefined;
+  }
+  if (call?.type !== 'CallExpression') {
+    return false;
+  }
+  const callee = solidCallee(context, call);
+  if (callee !== 'mergeProps' && callee !== 'splitProps') {
+    return false;
+  }
+  return call.arguments.every((argument) => {
+    if (argument.type === 'SpreadElement') {
+      return false;
+    }
+    const inner = unwrap(argument);
+    return (
+      inner.type === 'ObjectExpression' ||
+      (inner.type === 'ArrayExpression' &&
+        inner.elements.every((key) => key?.type === 'Literal' && typeof key.value === 'string')) ||
+      isOwnView(context, inner, props, depth + 1)
+    );
+  });
+}
+
+/**
+ * The call a view binding comes from: `const view = mergeProps(...)`, or
+ * one of the names in `const [a, b] = splitProps(...)`.
+ */
+function viewInit(context: PassContext, binding: Binding): Node | undefined {
+  const init = constantInit(context, binding);
+  if (init) {
+    return unwrap(init);
+  }
+  const { declaration } = binding;
+  if (
+    binding.mutated ||
+    binding.kind !== 'const' ||
+    declaration.type !== 'VariableDeclarator' ||
+    declaration.id.type !== 'ArrayPattern' ||
+    !declaration.id.elements.some((element) => element === binding.identifier) ||
+    !declaration.init
+  ) {
+    return undefined;
+  }
+  return unwrap(declaration.init);
 }
 
 function isVisibleElement(
