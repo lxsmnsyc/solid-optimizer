@@ -22,9 +22,16 @@ import type { Options as SolidPluginOptions } from '@solidjs/vite-plugin';
 import solidPlugin from '@solidjs/vite-plugin';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter } from 'vite';
-import type { CompileOptions } from '../compile';
+import type { CompileOptions, CompileResult } from '../compile';
 import { compile } from '../compile';
-import { MARKER, addMarker, generatedImports, linkHelpers, readMarkers } from './runtime';
+import {
+  MARKER,
+  MissingHelperError,
+  addMarker,
+  generatedImports,
+  linkHelpers,
+  readMarkers,
+} from './runtime';
 
 export interface OptimizerOptions extends Pick<
   CompileOptions,
@@ -60,34 +67,25 @@ const DEFAULT_MODULE_NAME = '@solidjs/web';
 const JSX_MODULE = /\.[mc]?[jt]sx$/i;
 
 /**
- * Every helper Solid's JSX transform can import for DOM output that does not
- * hydrate, which is the only output chunk mode lowers. An optimized chunk can
- * need a helper none of its modules needed, such as `setStyleProperty` once a
- * memo of a style object is inlined, so every module that keeps JSX imports
- * all of them.
+ * Helpers the JSX transform picks between for the same attribute. Inlining
+ * can turn one form into the other: a style object that was a prop becomes a
+ * literal, which the transform writes one property at a time. A module that
+ * needs one keeps the other too.
  */
-const DOM_HELPERS = [
-  'addEvent',
-  'applyRef',
-  'className',
-  'createComponent',
-  'delegateEvents',
-  'effect',
-  'getOwner',
-  'insert',
-  'memo',
-  'mergeProps',
-  'readShallow',
-  'ref',
-  'scope',
-  'setAttribute',
-  'setAttributeNS',
-  'setProperty',
-  'setStyleProperty',
-  'spread',
-  'style',
-  'template',
-];
+const RELATED_HELPERS: Readonly<Record<string, readonly string[]>> = {
+  style: ['setStyleProperty'],
+  setStyleProperty: ['style'],
+};
+
+function withRelated(helpers: readonly string[]): Set<string> {
+  const result = new Set(helpers);
+  for (const helper of helpers) {
+    for (const related of RELATED_HELPERS[helper] ?? []) {
+      result.add(related);
+    }
+  }
+  return result;
+}
 
 const LAZY_PLACEHOLDER = /"__SOLID_LAZY_MODULE__:([^"]+)"/g;
 
@@ -269,7 +267,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (needed.length > 0) {
       const marked = addMarker(code, filename, {
         moduleName,
-        helpers: new Set([...needed, ...DOM_HELPERS]),
+        helpers: withRelated(needed),
         moduleSources,
         // The passes also recognize these primitives, which a chunk renames too.
         builtIns: new Set([...builtIns, 'createMemo']),
@@ -344,22 +342,40 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         if (!runtime) {
           return null;
         }
-        const optimized = compile(runtime.code, {
+        const lowerChunk = (source: string): SolidCompiler.TransformResult =>
+          getCompiler().transform(source, {
+            ...jsxOptions(false),
+            // The compiler picks its parser by extension, and a chunk is a `.js` file with JSX.
+            filename: `${filename}.jsx`,
+            sourceMap: true,
+          });
+        let optimized: CompileResult | undefined = compile(runtime.code, {
           ...compileOptions,
           filename,
           constantVars: true,
           builtInAliases: runtime.builtInAliases,
         });
-        const lowered = getCompiler().transform(optimized.code, {
-          ...jsxOptions(false),
-          // The compiler picks its parser by extension, and a chunk is a `.js` file with JSX.
-          filename: `${filename}.jsx`,
-          sourceMap: true,
-        });
-        const linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
+        let linked: { code: string; map: string };
+        let lowered: SolidCompiler.TransformResult;
+        try {
+          lowered = lowerChunk(optimized.code);
+          linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
+        } catch (error) {
+          if (!(error instanceof MissingHelperError)) {
+            throw error;
+          }
+          // Each module keeps the helpers its own JSX needs, and a merged
+          // tree can need one none of them did. Without it, the chunk is
+          // lowered as its modules were written. Chunk mode never hydrates,
+          // so the chunks do not have to match anything else.
+          this.warn(`${error.message} ${filename} is not optimized.`);
+          optimized = undefined;
+          lowered = lowerChunk(runtime.code);
+          linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
+        }
         return {
           code: linked.code,
-          map: combineMaps([runtime.map, optimized.map?.toString(), lowered.map, linked.map]),
+          map: combineMaps([runtime.map, optimized?.map?.toString(), lowered.map, linked.map]),
         };
       },
     },

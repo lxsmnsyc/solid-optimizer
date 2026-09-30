@@ -16,6 +16,7 @@ async function bundle(
   fixture: string,
   options: Options = {},
   input?: { client?: string; server?: string },
+  outputOptions: Rollup.OutputOptions = {},
 ): Promise<Rollup.OutputChunk[]> {
   const result = await build({
     root: path.join(fixtures, fixture),
@@ -27,7 +28,7 @@ async function bundle(
       minify: false,
       modulePreload: false,
       ssr: input?.server ?? false,
-      rolldownOptions: input?.client ? { input: input.client } : {},
+      rolldownOptions: { ...(input?.client ? { input: input.client } : {}), output: outputOptions },
     },
   });
   const outputs = Array.isArray(result) ? result : [result];
@@ -45,7 +46,8 @@ async function run(chunks: Rollup.OutputChunk[]): Promise<{ app: Element; window
   expect(chunks).toHaveLength(1);
   const window = new Window();
   window.document.body.innerHTML = '<div id="app"></div>';
-  window.eval(chunks.at(0)?.code ?? '');
+  // The runtime reads `import.meta` to resolve lazy modules, which a script cannot use.
+  window.eval((chunks.at(0)?.code ?? '').replaceAll('import.meta', '({})'));
   await window.happyDOM.waitUntilComplete();
   const app = window.document.getElementById('app');
   if (!app) {
@@ -125,6 +127,19 @@ describe('solid-optimizer/vite', () => {
     expect(code).not.toContain('__SOLID_OPTIMIZER_KEEP__');
     expect(code.match(/template\(`/g)).toHaveLength(1);
     expect(code).toContain('<main><h1 class=title>Hello</h1><button type=button>');
+  });
+
+  it('runs a single chunk whose lazy modules the bundler wraps', async () => {
+    // Without code splitting, a module behind a dynamic import is wrapped in
+    // an init function, and its marker with it.
+    const chunks = await bundle('split', {}, undefined, { codeSplitting: false });
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(code).toContain('__esmMin');
+    expect(code).not.toContain('__SOLID_OPTIMIZER_KEEP__');
+    const { app } = await run(chunks);
+    expect(app.innerHTML.replaceAll(/<!--[^>]*-->/g, '')).toBe(
+      '<main><section class="card"><h2>Home</h2><p>eager</p></section><section class="card"><h2>Lazy</h2><ul><li>a</li><li>b</li></ul></section></main>',
+    );
   });
 
   it('drops lazy chunks that only a folded branch used', async () => {

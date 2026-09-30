@@ -14,12 +14,24 @@
  * the fold pass still recognizes `Show` after the bundler renamed it.
  */
 import MagicString from 'magic-string';
-import type { ImportDeclarationSpecifier, ImportSpecifier, Node } from 'oxc-parser';
-import { collectParents, parse } from '../ast';
+import type {
+  ExpressionStatement,
+  ImportDeclarationSpecifier,
+  ImportSpecifier,
+  Node,
+} from 'oxc-parser';
+import { collectParents, forEachChild, parse } from '../ast';
 import type { ScopeAnalysis } from '../scope';
 import { analyzeScopes, lookup, scopeAt } from '../scope';
 
 export const MARKER = '__SOLID_OPTIMIZER_KEEP__';
+
+/**
+ * The lowered chunk needs a helper that no module in the chunk kept.
+ */
+export class MissingHelperError extends Error {
+  override readonly name = 'MissingHelperError';
+}
 
 const HELPER_PREFIX = 'helper:';
 const BUILT_IN_PREFIX = 'builtin:';
@@ -163,18 +175,28 @@ export function readMarkers(code: string, filename: string): ChunkRuntime | unde
   const s = new MagicString(code);
   const helpers = new Map<string, string>();
   const builtInAliases: Record<string, string> = {};
-  let found = false;
-  for (const statement of program.body) {
+  // A marker is usually a top-level statement. The bundler moves a module
+  // into an init function when it has to run lazily, such as a module that
+  // a dynamic import pulled into the same chunk, so every statement is searched.
+  const markers: ExpressionStatement[] = [];
+  const visit = (node: Node): void => {
     if (
-      statement.type !== 'ExpressionStatement' ||
-      statement.expression.type !== 'CallExpression' ||
-      statement.expression.callee.type !== 'Identifier' ||
-      statement.expression.callee.name !== MARKER
+      node.type === 'ExpressionStatement' &&
+      node.expression.type === 'CallExpression' &&
+      node.expression.callee.type === 'Identifier' &&
+      node.expression.callee.name === MARKER
     ) {
+      markers.push(node);
+      return;
+    }
+    forEachChild(node, visit);
+  };
+  visit(program);
+  for (const statement of markers) {
+    s.remove(statement.start, statement.end);
+    if (statement.expression.type !== 'CallExpression') {
       continue;
     }
-    found = true;
-    s.remove(statement.start, statement.end);
     const argument = statement.expression.arguments.at(0);
     if (argument?.type !== 'ObjectExpression') {
       continue;
@@ -191,7 +213,7 @@ export function readMarkers(code: string, filename: string): ChunkRuntime | unde
       }
     }
   }
-  if (!found) {
+  if (markers.length === 0) {
     return undefined;
   }
   return {
@@ -231,7 +253,7 @@ export function linkHelpers(
       const imported = exportedName(specifier);
       const target = helpers.get(imported);
       if (target === undefined) {
-        throw new Error(
+        throw new MissingHelperError(
           `[solid-optimizer] ${filename} needs "${imported}" from "${moduleName}", but no module in the chunk imports it.`,
         );
       }

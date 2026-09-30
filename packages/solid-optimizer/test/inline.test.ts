@@ -270,6 +270,35 @@ export function App() {
     expect(output).toContain('<main><div>{"a"}</div></main>');
   });
 
+  it('waits for a component whose body still has calls to inline', () => {
+    // `Counter` waits on `Button`, so `Home` has to wait on `Counter`. Copying
+    // `Home` into the fallback early would carry `<Counter />` to a place its
+    // statements can never move out of.
+    const code = `
+import { createSignal, Show } from 'solid-js';
+const Icon = (props) => <i class={props.name} />;
+const Button = (props) => <button><Icon name={props.icon} />{props.children}</button>;
+function Counter(props) {
+  const [count] = createSignal(props.start);
+  return <p>{count()}<Button icon="plus">Add</Button></p>;
+}
+const Card = (props) => <section>{props.children}</section>;
+function Home() {
+  return <Card><Counter start={0} /></Card>;
+}
+export function App() {
+  return <main><Show when={ready()} fallback={<Home />}>ready</Show></main>;
+}
+`;
+    const output = inlined(code);
+    expect(output).not.toContain('function Counter');
+    expect(output).toContain('fallback={<Home />}');
+    expect(output).toContain('const [count$1] = createSignal(0);');
+    expect(output).toContain(
+      '<section><p>{count$1()}<button><i class={"plus"} />Add</button></p></section>',
+    );
+  });
+
   it('keeps the declaration of a component used elsewhere', () => {
     const code = `
 export function Title(props) {
