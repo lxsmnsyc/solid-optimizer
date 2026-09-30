@@ -346,3 +346,94 @@ function App() {
     expect(code).not.toContain('Inner');
   });
 });
+
+describe('createMemo', () => {
+  it('inlines a memo of a new object read once', async () => {
+    const code = await expectSameBehavior(
+      'memo-style',
+      app(
+        `function App() {
+  const [dark, setDark] = createSignal(false);
+  const style = createMemo(() => ({ color: dark() ? 'white' : 'black' }));
+  return (
+    <main>
+      <button type="button" onClick={() => setDark(!dark())}>toggle</button>
+      <p style={style()}>text</p>
+    </main>
+  );
+}`,
+        "import { createMemo, createSignal } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('createMemo(');
+  });
+
+  it('inlines a memo of a list passed to For', async () => {
+    const code = await expectSameBehavior(
+      'memo-for',
+      app(
+        `function App() {
+  const [count, setCount] = createSignal(2);
+  const rows = createMemo(() => [...Array.from({ length: count() }, (_, index) => ({ index }))]);
+  return (
+    <main>
+      <button type="button" onClick={() => setCount(count() + 1)}>+</button>
+      <ul>
+        <For each={rows()}>{(row) => <li>{row.index}</li>}</For>
+      </ul>
+    </main>
+  );
+}`,
+        "import { createMemo, createSignal, For } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('createMemo(');
+  });
+
+  it('inlines a memo of JSX and one with equals: false', async () => {
+    const code = await expectSameBehavior(
+      'memo-jsx',
+      app(
+        `function App() {
+  const [name, setName] = createSignal('a');
+  const badge = createMemo(() => <b>{name()}</b>);
+  const length = createMemo(() => name().length, { equals: false });
+  return (
+    <main>
+      <button type="button" onClick={() => setName(name() + 'b')}>grow</button>
+      <p>{badge()}</p>
+      <span>{length()}</span>
+    </main>
+  );
+}`,
+        "import { createMemo, createSignal } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('createMemo(');
+  });
+
+  it('keeps a memo read more than once', async () => {
+    const code = await expectSameBehavior(
+      'memo-shared',
+      app(
+        `function App() {
+  const [count, setCount] = createSignal(1);
+  const pair = createMemo(() => [count(), count() * 2]);
+  return (
+    <main>
+      <button type="button" onClick={() => setCount(count() + 1)}>+</button>
+      <p>{pair()[0]}</p>
+      <p>{pair()[1]}</p>
+    </main>
+  );
+}`,
+        "import { createMemo, createSignal } from 'solid-js';",
+      ),
+      ['button'],
+    );
+    expect(code).toContain('createMemo(');
+  });
+});

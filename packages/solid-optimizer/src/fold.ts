@@ -52,7 +52,7 @@ import {
   startsLikeStatement,
 } from './ast';
 import type { PassContext } from './context';
-import { isConstantDeclaration, textOf } from './context';
+import { isConstantDeclaration, solidExport, textOf } from './context';
 import type { Piece } from './jsx';
 import {
   findAttribute,
@@ -409,20 +409,7 @@ class Folder {
       return undefined;
     }
     const binding = references.get(name);
-    const { builtInAliases } = this.context.options;
-    let identity: string | undefined;
-    if (!binding) {
-      identity = name.name;
-    } else if (binding.scope.parent === undefined && builtInAliases.has(binding.name)) {
-      // A bundled chunk declares or imports its built-ins under names the bundler chose.
-      identity = builtInAliases.get(binding.name);
-    } else if (
-      binding.kind === 'import' &&
-      binding.source !== undefined &&
-      this.context.options.moduleSources.includes(binding.source)
-    ) {
-      identity = binding.imported;
-    }
+    const identity = binding ? solidExport(binding, this.context.options) : name.name;
     if (identity === undefined || !this.context.options.builtIns.has(identity)) {
       return undefined;
     }

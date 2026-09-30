@@ -42,6 +42,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `filename` sets the parser and the source map source. `.ts` and `.tsx` parse as TypeScript. Anything else parses as JSX. Defaults to `input.jsx`.
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
+- `memos` turns memo inlining on or off. Defaults to `true`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
@@ -78,7 +79,7 @@ The optimizer is off while serving. Set `optimizer.dev` to run module mode in de
 The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 
 - `optimizer: false` uses `@solidjs/vite-plugin` as it is.
-- `optimizer.fold`, `optimizer.inline`, and `optimizer.maxPasses` work like the `compile` options.
+- `optimizer.fold`, `optimizer.inline`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 
@@ -143,6 +144,17 @@ Inlining accepts two differences:
 - Moved statements run before the host's JSX is created. The order of effect registration between siblings can change.
 
 Inlined JSX is a copy, so its source map points at the call site it replaced.
+
+### Memo inlining
+
+A `createMemo` whose result is new on every run, such as an object, array, or JSX, never stops an update. When it is also read once, as the whole of a tracked JSX expression, the read runs the computation itself.
+
+```jsx
+const style = createMemo(() => ({ color: color() }));
+return <p style={style()} />;
+```
+
+becomes `<p style={{ color: color() }} />`. See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy.md) for the exact rules.
 
 ### Constant folding and control flow
 

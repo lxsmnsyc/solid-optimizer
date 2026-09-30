@@ -187,7 +187,7 @@ function isReservedPropName(name: string): boolean {
  * `arguments`, `super`, `new.target`, `await`, or `yield`. Moving such code
  * into another function would change what it refers to.
  */
-function usesFunctionContext(context: PassContext, node: Node): boolean {
+export function usesFunctionContext(context: PassContext, node: Node): boolean {
   let found = false;
   const visit = (current: Node): void => {
     if (found) {

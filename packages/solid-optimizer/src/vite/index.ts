@@ -26,7 +26,10 @@ import type { CompileOptions } from '../compile';
 import { compile } from '../compile';
 import { MARKER, addMarker, generatedImports, linkHelpers, readMarkers } from './runtime';
 
-export interface OptimizerOptions extends Pick<CompileOptions, 'fold' | 'inline' | 'maxPasses'> {
+export interface OptimizerOptions extends Pick<
+  CompileOptions,
+  'fold' | 'inline' | 'memos' | 'maxPasses'
+> {
   /**
    * Where the optimizer runs.
    *
@@ -57,26 +60,33 @@ const DEFAULT_MODULE_NAME = '@solidjs/web';
 const JSX_MODULE = /\.[mc]?[jt]sx$/i;
 
 /**
- * Helpers a merged tree can need even when none of its modules did.
- * Every module that keeps JSX imports these along with its own.
+ * Every helper Solid's JSX transform can import for DOM output that does not
+ * hydrate, which is the only output chunk mode lowers. An optimized chunk can
+ * need a helper none of its modules needed, such as `setStyleProperty` once a
+ * memo of a style object is inlined, so every module that keeps JSX imports
+ * all of them.
  */
 const DOM_HELPERS = [
-  'template',
-  'insert',
-  'createComponent',
-  'getNextElement',
-  'getNextMarker',
-  'getNextSibling',
-  'getFirstChild',
-  'spread',
-  'mergeProps',
-  'setAttribute',
-  'className',
-  'style',
-  'delegateEvents',
   'addEvent',
+  'applyRef',
+  'className',
+  'createComponent',
+  'delegateEvents',
   'effect',
+  'getOwner',
+  'insert',
   'memo',
+  'mergeProps',
+  'readShallow',
+  'ref',
+  'scope',
+  'setAttribute',
+  'setAttributeNS',
+  'setProperty',
+  'setStyleProperty',
+  'spread',
+  'style',
+  'template',
 ];
 
 const LAZY_PLACEHOLDER = /"__SOLID_LAZY_MODULE__:([^"]+)"/g;
@@ -131,6 +141,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   const compileOptions: CompileOptions = {
     fold: optimizer.fold,
     inline: optimizer.inline,
+    memos: optimizer.memos,
     maxPasses: optimizer.maxPasses,
     builtIns: [...builtIns],
     moduleSources,
@@ -250,7 +261,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         moduleName,
         helpers: new Set([...needed, ...DOM_HELPERS]),
         moduleSources,
-        builtIns,
+        // The passes also recognize these primitives, which a chunk renames too.
+        builtIns: new Set([...builtIns, 'createMemo']),
       });
       if (marked) {
         code = marked.code;

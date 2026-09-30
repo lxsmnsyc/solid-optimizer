@@ -8,7 +8,7 @@ export interface ResolvedOptions {
   readonly builtIns: ReadonlySet<string>;
   /** The modules Solid's built-in components are imported from. */
   readonly moduleSources: readonly string[];
-  /** Top-level names that refer to a built-in component, keyed by name. */
+  /** Top-level names that refer to a Solid export, keyed by name. */
   readonly builtInAliases: ReadonlyMap<string, string>;
   /** Whether a top-level `var` that nothing writes to counts as a constant. */
   readonly constantVars: boolean;
@@ -29,6 +29,28 @@ export function isConstantDeclaration(binding: Binding, options: ResolvedOptions
     return true;
   }
   return binding.kind === 'var' && options.constantVars && binding.scope.parent === undefined;
+}
+
+/**
+ * The Solid export a binding refers to, by the name Solid exports it under.
+ *
+ * An import from a Solid module is decided by its exported name, so `m` from
+ * `import { createMemo as m }` is `createMemo`. A bundled chunk declares or
+ * imports Solid's exports under names the bundler chose, which
+ * `builtInAliases` maps back.
+ */
+export function solidExport(binding: Binding, options: ResolvedOptions): string | undefined {
+  if (binding.scope.parent === undefined && options.builtInAliases.has(binding.name)) {
+    return options.builtInAliases.get(binding.name);
+  }
+  if (
+    binding.kind === 'import' &&
+    binding.source !== undefined &&
+    options.moduleSources.includes(binding.source)
+  ) {
+    return binding.imported;
+  }
+  return undefined;
 }
 
 /**

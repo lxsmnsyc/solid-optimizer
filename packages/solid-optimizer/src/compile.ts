@@ -5,6 +5,7 @@ import { collectParents, parse } from './ast';
 import type { PassContext, ResolvedOptions } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
+import { inlineMemos } from './memo';
 import { analyzeScopes } from './scope';
 
 export interface CompileOptions {
@@ -28,6 +29,13 @@ export interface CompileOptions {
    * @default true
    */
   inline?: boolean;
+  /**
+   * Replace a `createMemo` that always produces a new value and is read once
+   * with its computation.
+   *
+   * @default true
+   */
+  memos?: boolean;
   /**
    * The names of Solid's built-in components. A tag only folds when it is
    * one of these, and an empty list turns control-flow folding off.
@@ -152,6 +160,9 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   }
   if (options.inline ?? true) {
     passes.push(inline);
+  }
+  if (options.memos ?? true) {
+    passes.push(inlineMemos);
   }
 
   const maps: string[] = [];
