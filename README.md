@@ -69,7 +69,7 @@ export default defineConfig({
 
 The plugin optimizes in one of two modes.
 
-- **Chunk mode** is for client builds that do not hydrate. JSX is kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
+- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
 - **Module mode** is for everything else. Each module is optimized before the official plugin lowers it. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so hydrating builds only inline within a module.
 
 The optimizer is off while serving. Set `optimizer.dev` to run module mode in dev too.
@@ -169,6 +169,8 @@ This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](
 - `<Dynamic component="div">` becomes `<div>`.
 
 A built-in only folds when the tag resolves to Solid's component. The tag must bind to nothing, or be imported from one of `moduleSources`. A tag with a spread attribute or a function child never folds. `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` never fold.
+
+A call to Solid's `lazy` is marked `/* @__PURE__ */`, so the bundler drops one that a folded branch left unused, along with its chunk.
 
 A condition that is discarded but has side effects still runs. `[effect()] && value` becomes `([effect()], value)`.
 

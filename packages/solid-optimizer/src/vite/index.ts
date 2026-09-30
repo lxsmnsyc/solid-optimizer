@@ -249,6 +249,16 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     const maps: (string | null | undefined)[] = [];
     let code = source;
 
+    // Fold and inline memos before bundling. A branch that folds away takes
+    // its imports and `lazy()` chunks out of the module graph, which the
+    // chunk step can no longer do. Inlining waits for the chunk, where the
+    // components it can reach are known.
+    const local = compile(code, { ...compileOptions, filename, inline: false });
+    if (local.map) {
+      code = local.code;
+      maps.push(local.map.toString());
+    }
+
     const lazy = await solidCompiler.transformLazyAsync(code, { filename, sourceMap: true });
     code = lazy.code;
     maps.push(lazy.map);

@@ -2,6 +2,30 @@
 
 This document records how each optimization is decided: what the runtime does, when a rewrite keeps the same behavior, and what it accepts as different. Every rewrite has to render the same DOM and update it the same way as the unoptimized build.
 
+## Build phases
+
+In chunk mode, the Vite plugin optimizes twice: once per module while modules are transformed, and once per chunk in `renderChunk`.
+
+Rolldown removes unused code from each chunk after `renderChunk`, so code a chunk rewrite stops using still disappears. What `renderChunk` cannot change is what bundling already decided:
+
+- A dynamic import in a branch that folds away still becomes its own chunk.
+- A chunk still exports what another chunk stopped using, since chunks render in parallel.
+
+So each part runs where it has the most effect.
+
+| Part                               | Transform | `renderChunk` | Why                                                                    |
+| ---------------------------------- | --------- | ------------- | ---------------------------------------------------------------------- |
+| Fold, module constants             | yes       | yes           | Dead branches leave the module graph before bundling.                  |
+| Fold, constants from other modules |           | yes           | Only visible in the chunk.                                             |
+| Memo inlining                      | yes       | yes           | Reads that are only direct once a component is inlined need the chunk. |
+| Component inlining                 |           | yes           | It needs to know which components share the chunk.                     |
+| Helper marker                      | yes       |               | It has to survive bundling.                                            |
+| Lowering and helper linking        |           | yes           | Only possible once the chunk is final.                                 |
+
+A call to Solid's `lazy` is marked `/* @__PURE__ */`. It only creates a component and loads nothing until it renders, so the bundler can drop one a folded branch left unused, along with its dynamic import.
+
+Builds that hydrate run everything while modules are transformed, since the server and client build split chunks differently.
+
 ## Context inlining
 
 Status: proposed, not implemented.

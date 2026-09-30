@@ -127,6 +127,15 @@ describe('solid-optimizer/vite', () => {
     expect(code).toContain('<main><h1 class=title>Hello</h1><button type=button>');
   });
 
+  it('drops lazy chunks that only a folded branch used', async () => {
+    const optimized = await bundle('dead-lazy');
+    const plain = await bundle('dead-lazy', { optimizer: false });
+    // Folding before bundling removes the `lazy()` import from the module graph.
+    expect(optimized).toHaveLength(1);
+    expect(optimized.map((chunk) => chunk.code).join('\n')).not.toContain('admin tools');
+    expect(plain).toHaveLength(2);
+  });
+
   it('renders and updates like the unoptimized build', async () => {
     const optimized = await run(await bundle('basic'));
     const plain = await run(await bundle('basic', { optimizer: false }));

@@ -30,6 +30,7 @@
  * decides from their arity whether to call them.
  */
 import type {
+  CallExpression,
   ConditionalExpression,
   Directive,
   Expression,
@@ -270,6 +271,9 @@ class Folder {
       case 'ParenthesizedExpression':
         this.foldConstant(node);
         break;
+      case 'CallExpression':
+        this.annotatePure(node);
+        break;
       default:
         break;
     }
@@ -293,6 +297,27 @@ class Folder {
   // ---------------------------------------------------------------------------
   // Expressions
   // ---------------------------------------------------------------------------
+
+  /**
+   * Marks a call to Solid's `lazy` as pure. It only creates the component,
+   * and loads nothing until it renders. A folded branch can leave it unused,
+   * and the annotation lets the bundler drop it along with its dynamic import.
+   */
+  private annotatePure(call: CallExpression): void {
+    if (call.callee.type !== 'Identifier') {
+      return;
+    }
+    const binding = this.context.scopes.references.get(call.callee);
+    if (!binding || solidExport(binding, this.context.options) !== 'lazy') {
+      return;
+    }
+    const before = this.context.code.slice(0, call.start).trimEnd();
+    if (/(#|@)__PURE__\s*\*\/$/.test(before)) {
+      return;
+    }
+    this.context.s.prependLeft(call.start, '/* @__PURE__ */ ');
+    this.changed = true;
+  }
 
   private foldConstant(node: Node): void {
     if (isLiteralForm(node)) {
