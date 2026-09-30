@@ -210,6 +210,19 @@ describe('control-flow components', () => {
   });
 });
 
+describe('pure annotations', () => {
+  it('marks Solid lazy() calls as pure, once', () => {
+    const code = "import { lazy } from 'solid-js';\nconst Page = lazy(() => import('./Page'));";
+    const output = folded(code);
+    expect(output).toBe(
+      "import { lazy } from 'solid-js';\nconst Page = /* @__PURE__ */ lazy(() => import('./Page'));",
+    );
+    expect(folded(output)).toBe(output);
+    const other = "import { lazy } from './lazy';\nconst Page = lazy(() => import('./Page'));";
+    expect(folded(other)).toBe(other);
+  });
+});
+
 describe('constants', () => {
   it('folds constant expressions into attributes', () => {
     expect(folded('const view = <div id={"a" + "b"} tabindex={1 + 2} />;')).toBe(

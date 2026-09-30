@@ -242,20 +242,32 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    */
   function keepJSX(source: string, id: string): Rollup.TransformResult {
     const filename = stripQuery(id);
-    const dryRun = lower(getCompiler(), source, filename, jsxOptions(false));
+    // Fold and inline memos before bundling. A branch that folds away takes
+    // its imports and `lazy()` chunks out of the module graph, which the
+    // chunk step can no longer do. Inlining waits for the chunk, where the
+    // components it can reach are known.
+    const local = compile(source, { ...compileOptions, filename, inline: false });
+    const code = local.code;
+    const dryRun = lower(getCompiler(), code, filename, jsxOptions(false));
     const needed = generatedImports(dryRun.code, filename, moduleName);
     preserved.add(id);
     if (needed.length === 0) {
-      return null;
+      return local.map ? { code, map: local.map.toString() } : null;
     }
-    const marked = addMarker(source, filename, {
+    const marked = addMarker(code, filename, {
       moduleName,
       helpers: new Set([...needed, ...DOM_HELPERS]),
       moduleSources,
       // The passes also recognize these primitives, which a chunk renames too.
       builtIns: new Set([...builtIns, 'createMemo']),
     });
-    return marked ? { code: marked.code, map: marked.map } : null;
+    if (!marked) {
+      return local.map ? { code, map: local.map.toString() } : null;
+    }
+    return {
+      code: marked.code,
+      map: combineMaps([local.map?.toString(), marked.map]),
+    };
   }
 
   const originalTransform = main.transform;
