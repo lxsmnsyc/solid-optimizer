@@ -441,3 +441,57 @@ describe('createMemo', () => {
     expect(code).toContain('createMemo(');
   });
 });
+
+describe('merge() and omit()', () => {
+  it('renders defaults and reactive props the same', async () => {
+    const code = await expectSameBehavior(
+      'views-merge',
+      app(
+        `function Badge(props) {
+  const merged = merge({ tone: 'plain', label: 'none' }, props);
+  return <span class={merged.tone}>{merged.label}</span>;
+}
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <button type="button" onClick={() => setCount(count() + 1)}>+</button>
+      <Badge />
+      <Badge tone="loud" label={String(count())} />
+      <Badge tone={count() > 0 ? 'hot' : undefined} />
+    </main>
+  );
+}`,
+        "import { createSignal, merge } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('Badge');
+  });
+
+  it('spreads the rest of the props, handlers and children included', async () => {
+    const code = await expectSameBehavior(
+      'views-omit',
+      app(
+        `function Action(props) {
+  const rest = omit(props, 'tone');
+  return <button type="button" class={props.tone} {...rest} />;
+}
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <Action tone="primary" title={\`clicked \${count()}\`} onClick={() => setCount(count() + 1)}>
+        Clicks: {count()}
+      </Action>
+    </main>
+  );
+}`,
+        "import { createSignal, omit } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('Action');
+    expect(code).not.toContain('omit(');
+  });
+});

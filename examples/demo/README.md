@@ -30,4 +30,6 @@ This builds the app with and without the optimizer, in three chunking modes, int
 - `Table` lives in a shared chunk, so the dashboard and settings pages keep calling it.
 - `Home` renders in a `<Switch>` fallback, so it stays a component, with `Counter` merged into it.
 - `Banner` folds on `SHOW_BANNER` and `THEME` from `config.ts` before bundling, so no chunk uses `<Dynamic>` or `<Show>`, and the runtime chunk drops them and the code only they needed.
+- `Tabs` and `Tab` share state through a context, and `Tab` uses `merge` and `omit`. Both inline into `Home`, and the provider is removed.
+- The shared runtime chunk still exports `spread`, `merge`, `omit`, and the context functions. `Tabs.tsx` uses them as written, and Rolldown decides a shared chunk's exports before the chunk step inlines `Tab`. Only `single` mode drops them.
 - In `single` mode, every component is in one chunk, so all of them inline, and the runtime code only they needed is dropped.

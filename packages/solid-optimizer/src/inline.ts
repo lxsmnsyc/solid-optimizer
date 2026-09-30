@@ -40,9 +40,15 @@
  * intrinsic elements and fragments around it, so it is created exactly once
  * each time that function runs.
  *
- * This also keeps context lookups where they were. A context provider is a
- * component, so a component rendered inside one is never in a position its
- * statements can move out of, and `useContext` still runs under the provider.
+ * A context provider is a component, so statements do not move out of it,
+ * and `useContext` still runs under it. The exception is a provider whose
+ * subtree only runs visible code. Statements move out through it, and each
+ * `useContext` of its context in a copy becomes its value. See `provider.ts`.
+ *
+ * The props can also be read through `merge()` and `omit()` views declared
+ * in the component. Each call site knows which props it passes, so a read
+ * of a view resolves to a prop, a literal default, or `undefined`, and a
+ * spread of a view becomes the attributes it holds.
  *
  * # Accepted differences
  *
@@ -55,6 +61,7 @@
 import MagicString from 'magic-string';
 import type {
   ArrowFunctionExpression,
+  CallExpression,
   Expression,
   Function as FunctionNode,
   JSXAttribute,
@@ -62,6 +69,7 @@ import type {
   JSXElement,
   JSXExpressionContainer,
   JSXFragment,
+  JSXSpreadAttribute,
   MemberExpression,
   Node,
   ReturnStatement,
@@ -80,18 +88,68 @@ import type { PassContext, ResolvedOptions } from './context';
 import { isConstantDeclaration, textOf } from './context';
 import type { Piece } from './jsx';
 import type { ClosedOptions, Provider } from './provider';
-import { contextBinding, contextReads, findProviders, isClosed, stableValueText } from './provider';
+import {
+  contextBinding,
+  contextReads,
+  findProviders,
+  isClosed,
+  solidCallee,
+  stableValueText,
+} from './provider';
 import { keptPiece, replacedPiece, writePieces } from './jsx';
 import type { Binding, Scope } from './scope';
 import { isWithinScope, lookup, scopeAt } from './scope';
+import { evaluate, literalText } from './value';
 
 type ComponentFunction = FunctionNode | ArrowFunctionExpression;
 
-interface PropRead {
-  readonly member: MemberExpression;
-  readonly name: string;
+interface ReadCount {
   /** Whether the read can run more than once per component instance. */
   readonly repeated: boolean;
+}
+
+interface PropRead extends ReadCount {
+  readonly member: MemberExpression;
+  readonly name: string;
+}
+
+/**
+ * One source of a `merge()` or `omit()` view: the props, or an object of
+ * literal defaults, with the keys an `omit()` hides from it.
+ */
+interface ViewSource {
+  /** The default of each key, as literal text, or `undefined` for the props. */
+  readonly defaults: ReadonlyMap<string, string> | undefined;
+  readonly hidden: ReadonlySet<string>;
+}
+
+/** A props object made with `merge()` and `omit()`, in source order. */
+interface View {
+  readonly sources: readonly ViewSource[];
+}
+
+interface ViewRead extends PropRead {
+  readonly view: View;
+}
+
+interface ResolvedSpread {
+  readonly spread: ViewSpread;
+  /** Each key and its default text, or `undefined` when the props hold it. */
+  readonly keys: ReadonlyMap<string, string | undefined>;
+}
+
+interface ResolvedViews {
+  /** Reads of the props, including view reads the props answer. */
+  readonly propReads: readonly PropRead[];
+  /** View reads a default or nothing answers, and their text. */
+  readonly texts: ReadonlyMap<Node, string>;
+  readonly spreads: readonly ResolvedSpread[];
+}
+
+interface ViewSpread extends ReadCount {
+  readonly attribute: JSXSpreadAttribute;
+  readonly element: JSXElement;
+  readonly view: View;
 }
 
 interface OuterReference {
@@ -109,6 +167,12 @@ interface Component {
   readonly props: readonly PropRead[];
   /** The props parameter, when there is one. */
   readonly param: Binding | undefined;
+  /** Reads of a `merge()` or `omit()` view, which a call site resolves. */
+  readonly viewReads: readonly ViewRead[];
+  /** Spreads of a view onto an element, which become the attributes it holds. */
+  readonly viewSpreads: readonly ViewSpread[];
+  /** The declarations of the views, which a copy drops. */
+  readonly viewDeclarations: readonly Statement[];
   /** Bindings declared inside the component, which get fresh names in every copy. */
   readonly locals: readonly Binding[];
   /** References to bindings outside the component, which must mean the same at the call site. */
@@ -481,14 +545,22 @@ class Inliner {
         return undefined;
       }
     }
+    const views = this.analyzeViews(fn, scope, statements, paramBinding);
+    if (!views) {
+      return undefined;
+    }
     const props: PropRead[] = [];
     for (const reference of paramBinding?.references ?? []) {
+      if (views.arguments.has(reference)) {
+        continue;
+      }
       const read = this.propRead(fn, reference);
       if (!read) {
         return undefined;
       }
       props.push(read);
     }
+    statements = statements.filter((statement) => !views.declarations.includes(statement));
 
     const locals: Binding[] = [];
     const seen = new Set<Scope>();
@@ -498,7 +570,8 @@ class Inliner {
       }
       seen.add(inner);
       for (const local of inner.bindings.values()) {
-        if (local !== paramBinding) {
+        // A view's declaration and every use of it are replaced in a copy.
+        if (local !== paramBinding && !views.bindings.has(local)) {
           locals.push(local);
         }
       }
@@ -529,6 +602,9 @@ class Inliner {
       root,
       props,
       param: paramBinding,
+      viewReads: views.reads,
+      viewSpreads: views.spreads,
+      viewDeclarations: views.declarations,
       locals,
       outer,
     };
@@ -554,8 +630,14 @@ class Inliner {
     if (isReservedPropName(name) || isAssignmentTarget(this.context, member)) {
       return undefined;
     }
-    let repeated = false;
-    let current = this.context.parents.get(member);
+    return { member, name, repeated: this.isRepeated(fn, member) };
+  }
+
+  /**
+   * Whether `node` can run more than once each time `fn` runs.
+   */
+  private isRepeated(fn: ComponentFunction, node: Node): boolean {
+    let current = this.context.parents.get(node);
     while (current && current !== fn) {
       if (
         isFunctionNode(current) ||
@@ -565,12 +647,199 @@ class Inliner {
         current.type === 'WhileStatement' ||
         current.type === 'DoWhileStatement'
       ) {
-        repeated = true;
-        break;
+        return true;
       }
       current = this.context.parents.get(current);
     }
-    return { member, name, repeated };
+    return false;
+  }
+
+  /**
+   * Finds the `merge()` and `omit()` views of the props declared in a
+   * component's statements, and how each is used. A view can only be read
+   * as `view.name`, spread onto an element, or passed to another view.
+   * `undefined` when a view is used any other way.
+   */
+  private analyzeViews(
+    fn: ComponentFunction,
+    scope: Scope,
+    statements: readonly Statement[],
+    param: Binding | undefined,
+  ):
+    | {
+        bindings: Set<Binding>;
+        arguments: Set<Node>;
+        declarations: Statement[];
+        reads: ViewRead[];
+        spreads: ViewSpread[];
+      }
+    | undefined {
+    const views = new Map<Binding, View>();
+    const args = new Set<Node>();
+    const declarations: Statement[] = [];
+    for (const statement of statements) {
+      const declarator =
+        statement.type === 'VariableDeclaration' ? statement.declarations.at(0) : undefined;
+      if (
+        statement.type !== 'VariableDeclaration' ||
+        statement.kind !== 'const' ||
+        statement.declarations.length !== 1 ||
+        declarator?.id.type !== 'Identifier' ||
+        !declarator.init
+      ) {
+        continue;
+      }
+      const init = unwrap(declarator.init);
+      const callee = init.type === 'CallExpression' ? solidCallee(this.context, init) : undefined;
+      if (init.type !== 'CallExpression' || (callee !== 'merge' && callee !== 'omit')) {
+        continue;
+      }
+      const view = this.viewOf(callee, init, param, views, args);
+      if (view === null) {
+        continue;
+      }
+      const binding = scope.bindings.get(declarator.id.name);
+      if (!view || !binding || binding.mutated) {
+        return undefined;
+      }
+      views.set(binding, view);
+      declarations.push(statement);
+    }
+
+    const reads: ViewRead[] = [];
+    const spreads: ViewSpread[] = [];
+    for (const [binding, view] of views) {
+      for (const reference of binding.references) {
+        if (args.has(reference)) {
+          continue;
+        }
+        const parent = this.context.parents.get(reference);
+        const opening = parent ? this.context.parents.get(parent) : undefined;
+        const element = opening ? this.context.parents.get(opening) : undefined;
+        if (
+          parent?.type === 'JSXSpreadAttribute' &&
+          opening?.type === 'JSXOpeningElement' &&
+          element?.type === 'JSXElement'
+        ) {
+          spreads.push({
+            attribute: parent,
+            element,
+            view,
+            repeated: this.isRepeated(fn, parent),
+          });
+          continue;
+        }
+        const read = this.propRead(fn, reference);
+        if (!read) {
+          return undefined;
+        }
+        reads.push({ ...read, view });
+      }
+    }
+    return { bindings: new Set(views.keys()), arguments: args, declarations, reads, spreads };
+  }
+
+  /**
+   * The view a `merge()` or `omit()` call makes. `null` when it does not
+   * take the props or another view, and `undefined` when it does but its
+   * other arguments are not literal.
+   */
+  private viewOf(
+    callee: 'merge' | 'omit',
+    call: CallExpression,
+    param: Binding | undefined,
+    views: ReadonlyMap<Binding, View>,
+    args: Set<Node>,
+  ): View | null | undefined {
+    const sourcesOf = (argument: Node): readonly ViewSource[] | undefined => {
+      if (argument.type === 'CallExpression') {
+        const nested = solidCallee(this.context, argument);
+        if (nested !== 'merge' && nested !== 'omit') {
+          return undefined;
+        }
+        return this.viewOf(nested, argument, param, views, args)?.sources;
+      }
+      if (argument.type !== 'Identifier') {
+        return undefined;
+      }
+      const binding = this.context.scopes.references.get(argument);
+      if (binding && binding === param) {
+        return [{ defaults: undefined, hidden: new Set() }];
+      }
+      return binding ? views.get(binding)?.sources : undefined;
+    };
+    const involved = call.arguments.some(
+      (argument) => argument.type !== 'SpreadElement' && sourcesOf(unwrap(argument)) !== undefined,
+    );
+    if (!involved) {
+      return null;
+    }
+
+    if (callee === 'omit') {
+      const first = call.arguments.at(0);
+      const keys = call.arguments.slice(1);
+      if (first === undefined || first.type === 'SpreadElement') {
+        return undefined;
+      }
+      const target = unwrap(first);
+      const base = sourcesOf(target);
+      const hidden: string[] = [];
+      for (const key of keys) {
+        if (key.type !== 'Literal' || typeof key.value !== 'string') {
+          return undefined;
+        }
+        hidden.push(key.value);
+      }
+      if (!base) {
+        return undefined;
+      }
+      args.add(target);
+      return {
+        sources: base.map((source) => ({
+          defaults: source.defaults,
+          hidden: new Set([...source.hidden, ...hidden]),
+        })),
+      };
+    }
+
+    const sources: ViewSource[] = [];
+    for (const argument of call.arguments) {
+      if (argument.type === 'SpreadElement') {
+        return undefined;
+      }
+      const inner = unwrap(argument);
+      const existing = sourcesOf(inner);
+      if (existing) {
+        args.add(inner);
+        sources.push(...existing);
+        continue;
+      }
+      if (inner.type !== 'ObjectExpression') {
+        return undefined;
+      }
+      const defaults = new Map<string, string>();
+      for (const property of inner.properties) {
+        if (property.type !== 'Property' || property.kind !== 'init' || property.computed) {
+          return undefined;
+        }
+        let key: string;
+        if (property.key.type === 'Identifier') {
+          key = property.key.name;
+        } else if (property.key.type === 'Literal' && typeof property.key.value === 'string') {
+          key = property.key.value;
+        } else {
+          return undefined;
+        }
+        const value = evaluate(property.value, () => undefined);
+        const text = value ? literalText(value.value) : undefined;
+        if (text === undefined || isReservedPropName(key)) {
+          return undefined;
+        }
+        defaults.set(key, text);
+      }
+      sources.push({ defaults, hidden: new Set() });
+    }
+    return { sources };
   }
 
   // ---------------------------------------------------------------------------
@@ -653,7 +922,7 @@ class Inliner {
 
   private childrenValue(
     element: JSXElement,
-    reads: readonly PropRead[],
+    reads: readonly ReadCount[],
     fresh: (base: string) => string,
     snapshots: string[],
   ): PropValue | undefined {
@@ -694,7 +963,7 @@ class Inliner {
    */
   private propValue(
     attribute: JSXAttribute | undefined,
-    reads: readonly PropRead[],
+    reads: readonly ReadCount[],
     fresh: (base: string) => string,
     snapshots: string[],
   ): PropValue | undefined {
@@ -732,7 +1001,7 @@ class Inliner {
   private expressionValue(
     expression: Expression,
     name: string,
-    reads: readonly PropRead[],
+    reads: readonly ReadCount[],
     fresh: (base: string) => string,
     snapshots: string[],
   ): PropValue {
@@ -818,14 +1087,30 @@ class Inliner {
       }
     }
 
+    // What each view read and spread resolves to at this call site.
+    const views = this.resolveViews(component, attributes, hasChildren);
+    if (!views) {
+      return false;
+    }
+
     // What each prop reads as.
     const snapshots: string[] = [];
     const fresh = (base: string): string => this.freshName(base);
-    const readsByName = new Map<string, PropRead[]>();
-    for (const read of component.props) {
-      const reads = readsByName.get(read.name) ?? [];
+    const readsByName = new Map<string, ReadCount[]>();
+    const count = (name: string, read: ReadCount): void => {
+      const reads = readsByName.get(name) ?? [];
       reads.push(read);
-      readsByName.set(read.name, reads);
+      readsByName.set(name, reads);
+    };
+    for (const read of views.propReads) {
+      count(read.name, read);
+    }
+    for (const spread of views.spreads) {
+      for (const [key, source] of spread.keys) {
+        if (source === undefined) {
+          count(key, spread.spread);
+        }
+      }
     }
     const values = new Map<string, PropValue>();
     for (const [name, reads] of readsByName) {
@@ -863,7 +1148,8 @@ class Inliner {
     // Build the copy on the original code, so this pass's other edits stay out of it.
     const copy = new MagicString(this.context.code);
     this.renameLocals(copy, component, fresh);
-    this.substituteProps(copy, component, values);
+    this.substituteProps(copy, views.propReads, values);
+    this.substituteViews(copy, component, element, views, values);
     for (const [read, text] of contextTexts) {
       copy.overwrite(read.start, read.end, text);
     }
@@ -1012,6 +1298,165 @@ class Inliner {
     return changed;
   }
 
+  /**
+   * Resolves each view read and spread of a component at a call site. A
+   * read becomes a read of the props, or the text of a default. A spread
+   * becomes the keys it holds, in the order `merge()` gives them, and its
+   * `children` become the element's children. `undefined` when a spread
+   * repeats an attribute, or holds `children` for an element that has some.
+   */
+  private resolveViews(
+    component: Component,
+    attributes: ReadonlyMap<string, JSXAttribute>,
+    hasChildren: boolean,
+  ): ResolvedViews | undefined {
+    const has = (key: string): boolean =>
+      attributes.has(key) || (key === 'children' && hasChildren);
+    // The last source that has the key answers, even when its value is `undefined`.
+    const resolve = (view: View, key: string): string | undefined => {
+      for (let index = view.sources.length - 1; index >= 0; index -= 1) {
+        const source = view.sources.at(index);
+        if (!source || source.hidden.has(key)) {
+          continue;
+        }
+        const text = source.defaults?.get(key);
+        if (text !== undefined) {
+          return text;
+        }
+        if (!source.defaults && has(key)) {
+          return undefined;
+        }
+      }
+      return 'void 0';
+    };
+
+    const propReads: PropRead[] = [...component.props];
+    const texts = new Map<Node, string>();
+    for (const read of component.viewReads) {
+      const text = resolve(read.view, read.name);
+      if (text === undefined) {
+        propReads.push(read);
+      } else {
+        texts.set(read.member, text);
+      }
+    }
+
+    const callKeys = [...attributes.keys()];
+    if (hasChildren && !attributes.has('children')) {
+      callKeys.push('children');
+    }
+    const spreads: ResolvedSpread[] = [];
+    const taken = new Map<JSXElement, Set<string>>();
+    for (const spread of component.viewSpreads) {
+      // A key sits where the last source that carries it puts it.
+      const order: string[] = [];
+      for (const source of spread.view.sources) {
+        const keys = source.defaults ? [...source.defaults.keys()] : callKeys;
+        for (const key of keys.filter((name) => !source.hidden.has(name))) {
+          const index = order.indexOf(key);
+          if (index !== -1) {
+            order.splice(index, 1);
+          }
+          order.push(key);
+        }
+      }
+      let names = taken.get(spread.element);
+      if (!names) {
+        names = new Set();
+        for (const attribute of spread.element.openingElement.attributes) {
+          if (attribute.type === 'JSXAttribute') {
+            names.add(
+              attribute.name.type === 'JSXIdentifier'
+                ? attribute.name.name
+                : textOf(this.context, attribute.name),
+            );
+          }
+        }
+        taken.set(spread.element, names);
+      }
+      const keys = new Map<string, string | undefined>();
+      for (const key of order) {
+        // Children become the element's children, so it must have none of its own.
+        const fits =
+          key === 'children'
+            ? spread.element.openingElement.selfClosing
+            : /^[A-Za-z_$][\w$-]*$/.test(key);
+        if (!fits || names.has(key)) {
+          return undefined;
+        }
+        names.add(key);
+        keys.set(key, resolve(spread.view, key));
+      }
+      spreads.push({ spread, keys });
+    }
+    return { propReads, texts, spreads };
+  }
+
+  /**
+   * Writes the resolved view reads and spreads into a copy, and drops the
+   * view declarations.
+   */
+  private substituteViews(
+    copy: MagicString,
+    component: Component,
+    element: JSXElement,
+    views: ResolvedViews,
+    values: ReadonlyMap<string, PropValue>,
+  ): void {
+    for (const [member, text] of views.texts) {
+      const bare = text !== 'void 0' || acceptsAnyExpression(this.context, member);
+      copy.overwrite(member.start, member.end, bare ? text : `(${text})`);
+    }
+    for (const { spread, keys } of views.spreads) {
+      const parts: string[] = [];
+      let children: string | undefined;
+      for (const [key, text] of keys) {
+        const value = values.get(key);
+        if (key === 'children') {
+          children = this.spreadChildren(element, text, value);
+        } else {
+          parts.push(`${key}={${text ?? value?.text ?? 'void 0'}}`);
+        }
+      }
+      const { attribute } = spread;
+      if (parts.length === 0) {
+        copy.remove(attribute.start, attribute.end);
+      } else {
+        copy.overwrite(attribute.start, attribute.end, parts.join(' '));
+      }
+      if (children !== undefined) {
+        const opening = spread.element.openingElement;
+        const tag = textOf(this.context, opening.name);
+        const close = this.context.code.lastIndexOf('/>', opening.end);
+        copy.overwrite(close, opening.end, `>${children}</${tag}>`);
+      }
+    }
+    for (const declaration of component.viewDeclarations) {
+      copy.remove(declaration.start, declaration.end);
+    }
+  }
+
+  /**
+   * The JSX children a spread's `children` becomes: the call site's own
+   * children, or the value of a single expression or default.
+   */
+  private spreadChildren(
+    element: JSXElement,
+    text: string | undefined,
+    value: PropValue | undefined,
+  ): string | undefined {
+    if (text !== undefined) {
+      return text === 'void 0' ? undefined : `{${text}}`;
+    }
+    if (!value) {
+      return undefined;
+    }
+    if (value.kind === 'children' && element.closingElement) {
+      return this.context.s.slice(element.openingElement.end, element.closingElement.start);
+    }
+    return `{${value.text}}`;
+  }
+
   private renameLocals(
     copy: MagicString,
     component: Component,
@@ -1040,14 +1485,14 @@ class Inliner {
 
   private substituteProps(
     copy: MagicString,
-    component: Component,
+    reads: readonly PropRead[],
     values: ReadonlyMap<string, PropValue>,
   ): void {
     // Reads that are a JSX child on their own, like `{props.children}`,
     // splice their JSX in place. They are grouped by parent so neighboring
     // text stays apart.
     const spliced = new Map<JSXElement | JSXFragment, Map<JSXChild, Piece>>();
-    for (const read of component.props) {
+    for (const read of reads) {
       const value = values.get(read.name);
       if (!value) {
         continue;

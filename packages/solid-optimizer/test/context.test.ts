@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { optimize } from './utils';
 
-const IMPORTS = "import { createContext, createSignal, useContext } from 'solid-js';\n";
+const IMPORTS =
+  "import { createContext, createSignal, merge, omit, useContext } from 'solid-js';\n";
 
 function contexts(code: string): string {
   return optimize(IMPORTS + code);
@@ -51,6 +52,23 @@ export function App() {
     expect(code).toContain('const tabs$2 = tabsValue$1;');
     expect(code).not.toContain('<Tabs');
     expect(code).not.toContain('<Tab ');
+  });
+
+  it('moves out a consumer that spreads a view of its own props', () => {
+    const code = contexts(`const Tabs = createContext();
+function Tab(props) {
+  const tabs = useContext(Tabs);
+  const rest = omit(merge({ tone: 'plain' }, props), 'index');
+  return <button class={tabs.active() === props.index ? 'on' : ''} {...rest} />;
+}
+export function App() {
+  const [active] = createSignal(0);
+  return <nav><Tabs value={{ active }}><Tab index={0} title="first">One</Tab></Tabs></nav>;
+}`);
+    expect(code).not.toContain('<Tabs');
+    expect(code).toMatch(
+      /<button class=\{tabs\$1\.active\(\) === 0 \? 'on' : ''\} tone=\{"plain"\} title=\{"first"\}\s*>One<\/button>/,
+    );
   });
 
   it('calls a signal getter given as the value', () => {

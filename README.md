@@ -160,10 +160,29 @@ Solid then creates one template for `<main>` instead of two.
 A component inlines when all of these hold:
 
 - It is declared once at the top level, with a capitalized name.
-- Its parameter is one identifier that is only read as `props.name`.
+- Its parameter is one identifier that is only read as `props.name`, or passed to `merge()` and `omit()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
 - The call site has no spread attribute, no `ref`, and no namespaced attribute.
+
+The props can go through `merge()` and `omit()` first, declared as a `const` in the component:
+
+```jsx
+function Button(props) {
+  const merged = merge({ type: 'button' }, props);
+  const rest = omit(merged, 'label');
+  return (
+    <button type={merged.type} {...rest}>
+      {props.label}
+    </button>
+  );
+}
+```
+
+- A default has to be a literal, like `'button'`, `0`, or `false`.
+- `omit()` has to name its keys as string literals.
+- A view can only be read as `view.name`, spread onto an element, or passed to another `merge()` or `omit()`.
+- A spread becomes the attributes the call site passes, and it cannot repeat an attribute the element already has. Its `children` become the element's children, so the element must have none of its own.
 
 Inlining accepts two differences:
 

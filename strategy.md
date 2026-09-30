@@ -229,6 +229,8 @@ Status: proposed, not implemented.
 
 Hydrating builds only inline components defined in the same module. Most apps keep one component per file, so those builds gain little. The plan is to inline an imported component while its importer is transformed, using the same resolve step as constants. The server and client builds see the same modules, so they make the same decisions.
 
+This would also shrink shared runtime chunks in chunk mode. In the demo, `Tab` spreads a view of its props and reads a context. The chunk step inlines it and removes the provider, but the runtime chunk still exports `spread`, `merge`, `omit`, `createContext`, and `useContext`, because `Tabs.tsx` needed them when Rolldown split the chunks.
+
 ### Where the component's code comes from
 
 - Resolving is not the problem. Every import goes through `this.resolve`, so aliases, tsconfig paths, and resolver plugins apply.

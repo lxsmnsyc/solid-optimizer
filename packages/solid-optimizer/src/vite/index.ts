@@ -375,7 +375,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // its imports and `lazy()` chunks out of the module graph, which the
     // chunk step can no longer do. Inlining waits for the chunk, where the
     // components it can reach are known.
-    const local = compile(code, { ...(await moduleOptions(context, code, id)), inline: false });
+    const moduleCompileOptions = await moduleOptions(context, code, id);
+    const local = compile(code, { ...moduleCompileOptions, inline: false });
     if (local.map) {
       code = local.code;
       maps.push(local.map.toString());
@@ -385,13 +386,26 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     code = lazy.code;
     maps.push(lazy.map);
 
+    // The helpers the module's JSX needs, as written and with its own
+    // components inlined. Inlining can turn a spread into attributes, which
+    // need helpers the spread did not.
     const lowering = jsxOptions(false);
-    const dryRun = await solidCompiler.transformAsync(code, { ...lowering, filename });
-    const needed = generatedImports(dryRun.code, filename, moduleName);
-    if (needed.length > 0) {
+    const needed = new Set<string>();
+    const inlined =
+      moduleCompileOptions.inline === false
+        ? undefined
+        : compile(code, { ...moduleCompileOptions, sourceMap: false });
+    for (const version of new Set([code, inlined?.code ?? code])) {
+      // oxlint-disable-next-line no-await-in-loop
+      const dryRun = await solidCompiler.transformAsync(version, { ...lowering, filename });
+      for (const helper of generatedImports(dryRun.code, filename, moduleName)) {
+        needed.add(helper);
+      }
+    }
+    if (needed.size > 0) {
       const marked = addMarker(code, filename, {
         moduleName,
-        helpers: withRelated(needed),
+        helpers: withRelated([...needed]),
         moduleSources,
         // The passes also recognize these primitives, which a chunk renames too.
         builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
