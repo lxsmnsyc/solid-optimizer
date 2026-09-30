@@ -6,6 +6,7 @@ import type { PassContext, ResolvedOptions } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
+import { simplifyServer } from './server';
 import { analyzeScopes } from './scope';
 
 export interface CompileOptions {
@@ -29,6 +30,19 @@ export interface CompileOptions {
    * @default true
    */
   inline?: boolean;
+  /**
+   * Compile for the server: remove `createEffect` and `onMount`, and reduce
+   * `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`,
+   * `createMemo`, `createRenderEffect`, and `createComputed` to what they do
+   * on the server.
+   *
+   * This runs once, after the other passes. The server and client build
+   * make the same folding and inlining decisions from the same code, so the
+   * server renders the tree the client hydrates.
+   *
+   * @default false
+   */
+  server?: boolean;
   /**
    * Replace a `createMemo` that always produces a new value and is read once
    * with its computation.
@@ -182,6 +196,16 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     }
     if (!changed) {
       break;
+    }
+  }
+
+  if (options.server ?? false) {
+    const result = runPass(current, filename, resolved, sourceMap, simplifyServer);
+    if (result) {
+      current = result.code;
+      if (result.map !== undefined) {
+        maps.push(result.map);
+      }
     }
   }
 

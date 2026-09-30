@@ -253,6 +253,23 @@ export function Home() {
     expect(templateCount(output)).toBe(1);
   });
 
+  it('inlines a TypeScript component with expression statements', () => {
+    // TypeScript's AST marks every expression statement with `directive: null`.
+    const code = `
+import { onMount } from 'solid-js';
+function Box(props: { label: string }) {
+  onMount(() => log(props.label));
+  return <div>{props.label}</div>;
+}
+export function App() {
+  return <main><Box label="a" /></main>;
+}
+`;
+    const output = optimize(code, { fold: false, filename: 'app.tsx' });
+    expect(output).not.toContain('function Box');
+    expect(output).toContain('<main><div>{"a"}</div></main>');
+  });
+
   it('keeps the declaration of a component used elsewhere', () => {
     const code = `
 export function Title(props) {

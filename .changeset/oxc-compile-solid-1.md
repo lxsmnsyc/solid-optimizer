@@ -6,4 +6,4 @@ The Babel plugin is replaced with a `compile` function for Solid 1.x. It runs on
 It inlines components into the JSX that uses them, so Solid creates fewer templates.
 It folds constants and resolves `<Show>`, `<For>`, `<Index>`, `<Switch>`, and `<Dynamic>` when their props are constants, and inlines memos whose caching does nothing.
 `solid-optimizer/vite` replaces `vite-plugin-solid` and takes the same options.
-The SSR call removals from the Babel plugin are gone.
+The `server` option replaces the Babel plugin's SSR rewrites. It now leaves hydration keys intact and keeps arguments with side effects.

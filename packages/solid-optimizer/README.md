@@ -41,6 +41,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
+- `server` compiles for the server. It removes `createEffect` and `onMount`, and reduces `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`, `createMemo`, `createRenderEffect`, and `createComputed` to what they do on the server. Defaults to `false`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', 'solid-js/web']`.
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
@@ -80,6 +81,7 @@ The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
 - `optimizer.fold`, `optimizer.inline`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
+- `optimizer.server` applies the `server` option in server builds. Defaults to `true`.
 
 ### Limits
 
@@ -153,6 +155,19 @@ return <p style={style()} />;
 ```
 
 becomes `<p style={{ color: color() }} />`. The computation must take no `prev` parameter, so an initial value, the second argument in Solid 1, is ignored.
+
+### Server builds
+
+On the server, Solid renders once and never updates, so its reactive primitives reduce to plain calls.
+
+- `createEffect` and `onMount` are removed. Whatever only they used, like a charting library, drops out of the server bundle.
+- `untrack(fn)` and `batch(fn)` become `fn()`, and `startTransition(fn)` calls `fn()` and returns nothing.
+- `createDeferred(source)` becomes `source`, and `getListener()` becomes `null`.
+- `createMemo`, `createRenderEffect`, and `createComputed` run their function once, in place.
+
+This runs after the other optimizations, while modules are transformed. The server and client build then make the same inlining decisions, so hydration still matches.
+
+Two differences are accepted. A function passed to `createMemo`, `createRenderEffect`, or `createComputed` no longer gets its own owner, so an `onCleanup` inside it registers on the enclosing one. Inside `catchError` or `<ErrorBoundary>`, an error it throws stops the component instead of leaving the memo `undefined`.
 
 ### Constant folding and control flow
 

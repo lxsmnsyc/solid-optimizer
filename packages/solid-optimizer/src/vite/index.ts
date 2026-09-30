@@ -30,6 +30,13 @@ export interface OptimizerOptions extends Pick<
   'fold' | 'inline' | 'memos' | 'maxPasses'
 > {
   /**
+   * Reduce Solid's reactive primitives to what they do on the server, in
+   * server builds. See the `server` option of `compile`.
+   *
+   * @default true
+   */
+  server?: boolean;
+  /**
    * Where the optimizer runs.
    *
    * - `auto` uses chunk mode for client builds that do not hydrate, and module mode otherwise.
@@ -276,7 +283,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if ((chunkMode() && isClient(this)) || !isJSXModule(id)) {
         return null;
       }
-      const result = compile(code, { ...compileOptions, filename: stripQuery(id) });
+      const result = compile(code, {
+        ...compileOptions,
+        filename: stripQuery(id),
+        // The server renders once, so its reactive primitives reduce to plain calls.
+        server: optimizer.server !== false && !isClient(this),
+      });
       if (!result.map) {
         return null;
       }

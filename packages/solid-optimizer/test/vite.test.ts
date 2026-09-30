@@ -146,6 +146,22 @@ describe('solid-optimizer/vite', () => {
     expect(html(optimized.app)).toContain('Clicks: 2');
   });
 
+  it('drops code only effects use from the server bundle', async () => {
+    const serverCode = async (options: Options): Promise<string> => {
+      const chunks = await bundle('ssr', options, { server: 'src/entry-server.tsx' });
+      return chunks.map((chunk) => chunk.code).join('\n');
+    };
+    const optimized = await serverCode({ ssr: true });
+    const plain = await serverCode({ ssr: true, optimizer: false });
+    const client = (await bundle('ssr', { ssr: true }, { client: 'src/entry-client.tsx' }))
+      .map((chunk) => chunk.code)
+      .join('\n');
+    // The effect is removed while modules are transformed, so the bundler never keeps its import.
+    expect(optimized).not.toContain('client-only-analytics');
+    expect(plain).toContain('client-only-analytics');
+    expect(client).toContain('client-only-analytics');
+  });
+
   it('hydrates server HTML when both builds optimize each module', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const results: { markup: string; hydrated: string; claimed: boolean }[] = [];

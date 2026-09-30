@@ -278,7 +278,7 @@ function isDynamic(node: Node): boolean {
  * Whether any expression short of a sequence can replace `node` without
  * parentheses, because its slot is a whole expression of its own.
  */
-function acceptsAnyExpression(context: PassContext, node: Node): boolean {
+export function acceptsAnyExpression(context: PassContext, node: Node): boolean {
   const parent = context.parents.get(node);
   if (!parent) {
     return false;
@@ -438,7 +438,10 @@ class Inliner {
       const rest: Statement[] = [];
       for (const statement of body.slice(0, -1)) {
         // A directive like `"use strict"` changes how the body runs.
-        if ('directive' in statement || containsReturn(statement)) {
+        // TypeScript's AST gives every expression statement a `directive`
+        // key, which is `null` unless the statement is a directive.
+        const directive = 'directive' in statement ? statement.directive : null;
+        if (typeof directive === 'string' || containsReturn(statement)) {
           return undefined;
         }
         rest.push(statement);
