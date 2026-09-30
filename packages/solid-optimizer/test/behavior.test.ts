@@ -55,10 +55,11 @@ function App() {
         "import { createContext, useContext } from 'solid-js';",
       ),
     );
-    // The consumer outside the provider is inlined. The one inside stays a
-    // component, so its `useContext` still runs under the provider.
+    // The consumer outside the provider reads the default. The one inside
+    // moves out with the provider's value, and the provider is removed.
     expect(code).toContain('const theme$1 = useContext(Theme);');
-    expect(code).toContain('createComponent(Label, {})');
+    expect(code).not.toContain('createComponent(Label');
+    expect(code).not.toContain('createComponent(Theme');
   });
 
   it('keeps a consumer under an inlined provider', async () => {
@@ -87,7 +88,7 @@ function App() {
       ),
     );
     expect(code).not.toContain('ThemeProvider');
-    expect(code).toContain('createComponent(Theme, {');
+    expect(code).not.toContain('createComponent(Theme');
   });
 
   it('reads context inside inlined JSX', async () => {
@@ -108,12 +109,13 @@ function App() {
         "import { createContext, useContext } from 'solid-js';",
       ),
     );
-    // JSX-only consumers inline everywhere, including inside providers.
+    // JSX-only consumers inline everywhere, and then each provider is removed.
     expect(code).not.toContain('Label');
+    expect(code).not.toContain('createComponent(Theme');
   });
 
   it('follows a provider whose value changes', async () => {
-    await expectSameBehavior(
+    const code = await expectSameBehavior(
       'context-reactive',
       app(
         `const Count = createContext(() => 0);
@@ -137,6 +139,8 @@ function App() {
       ),
       ['button', 'button'],
     );
+    // The signal getter is the value, so the read calls it directly.
+    expect(code).not.toContain('createComponent(Count');
   });
 });
 

@@ -1,4 +1,4 @@
-import { createSignal, Show } from 'solid-js';
+import { createContext, createSignal, Show, useContext } from 'solid-js';
 
 const DEBUG = false;
 
@@ -15,6 +15,13 @@ function Counter(props: { initial: number; label: string }) {
   );
 }
 
+const Theme = createContext<string>();
+
+function Themed() {
+  const theme = useContext(Theme);
+  return <p class={theme}>themed</p>;
+}
+
 export function App() {
   return (
     <main>
@@ -23,6 +30,9 @@ export function App() {
         <pre>debug</pre>
       </Show>
       <Counter initial={1} label="Clicks" />
+      <Theme value="dark">
+        <Themed />
+      </Theme>
     </main>
   );
 }

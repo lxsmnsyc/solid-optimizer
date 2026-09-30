@@ -32,7 +32,7 @@ Builds that hydrate run everything while modules are transformed, since the serv
 
 ## Context inlining
 
-Status: proposed, not implemented.
+Status: implemented. See [How it is built](#how-it-is-built).
 
 ### What a provider costs
 
@@ -105,11 +105,29 @@ Removing the provider and inlining the consumers therefore has to happen as one 
 
 Compound components that share context between a parent and its parts in the same module or chunk, such as tabs, accordions, form fields, and select menus. Headless UI libraries are built this way. App-wide providers around routes, lazy chunks, and library components almost never have a closed subtree.
 
-### Plan
+### How it is built
 
-1. Remove a provider when its subtree is closed and nothing in it reads the context, for example after folding removed the only consumer. Keep the value's side effects.
-2. Replace reads that are `useContext(Ctx)` directly in JSX, then remove the provider.
-3. Inline consumers that read the context in statements, together with removing the provider.
+A provider is removed in two steps, in two passes of the same round.
+
+1. The inline pass looks for closed providers that have components under them. It treats each one like an intrinsic element, so consumer statements can move out through it. A value that is not a literal or a binding that never changes is stored in a `const` of the host first, and the provider takes that `const`. In each inlined copy, `useContext(Ctx)` becomes the value.
+2. The provider pass removes a closed provider with no components under it. It replaces the reads left in its JSX and turns it into a fragment.
+
+A subtree is closed when it contains only:
+
+- intrinsic elements, fragments, Solid's built-ins other than `<Dynamic>`, and other providers;
+- components the inline pass can inline, whose own code is closed;
+- calls to Solid's primitives and to signal, store, and memo accessors;
+- method calls on an object literal, reached through bindings that never change or through the provider's value, when the method is an accessor or a closed function.
+
+A read of a parameter's member, other than the component's own props, counts as unknown code. So do spreads, `new`, tagged templates, and dynamic imports. A function given to an `on*` attribute is skipped. It runs with no owner, so a `useContext` in it throws with or without the provider.
+
+The value must never be `undefined`, since `useContext` would then fall back to the default or throw. It has to be a literal other than `undefined`, an object, array, function, class, JSX, or template literal, a signal accessor, or a binding that never changes and holds one of those.
+
+### Not covered yet
+
+- A provider in a callback, like a `.map()` or `<For>` child, with a value that has to be stored. The `const` needs a place that runs once per provider.
+- A consumer whose context value is used as something other than an object literal or an accessor, such as a store or a class instance.
+- Providers in other modules. Hydrating builds only see one module at a time.
 
 ## Memo inlining
 
@@ -191,6 +209,19 @@ A module with JSX is never loaded. This plugin's transform can be waiting for th
 ### Comma expressions in JSX
 
 Rolldown and `vite:oxc` print a comma expression that is the whole of a JSX expression container without its parentheses. JSX does not allow that, so the next parse fails. A fold that keeps a side effect makes such an expression, as in `{[effect()] ? 'on' : 'off'}`. Rolldown also makes one from that code on its own, with every pass turned off. Chunk mode puts the parentheses back after `vite:oxc` and before `renderChunk` parses the chunk.
+
+This is a bug in the oxc code generator, which both `vite:oxc` and Rolldown use. It is not reported upstream yet. The smallest reproduction, with Vite 8.3.1 and Rolldown 1.2.11:
+
+```js
+import { transformWithOxc } from 'vite';
+
+const result = await transformWithOxc('export const a = <p>{(b(), c)}</p>;', 'a.jsx', {
+  jsx: 'preserve',
+});
+result.code; // export const a = <p>{b(), c}</p>;
+```
+
+Once oxc prints the parentheses, `repairJSXSequences` in `vite/runtime.ts` and its two call sites can be removed.
 
 ## Component inlining across modules
 

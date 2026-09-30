@@ -24,6 +24,7 @@ import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter } from 'vite';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
+import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
 import {
   MARKER,
@@ -37,7 +38,7 @@ import {
 
 export interface OptimizerOptions extends Pick<
   CompileOptions,
-  'fold' | 'inline' | 'memos' | 'maxPasses'
+  'fold' | 'inline' | 'contexts' | 'memos' | 'maxPasses'
 > {
   /**
    * Where the optimizer runs.
@@ -141,6 +142,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   const compileOptions: CompileOptions = {
     fold: optimizer.fold,
     inline: optimizer.inline,
+    contexts: optimizer.contexts,
     memos: optimizer.memos,
     maxPasses: optimizer.maxPasses,
     builtIns: [...builtIns],
@@ -392,7 +394,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         helpers: withRelated(needed),
         moduleSources,
         // The passes also recognize these primitives, which a chunk renames too.
-        builtIns: new Set([...builtIns, 'createMemo']),
+        builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
       });
       if (marked) {
         code = marked.code;
