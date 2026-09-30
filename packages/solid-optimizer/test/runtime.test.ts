@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generatedImports } from '../src/vite/runtime';
+import { addMarker, generatedImports } from '../src/vite/runtime';
 
 describe('generatedImports', () => {
   it('lists only the helpers the JSX transform added', () => {
@@ -10,5 +10,24 @@ import { insert as _$insert } from "@solidjs/web";
 import { createSignal } from "solid-js";
 `;
     expect(generatedImports(code, 'a.tsx', '@solidjs/web')).toEqual(['template', 'insert']);
+  });
+});
+
+describe('addMarker', () => {
+  it('keeps only the built-ins the module still uses', () => {
+    const code = `import { Dynamic } from "@solidjs/web";
+import { For, Show } from "solid-js";
+export const list = <For each={[]}>{() => <p />}</For>;
+`;
+    const marked = addMarker(code, 'a.tsx', {
+      moduleName: '@solidjs/web',
+      helpers: new Set(['template']),
+      moduleSources: ['solid-js', '@solidjs/web'],
+      builtIns: new Set(['Dynamic', 'For', 'Show']),
+    });
+    // A folded \`<Show>\` or \`<Dynamic>\` leaves an unused import, which the bundler drops.
+    expect(marked?.code).toContain('"builtin:For": For');
+    expect(marked?.code).not.toContain('builtin:Show');
+    expect(marked?.code).not.toContain('builtin:Dynamic');
   });
 });

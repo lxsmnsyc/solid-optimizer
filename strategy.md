@@ -16,11 +16,15 @@ So each part runs where it has the most effect.
 | Part                               | Transform | `renderChunk` | Why                                                                    |
 | ---------------------------------- | --------- | ------------- | ---------------------------------------------------------------------- |
 | Fold, module constants             | yes       | yes           | Dead branches leave the module graph before bundling.                  |
-| Fold, constants from other modules |           | yes           | Only visible in the chunk.                                             |
+| Fold, constants from other modules | yes       | yes           | The plugin reads them from the imported modules.                       |
 | Memo inlining                      | yes       | yes           | Reads that are only direct once a component is inlined need the chunk. |
 | Component inlining                 |           | yes           | It needs to know which components share the chunk.                     |
 | Helper marker                      | yes       |               | It has to survive bundling.                                            |
 | Lowering and helper linking        |           | yes           | Only possible once the chunk is final.                                 |
+
+To fold a constant imported from another module, the plugin resolves each import and reads the module from disk, as written. It keeps `export const` bindings whose value folds, a `let` the module never writes to, and names re-exported from another such module. It skips dependencies, virtual modules, and modules with a query. A value another plugin would rewrite, like a `define` replacement, is not a literal on disk, so it does not fold. This is what lets a shared runtime chunk drop `<Dynamic>` or `<Show>` when a constant from a config module folds them away everywhere.
+
+The helper marker only keeps the built-ins a module still uses after folding, so an import that folding left unused does not keep the export alive.
 
 A call to Solid's `lazy` is marked `/* @__PURE__ */`. It only creates a component and loads nothing until it renders, so the bundler can drop one a folded branch left unused, along with its dynamic import.
 

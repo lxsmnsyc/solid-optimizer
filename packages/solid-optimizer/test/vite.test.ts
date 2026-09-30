@@ -151,6 +151,19 @@ describe('solid-optimizer/vite', () => {
     expect(plain).toHaveLength(2);
   });
 
+  it('folds constants imported from other modules before bundling', async () => {
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('imported-constants', { optimizer: { mode } });
+      const code = chunks.map((chunk) => chunk.code).join('\n');
+      // `ADMIN` is re-exported from another module, and its branch takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(code).not.toContain('admin tools');
+      expect(code).toContain('<main class=dark><h1>Home');
+    }
+    expect(await bundle('imported-constants', { optimizer: false })).toHaveLength(2);
+  });
+
   it('renders and updates like the unoptimized build', async () => {
     const optimized = await run(await bundle('basic'));
     const plain = await run(await bundle('basic', { optimizer: false }));

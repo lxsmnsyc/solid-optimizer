@@ -45,8 +45,27 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `memos` turns memo inlining on or off. Defaults to `true`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
+- `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
 - `sourceMap` turns the source map on or off. Defaults to `true`.
+
+### Constants from other modules
+
+`readModuleConstants` reads the constants a module exports, and the modules it imports from.
+
+```js
+import { compile, readModuleConstants } from 'solid-optimizer';
+
+const config = readModuleConstants(configCode, { filename: 'config.ts' });
+config.exports; // { SHOW_BANNER: true, THEME: 'light' }
+
+compile(appCode, {
+  filename: 'app.tsx',
+  importedConstants: { './config': config.exports },
+});
+```
+
+It keeps `export const` bindings whose value folds, a `let` the module never writes to, and names exported from them. A module that re-exports constants from another module takes that module's constants in its own `importedConstants`.
 
 > **Warning**
 > The output changes the shape of the rendered tree, and with it the hydration keys. Compile a server build and its client build from the same code with the same options.
@@ -71,6 +90,8 @@ The plugin optimizes in one of two modes.
 
 - **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
 - **Module mode** is for everything else. Each module is optimized before the official plugin lowers it. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so hydrating builds only inline within a module.
+
+Both modes fold constants imported from other modules in the project. The plugin reads each imported module from disk, so a value another plugin rewrites, like a `define` replacement, does not fold. Dependencies are not read.
 
 The optimizer is off while serving. Set `optimizer.dev` to run module mode in dev too.
 

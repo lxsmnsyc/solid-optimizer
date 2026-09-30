@@ -14,6 +14,7 @@
  *   differently, and hydration needs both to render the same tree, so
  *   hydrating builds only optimize within a module.
  */
+import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import remapping from '@jridgewell/remapping';
@@ -22,8 +23,9 @@ import type { Options as SolidPluginOptions } from '@solidjs/vite-plugin';
 import solidPlugin from '@solidjs/vite-plugin';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter } from 'vite';
-import type { CompileOptions, CompileResult } from '../compile';
-import { compile } from '../compile';
+import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
+import { compile, readModuleConstants } from '../compile';
+import type { ImportedConstants } from '../constants';
 import {
   MARKER,
   MissingHelperError,
@@ -86,6 +88,9 @@ function withRelated(helpers: readonly string[]): Set<string> {
   }
   return result;
 }
+
+/** Modules whose constants are read from disk: JavaScript and TypeScript sources. */
+const SCRIPT_MODULE = /\.[mc]?[jt]sx?$/i;
 
 const LAZY_PLACEHOLDER = /"__SOLID_LAZY_MODULE__:([^"]+)"/g;
 
@@ -207,6 +212,126 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   /** Modules that keep their JSX, which the bundler must parse as JSX. */
   const preserved = new Set<string>();
 
+  /** What each source file imports and the constants it exports, by path. */
+  const moduleConstants = new Map<string, Promise<ModuleConstants | undefined>>();
+
+  /**
+   * The file an import resolves to, when its constants can be read from it:
+   * a script in the project, not a virtual module, a module with a query,
+   * or a dependency.
+   */
+  async function resolveSourceFile(
+    context: Rollup.PluginContext,
+    specifier: string,
+    importer: string,
+  ): Promise<string | undefined> {
+    if (moduleSources.includes(specifier)) {
+      return undefined;
+    }
+    const resolved = await context.resolve(specifier, importer);
+    if (
+      !resolved ||
+      resolved.external ||
+      resolved.id.startsWith('\0') ||
+      resolved.id.includes('?') ||
+      resolved.id.includes('/node_modules/') ||
+      !SCRIPT_MODULE.test(resolved.id)
+    ) {
+      return undefined;
+    }
+    return resolved.id;
+  }
+
+  /**
+   * The constants of the modules `code` imports, keyed by import specifier.
+   *
+   * Each module is read from disk, as written. A constant that another
+   * plugin would rewrite, like a `define` replacement, is not a literal
+   * there, so it does not fold. A module that imports constants itself
+   * resolves them first, and a cycle leaves the modules in it without them.
+   */
+  async function importedConstants(
+    context: Rollup.PluginContext,
+    imports: readonly string[],
+    importer: string,
+    visiting: ReadonlySet<string>,
+  ): Promise<ImportedConstants> {
+    const entries = await Promise.all(
+      imports.map(async (specifier) => {
+        const file = await resolveSourceFile(context, specifier, importer);
+        if (file === undefined || visiting.has(file)) {
+          return undefined;
+        }
+        context.addWatchFile(file);
+        const constants = await constantsOf(context, file, visiting);
+        if (!constants || Object.keys(constants.exports).length === 0) {
+          return undefined;
+        }
+        return [specifier, constants.exports] as const;
+      }),
+    );
+    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+  }
+
+  async function constantsOf(
+    context: Rollup.PluginContext,
+    file: string,
+    visiting: ReadonlySet<string>,
+  ): Promise<ModuleConstants | undefined> {
+    let pending = moduleConstants.get(file);
+    if (!pending) {
+      pending = (async () => {
+        let code: string;
+        try {
+          code = await readFile(file, 'utf8');
+        } catch {
+          return undefined;
+        }
+        try {
+          const own = readModuleConstants(code, { filename: file });
+          if (own.imports.length === 0) {
+            return own;
+          }
+          const imported = await importedConstants(
+            context,
+            own.imports,
+            file,
+            new Set([...visiting, file]),
+          );
+          return readModuleConstants(code, { filename: file, importedConstants: imported });
+        } catch (error) {
+          // A module the parser rejects fails its own transform, with a better error.
+          if (error instanceof SyntaxError) {
+            return undefined;
+          }
+          throw error;
+        }
+      })();
+      moduleConstants.set(file, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * The compile options for a module, with the constants of its imports.
+   */
+  async function moduleOptions(
+    context: Rollup.PluginContext,
+    code: string,
+    id: string,
+  ): Promise<CompileOptions> {
+    const filename = stripQuery(id);
+    if (optimizer.fold === false) {
+      return { ...compileOptions, filename };
+    }
+    const { imports } = readModuleConstants(code, { filename });
+    return {
+      ...compileOptions,
+      filename,
+      importedConstants: await importedConstants(context, imports, filename, new Set([filename])),
+    };
+  }
+
   async function resolveLazyModuleUrls(
     context: Rollup.TransformPluginContext,
     code: string,
@@ -251,7 +376,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // its imports and `lazy()` chunks out of the module graph, which the
     // chunk step can no longer do. Inlining waits for the chunk, where the
     // components it can reach are known.
-    const local = compile(code, { ...compileOptions, filename, inline: false });
+    const local = compile(code, { ...(await moduleOptions(context, code, id)), inline: false });
     if (local.map) {
       code = local.code;
       maps.push(local.map.toString());
@@ -302,14 +427,20 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     configResolved(resolved) {
       config = resolved;
     },
-    transform(code, id) {
+    buildStart() {
+      moduleConstants.clear();
+    },
+    watchChange() {
+      moduleConstants.clear();
+    },
+    async transform(code, id) {
       if (!isBuild() && optimizer.dev !== true) {
         return null;
       }
       if ((chunkMode() && isClient(this)) || !isJSXModule(id)) {
         return null;
       }
-      const result = compile(code, { ...compileOptions, filename: stripQuery(id) });
+      const result = compile(code, await moduleOptions(this, code, id));
       if (!result.map) {
         return null;
       }
