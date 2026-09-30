@@ -985,18 +985,24 @@ class Inliner {
     // from its new body. A copy made now would miss what was inlined into it.
     const changedBodies = new Set<Component>();
     for (const site of inBodyOrder(sites)) {
-      if (!changedBodies.has(site.component) && this.inline(site.component, site.element)) {
+      const postponed = changedBodies.has(site.component);
+      const done = !postponed && this.inline(site.component, site.element);
+      if (done) {
         this.changed = true;
         const elements = inlined.get(site.component) ?? [];
         elements.push(site.element);
         inlined.set(site.component, elements);
+      } else {
+        otherUses.set(site.component, (otherUses.get(site.component) ?? 0) + 1);
+      }
+      // A component holding a call that was inlined now, or postponed to the
+      // next pass, waits too. A copy made now would copy the call as it is.
+      if (done || postponed) {
         for (const component of components) {
           if (isWithin(site.element, component.fn)) {
             changedBodies.add(component);
           }
         }
-      } else {
-        otherUses.set(site.component, (otherUses.get(site.component) ?? 0) + 1);
       }
     }
 
