@@ -1,6 +1,6 @@
 # solid-optimizer demo
 
-A small Solid 2.0 app built with `solid-optimizer/vite`, for comparing its bundles with those of `@solidjs/vite-plugin` alone.
+A Solid 2.0 app built with `solid-optimizer/vite`, for checking how the optimizer handles Rolldown's chunks.
 
 ## Build
 
@@ -11,20 +11,22 @@ pnpm --filter solid-optimizer build
 pnpm --filter demo build
 ```
 
-This writes two builds, unminified so they are easy to read:
+This builds the app with and without the optimizer, in three chunking modes, into `dist/<mode>/<optimized|plain>`. The output is unminified, so it is easy to read. Then it prints a report.
 
-- `dist/optimized` is built with the optimizer.
-- `dist/plain` is built with `optimizer: false`.
+- `default` lets Rolldown split the app. The runtime gets its own chunk.
+- `vendor` puts everything from `node_modules` in a `vendor` chunk.
+- `single` turns code splitting off, so the whole app is one chunk.
 
-Set `MINIFY=1` to compare minified sizes instead.
+`pnpm --filter demo report` prints the report again. For each chunk, it shows the minified and gzipped size, the number of templates, and the components the chunk still calls. It fails when a chunk still calls a component it should have inlined.
 
-```bash
-MINIFY=1 pnpm --filter demo build
-```
+`pnpm --filter demo verify` loads every build in a browser, opens each page, and checks that the optimized app renders the same DOM as the plain one.
 
 ## What to look for
 
-- `Title`, `Icon`, `Button`, `Counter`, `Card`, `Home`, and `Banner` are merged into `App`, so the home page is one template.
-- `Counter`'s signal moves into `App`.
-- `Banner` folds away. `SHOW_BANNER` and `THEME` are constants, so `<Show>`, `<Switch>`, and `<Dynamic>` leave only `<aside class=banner><em>light theme</em></aside>`, and their runtime code is left out of the bundle.
-- `About` is loaded with `lazy()`, so it is its own chunk. `Card` stays a component there, since it lives in another chunk.
+- `NavLink`, `Banner`, `Icon`, and `Counter` only appear in the entry chunk, so they inline there.
+- `Stat` only appears in the dashboard chunk, and `Legend` only in the chart chunk, so they inline there.
+- `Badge` only appears in `Table`, so it inlines in the chunk `Table` shares with the dashboard and settings pages.
+- `Card`, `Button`, and `Avatar` live in the entry chunk. The lazy pages keep calling them.
+- `Table` lives in a shared chunk, so the dashboard and settings pages keep calling it.
+- `Home` renders in a `<Switch>` fallback, so it stays a component, with `Counter` merged into it.
+- In `single` mode, every component is in one chunk, so all of them inline, and the runtime code only they needed is dropped.

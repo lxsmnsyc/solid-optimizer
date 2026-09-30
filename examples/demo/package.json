@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm build:optimized && pnpm build:plain",
-    "build:optimized": "vite build",
-    "build:plain": "OPTIMIZER=off vite build",
+    "build": "node build.ts && node report.ts",
     "dev": "vite",
+    "report": "node report.ts",
     "serve": "vite preview",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "verify": "node verify.ts"
   },
   "dependencies": {
     "@solidjs/web": "2.0.0-rc.11",
@@ -16,6 +16,8 @@
   },
   "devDependencies": {
     "@solidjs/vite-plugin": "3.0.0-next.46",
+    "@types/node": "^26.6.3",
+    "happy-dom": "^20.14.5",
     "solid-optimizer": "workspace:*",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"

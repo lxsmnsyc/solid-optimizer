@@ -1,7 +1,7 @@
 import type { JSX } from '@solidjs/web';
 
-// Used by the home page and the lazy page. The lazy page is another chunk, so
-// only the home page inlines it.
+// Used by the entry and by lazy pages, so it lives in the entry chunk. The
+// entry inlines it, and the lazy chunks keep calling it.
 export function Card(props: { title: string; children: JSX.Element }) {
   return (
     <section class="card">
