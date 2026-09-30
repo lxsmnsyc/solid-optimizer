@@ -438,7 +438,10 @@ class Inliner {
       const rest: Statement[] = [];
       for (const statement of body.slice(0, -1)) {
         // A directive like `"use strict"` changes how the body runs.
-        if ('directive' in statement || containsReturn(statement)) {
+        // TypeScript's AST gives every expression statement a `directive`
+        // key, which is `null` unless the statement is a directive.
+        const directive = 'directive' in statement ? statement.directive : null;
+        if (typeof directive === 'string' || containsReturn(statement)) {
           return undefined;
         }
         rest.push(statement);
