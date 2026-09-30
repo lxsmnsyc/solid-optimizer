@@ -25,7 +25,7 @@ export const list = <For each={[]}>{() => <p />}</For>;
       moduleSources: ['solid-js', '@solidjs/web'],
       builtIns: new Set(['Dynamic', 'For', 'Show']),
     });
-    // A folded \`<Show>\` or \`<Dynamic>\` leaves an unused import, which the bundler drops.
+    // A folded `<Show>` or `<Dynamic>` leaves an unused import, which the bundler drops.
     expect(marked?.code).toContain('"builtin:For": For');
     expect(marked?.code).not.toContain('builtin:Show');
     expect(marked?.code).not.toContain('builtin:Dynamic');
