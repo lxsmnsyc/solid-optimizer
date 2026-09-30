@@ -9,6 +9,7 @@ import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
 import { simplifyServer } from './server';
+import { removeProviders } from './provider';
 import { analyzeScopes } from './scope';
 import type { Primitive } from './value';
 
@@ -46,6 +47,13 @@ export interface CompileOptions {
    * @default false
    */
   server?: boolean;
+  /**
+   * Remove context providers whose reads are all visible, and give each
+   * read the provider's value.
+   *
+   * @default true
+   */
+  contexts?: boolean;
   /**
    * Replace a `createMemo` that always produces a new value and is read once
    * with its computation.
@@ -188,6 +196,9 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   }
   if (options.inline ?? true) {
     passes.push(inline);
+  }
+  if (options.contexts ?? true) {
+    passes.push(removeProviders);
   }
   if (options.memos ?? true) {
     passes.push(inlineMemos);

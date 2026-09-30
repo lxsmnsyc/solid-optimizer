@@ -283,14 +283,15 @@ describe('solid-optimizer/vite', () => {
     expect(optimized.claimed).toBe(true);
     expect(plain.claimed).toBe(true);
     expect(optimized.hydrated).toBe(
-      '<main data-hk="00"><h1 class="title">Hello</h1><button type="button">Clicks: 2</button></main>',
+      '<main data-hk="00"><h1 class="title">Hello</h1><button type="button">Clicks: 2</button><p class="dark">themed</p></main>',
     );
     expect(optimized.hydrated.replaceAll(/ data-hk="[^"]*"/g, '')).toBe(
       plain.hydrated.replaceAll(/ data-hk="[^"]*"/g, ''),
     );
     // The merged tree needs one hydration key instead of one per component.
+    // The context provider is removed on both sides.
     expect(optimized.markup.match(/data-hk=/g)).toHaveLength(1);
-    expect(plain.markup.match(/data-hk=/g)).toHaveLength(3);
+    expect(plain.markup.match(/data-hk=/g)).toHaveLength(4);
   });
 
   it('runs code-split chunks that share the runtime', async () => {

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from 'solid-js';
+import { createContext, createEffect, createSignal, Show, useContext } from 'solid-js';
 import { trackClicks } from './analytics';
 
 const DEBUG = false;
@@ -17,6 +17,13 @@ function Counter(props: { initial: number; label: string }) {
   );
 }
 
+const Theme = createContext<string>();
+
+function Themed() {
+  const theme = useContext(Theme);
+  return <p class={theme}>themed</p>;
+}
+
 export function App() {
   return (
     <main>
@@ -25,6 +32,9 @@ export function App() {
         <pre>debug</pre>
       </Show>
       <Counter initial={1} label="Clicks" />
+      <Theme.Provider value="dark">
+        <Themed />
+      </Theme.Provider>
     </main>
   );
 }

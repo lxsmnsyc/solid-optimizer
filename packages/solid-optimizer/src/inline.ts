@@ -79,6 +79,14 @@ import {
 import type { PassContext, ResolvedOptions } from './context';
 import { isConstantDeclaration, textOf } from './context';
 import type { Piece } from './jsx';
+import type { ClosedOptions, Provider } from './provider';
+import {
+  contextReads,
+  findProviders,
+  isClosed,
+  providerContext,
+  stableValueText,
+} from './provider';
 import { keptPiece, replacedPiece, writePieces } from './jsx';
 import type { Binding, Scope } from './scope';
 import { isWithinScope, lookup, scopeAt } from './scope';
@@ -105,6 +113,8 @@ interface Component {
   readonly statements: readonly Statement[];
   readonly root: JSXElement | JSXFragment;
   readonly props: readonly PropRead[];
+  /** The props parameter, when there is one. */
+  readonly param: Binding | undefined;
   /** Bindings declared inside the component, which get fresh names in every copy. */
   readonly locals: readonly Binding[];
   /** References to bindings outside the component, which must mean the same at the call site. */
@@ -383,6 +393,13 @@ class Inliner {
 
   private readonly hosts = new Map<Node, { host: Host; texts: string[] }>();
 
+  /**
+   * Providers whose subtree is closed, so statements can move out through
+   * them. Each maps to the text its reads become, or `undefined` when a
+   * binding that never changes is read at each site.
+   */
+  private readonly transparent = new Map<JSXElement, { provider: Provider; text?: string }>();
+
   constructor(private readonly context: PassContext) {}
 
   // ---------------------------------------------------------------------------
@@ -517,6 +534,7 @@ class Inliner {
       statements,
       root,
       props,
+      param: paramBinding,
       locals,
       outer,
     };
@@ -592,8 +610,8 @@ class Inliner {
 
   /**
    * Where the statements of a component created at `element` can go: the
-   * returned JSX of a component, with only intrinsic elements and fragments
-   * between it and the call.
+   * returned JSX of a component, with only intrinsic elements, fragments,
+   * and closed providers between it and the call.
    */
   private hostOf(element: JSXElement): { fn: Node; host: Host } | undefined {
     let node: Node = element;
@@ -604,7 +622,10 @@ class Inliner {
       }
       if (parent.type === 'JSXElement') {
         const { name } = parent.openingElement;
-        if (name.type !== 'JSXIdentifier' || !isIntrinsicTag(name.name)) {
+        const passable =
+          this.transparent.has(parent) ||
+          (name.type === 'JSXIdentifier' && isIntrinsicTag(name.name));
+        if (!passable) {
           return undefined;
         }
         const child = node;
@@ -840,10 +861,18 @@ class Inliner {
       return false;
     }
 
+    const contextTexts = this.contextTexts(component, element);
+    if (!contextTexts) {
+      return false;
+    }
+
     // Build the copy on the original code, so this pass's other edits stay out of it.
     const copy = new MagicString(this.context.code);
     this.renameLocals(copy, component, fresh);
     this.substituteProps(copy, component, values);
+    for (const [read, text] of contextTexts) {
+      copy.overwrite(read.start, read.end, text);
+    }
 
     const rootText = copy.slice(component.root.start, component.root.end);
     this.context.s.overwrite(element.start, element.end, rootText);
@@ -860,6 +889,133 @@ class Inliner {
       this.hosts.set(host.fn, entry);
     }
     return true;
+  }
+
+  /**
+   * The context reads in a component's copy at `element` that a closed
+   * provider above it answers, with the text each becomes. `undefined` when
+   * a read cannot take the value there.
+   */
+  private contextTexts(component: Component, element: JSXElement): Map<Node, string> | undefined {
+    const texts = new Map<Node, string>();
+    for (const { provider, text } of this.answeringProviders(element)) {
+      for (const read of contextReads(this.context, component.fn, provider.context)) {
+        const value = text ?? stableValueText(this.context, provider, element);
+        if (value === undefined) {
+          return undefined;
+        }
+        texts.set(read, value);
+      }
+    }
+    return texts;
+  }
+
+  /**
+   * The closed providers that answer context reads at `element`. The nearest
+   * provider of each context answers its reads, closed or not.
+   */
+  private answeringProviders(element: JSXElement): { provider: Provider; text?: string }[] {
+    const answering: { provider: Provider; text?: string }[] = [];
+    const seen = new Set<Binding>();
+    for (
+      let node = this.context.parents.get(element);
+      node;
+      node = this.context.parents.get(node)
+    ) {
+      const target =
+        node.type === 'JSXElement'
+          ? providerContext(this.context, node.openingElement.name)
+          : undefined;
+      if (node.type !== 'JSXElement' || !target || seen.has(target)) {
+        continue;
+      }
+      seen.add(target);
+      const entry = this.transparent.get(node);
+      if (entry) {
+        answering.push(entry);
+      }
+    }
+    return answering;
+  }
+
+  /**
+   * Finds the providers statements can move out through: a subtree with
+   * only visible code, where every component is one this pass can inline.
+   * A value that is not a literal or a binding that never changes is
+   * stored in a `const` of the host first, so every read gets the same one.
+   */
+  private findTransparentProviders(
+    components: readonly Component[],
+    sites: readonly CallSite[],
+  ): Component[] {
+    const byBinding = new Map(components.map((component) => [component.binding, component]));
+    // Whether a subtree under `provider` only runs visible code, where each
+    // component is one this pass inlines and is visible too.
+    const closedUnder = (provider: Provider): ((node: Node) => boolean) => {
+      const closedComponents = new Map<Component, boolean>();
+      const options: ClosedOptions = {
+        component: (element) => {
+          const binding = this.context.scopes.references.get(element.openingElement.name);
+          const component = binding ? byBinding.get(binding) : undefined;
+          if (!component) {
+            return false;
+          }
+          const known = closedComponents.get(component);
+          if (known !== undefined) {
+            return known;
+          }
+          // A component that renders itself is never closed.
+          closedComponents.set(component, false);
+          const closed = isClosed(this.context, component.fn, {
+            ...options,
+            props: component.param,
+          });
+          closedComponents.set(component, closed);
+          return closed;
+        },
+        contextValue: (target) => (target === provider.context ? provider.value : undefined),
+      };
+      return (node) => isClosed(this.context, node, options);
+    };
+
+    const changed: Component[] = [];
+    for (const provider of findProviders(this.context)) {
+      const { element } = provider;
+      const inside = sites.some(
+        (site) => isWithin(site.element, element) && site.element !== element,
+      );
+      if (!inside) {
+        continue;
+      }
+      const isClosedNode = closedUnder(provider);
+      const closed = element.children.every((child) => isClosedNode(child));
+      if (!closed) {
+        continue;
+      }
+      if (stableValueText(this.context, provider, element) !== undefined) {
+        this.transparent.set(element, { provider });
+        continue;
+      }
+      const host = this.hostOf(element);
+      if (!host) {
+        continue;
+      }
+      const name = this.freshName(
+        `${provider.context.name.charAt(0).toLowerCase()}${provider.context.name.slice(1)}Value`,
+      );
+      const entry = this.hosts.get(host.fn) ?? { host: host.host, texts: [] };
+      entry.texts.push(`const ${name} = ${textOf(this.context, provider.value)};`);
+      this.hosts.set(host.fn, entry);
+      this.context.s.overwrite(provider.value.start, provider.value.end, name);
+      this.transparent.set(element, { provider, text: name });
+      this.changed = true;
+      for (const component of components) {
+        if (isWithin(element, component.fn)) {
+          changed.push(component);
+        }
+      }
+    }
+    return changed;
   }
 
   private renameLocals(
@@ -983,7 +1139,7 @@ class Inliner {
     const inlined = new Map<Component, JSXElement[]>();
     // A component whose body changed in this pass is copied in the next one,
     // from its new body. A copy made now would miss what was inlined into it.
-    const changedBodies = new Set<Component>();
+    const changedBodies = new Set<Component>(this.findTransparentProviders(components, sites));
     for (const site of inBodyOrder(sites)) {
       const postponed = changedBodies.has(site.component);
       const done = !postponed && this.inline(site.component, site.element);

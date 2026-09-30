@@ -40,6 +40,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `filename` sets the parser and the source map source. `.ts` and `.tsx` parse as TypeScript. Anything else parses as JSX. Defaults to `input.jsx`.
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
+- `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
 - `server` compiles for the server. It removes `createEffect` and `onMount`, and reduces `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`, `createMemo`, `createRenderEffect`, and `createComputed` to what they do on the server. Defaults to `false`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
@@ -104,7 +105,7 @@ The optimizer is off while serving. Set `optimizer.dev` to run module mode in de
 The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
 
 - `optimizer: false` uses `vite-plugin-solid` as it is.
-- `optimizer.fold`, `optimizer.inline`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
+- `optimizer.fold`, `optimizer.inline`, `optimizer.contexts`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 - `optimizer.server` applies the `server` option in server builds. Defaults to `true`.
@@ -170,6 +171,49 @@ Inlining accepts two differences:
 - Moved statements run before the host's JSX is created. The order of effect registration between siblings can change.
 
 Inlined JSX is a copy, so its source map points at the call site it replaced.
+
+### Context inlining
+
+A context provider, `<Ctx.Provider>`, whose readers are all visible is removed, and each read gets the provider's value.
+
+```jsx
+const Theme = createContext();
+
+function Label() {
+  const theme = useContext(Theme);
+  return <span class={theme}>label</span>;
+}
+
+export function App() {
+  return (
+    <main>
+      <Theme.Provider value="dark">
+        <Label />
+      </Theme.Provider>
+    </main>
+  );
+}
+```
+
+becomes
+
+```jsx
+export function App() {
+  const theme$1 = 'dark';
+  return (
+    <main>
+      <span class={'dark'}>label</span>
+    </main>
+  );
+}
+```
+
+- Everything under the provider has to be visible: intrinsic elements, Solid's built-ins, and components that inline. A call to an unknown function, or a read of a component's `props`, keeps the provider.
+- An object value is stored in a `const` once, so every reader gets the same object.
+- The value must never be `undefined`.
+- Removing the provider removes its owner, so the hydration keys change. Compile a server build and its client build with the same options.
+
+See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy.md) for the exact rules.
 
 ### Memo inlining
 
