@@ -320,6 +320,19 @@ describe('solid-optimizer/vite', () => {
     );
   });
 
+  it('copies a component into the only module that renders it, read from the HTML entry', async () => {
+    // Module mode has no chunk step, so only a copy made before bundling inlines it.
+    const optimized = (await bundle('sole-user', { optimizer: { mode: 'module' } }))
+      .map((chunk) => chunk.code)
+      .join('\n');
+    expect(optimized).not.toContain('createComponent(Panel');
+    expect(optimized).not.toMatch(/function Panel\(/);
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    expect(text(await load('sole-user', { optimizer: { mode: 'module' } }))).toBe(
+      text(await load('sole-user', { optimizer: false })),
+    );
+  });
+
   it('builds components in modules that import each other', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const optimized = text(await load('cycle'));

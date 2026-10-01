@@ -257,13 +257,58 @@ A transform that loads a module waits for that module's transform. Two modules t
 
 ### Cost
 
-- A component used in several chunks is copied into each. In the demo, `Card` and `Table` grew the lazy page chunks by 26 to 170 bytes each, and the total still dropped by a quarter.
+- A component used in several chunks is copied into a chunk only where the copy is no larger. See [Inlining only where it is smaller](#inlining-only-where-it-is-smaller).
 - Each module with imported components is compiled once more per round, which did not change the demo's build time.
 
 ### Not covered yet
 
 - Components from dependencies in `node_modules`.
 - A component another plugin transforms after this one, such as with macros. The copy is made from the module as the bundler loaded it, so that case is covered in chunk mode.
+
+## Inlining only where it is smaller
+
+Status: implemented.
+
+Inlining every call made the output larger on an app built from a component library. [solid-ui](https://github.com/stefan-karger/solid-ui), shadcn/ui on Kobalte, grew by 1–2% on Solid 1. Its wrappers, like `Button` or `SelectItem`, are used many times and render a Kobalte component. A copy cannot join a template, so it saves only the call, and it repeats the wrapper's `cn(...)` call and class string at every site. The copies into other modules caused all of it; inlining within a chunk alone was a small gain.
+
+### The estimate
+
+Before a pass inlines a component, it makes every copy without writing it, and estimates both sides as Solid's JSX transform would lower them, with whitespace a minifier removes left out:
+
+- A call costs `createComponent`, a getter per prop that is not a literal, and an `insert` when it sits in an element.
+- A copy costs its statements, a template for each root that is not in an element, an effect or `insert` per dynamic attribute and child, and the walk to each element that has one.
+- Each copy is folded on its own first, so a branch a constant prop rules out costs nothing.
+- When every call inlines and nothing else uses the component, its declaration counts on the call side.
+
+The component inlines when the copies are no larger. `alwaysInline` skips the estimate.
+
+### What the estimate cannot see
+
+Two effects make inlining pay off beyond the calls it replaces:
+
+- **Calls it enables.** A component with statements needs an element around its call to hoist them to. In the demo, `Counter`, `Tabs`, and `Tab` sit in `Card`'s children, and only inline once `Card` does. A copy of `Card` alone is larger than its call, since `Card` is the root a page returns and brings its own template. The estimate looks one level ahead: it measures the calls in a component's children as if the component were inlined, and counts what they would save. Deeper levels follow in later passes.
+- **Runtime the bundle drops.** Once `Tab` is inlined, nothing uses `merge`, `omit`, `spread`, or `useContext`, and the runtime chunk loses several kilobytes. The estimate does not count this. It follows here from `Tab` inlining for its own sake.
+
+### Who else uses a component
+
+A component copied from another module stays in its module when other modules use it, so only a component whose importer is its only user counts its declaration. The plugin reads every module the entries reach from disk once per build, and records for each export the modules that use it as a tag, and whether anything uses it otherwise: as a value, through a re-export or a dynamic import, or inside its own module. A use inside a component that was copied into the importer, and leaves its module, counts as a use in the importer.
+
+An HTML entry is read for its module scripts, since Vite has not resolved them when the first module is transformed. An inline module script makes every export count as used elsewhere.
+
+### Results
+
+| App                                         | Before                 | After                  |
+| ------------------------------------------- | ---------------------- | ---------------------- |
+| solid-ui, Solid 1 (default, vendor, single) | +1.8%, +1.0%, +1.1%    | −0.3%, −0.2%, −1.3%    |
+| Hacker News, Solid 1                        | −0.9%, −1.1%, −0.4%    | −0.9%, −1.1%, −0.4%    |
+| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −22.0%, −21.9%, −23.2% |
+
+The demo's code-split builds lose about 1 kB. `Card` and `Table` stay in their modules for the lazy pages, so Rolldown keeps them in a shared chunk and the runtime in a chunk of its own. With every copy made, it put the runtime in the entry chunk instead. The estimate cannot see how Rolldown will split.
+
+### Not covered yet
+
+- Runtime helpers the bundle would drop if every use went away.
+- How the copies change the way Rolldown splits chunks.
 
 ## Solid 1 catch-up
 

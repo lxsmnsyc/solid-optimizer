@@ -109,23 +109,26 @@ const NEVER_INLINED = new Set([
 ]);
 
 /**
- * Components each chunk may still call because they live in another chunk.
- * Components are inlined across modules before bundling now, so none are
- * expected, but a chunk that calls these is not a failure.
+ * Components each chunk may still call. A component used by several chunks
+ * is copied into a chunk only where the copy is no larger than the call, and
+ * where the components it is used with stay calls too, it stays a component.
  */
-const CROSS_CHUNK: Record<Mode, Record<string, readonly string[]>> = {
+const KEPT: Record<Mode, Record<string, readonly string[]>> = {
   default: {
     About: ['Card'],
     Dashboard: ['Card', 'Table'],
     Settings: ['Card', 'Avatar', 'Table', 'Button'],
+    // The lazy pages call these too, so a copy would not remove them.
+    index: ['Avatar', 'Button'],
   },
   vendor: {
     About: ['Card'],
     Dashboard: ['Card', 'Table'],
     Settings: ['Card', 'Avatar', 'Table', 'Button'],
+    index: ['Avatar', 'Button'],
   },
-  // One chunk holds every component, so none of them stays for this reason.
-  single: {},
+  // Two copies of the table would be larger than its two calls.
+  single: { index: ['Table'] },
 };
 
 /** Chunks with only Solid's runtime, which has no app components. */
@@ -155,7 +158,7 @@ for (const mode of MODES) {
     );
 
     if (chunk && !RUNTIME_CHUNKS.has(chunk.name)) {
-      const allowed = CROSS_CHUNK[mode][chunk.name] ?? [];
+      const allowed = KEPT[mode][chunk.name] ?? [];
       const unexpected = [...chunk.calls.keys()].filter(
         (call) => !NEVER_INLINED.has(call) && !allowed.includes(call),
       );
