@@ -99,6 +99,7 @@ import {
 import { keptPiece, replacedPiece, writePieces } from './jsx';
 import type { Binding, Scope } from './scope';
 import { isWithinScope, lookup, scopeAt } from './scope';
+import { SizeEstimator, copySize } from './size';
 import { evaluate, literalText } from './value';
 
 type ComponentFunction = FunctionNode | ArrowFunctionExpression;
@@ -182,6 +183,15 @@ interface Component {
 interface CallSite {
   readonly component: Component;
   readonly element: JSXElement;
+}
+
+/** A copy of a component, ready to replace a call site. */
+interface PreparedSite {
+  readonly element: JSXElement;
+  /** Where the statements go, when there are any. */
+  readonly host: { fn: Node; host: Host } | undefined;
+  readonly statements: string[];
+  readonly root: string;
 }
 
 function isWithin(node: Node, container: Node): boolean {
@@ -1052,8 +1062,11 @@ class Inliner {
     }
   }
 
+  /** The names `freshName` takes from while copies are only measured. */
+  private scratchNames: Set<string> | undefined;
+
   private freshName(base: string): string {
-    const { names } = this.context.scopes;
+    const names = this.scratchNames ?? this.context.scopes.names;
     let index = 1;
     let name = `${base}$${String(index)}`;
     while (names.has(name)) {
@@ -1065,32 +1078,33 @@ class Inliner {
   }
 
   /**
-   * Inlines `component` at `element`. Returns whether it did.
+   * The copy of `component` that would replace `element`, or `undefined`
+   * when it cannot be inlined there. Nothing is written until `commit`.
    */
-  private inline(component: Component, element: JSXElement): boolean {
+  private prepare(component: Component, element: JSXElement): PreparedSite | undefined {
     const attributes = attributesOf(element);
     if (!attributes) {
-      return false;
+      return undefined;
     }
     const hasChildren = element.children.some((child) => !isInsignificant(child));
     if (hasChildren && attributes.has('children')) {
-      return false;
+      return undefined;
     }
     for (const attribute of attributes.values()) {
       if (attribute.value && usesFunctionContext(this.context, attribute.value)) {
-        return false;
+        return undefined;
       }
     }
     for (const child of element.children) {
       if (usesFunctionContext(this.context, child)) {
-        return false;
+        return undefined;
       }
     }
 
     // What each view read and spread resolves to at this call site.
     const views = this.resolveViews(component, attributes, hasChildren);
     if (!views) {
-      return false;
+      return undefined;
     }
 
     // What each prop reads as.
@@ -1121,7 +1135,7 @@ class Inliner {
         value = this.propValue(attributes.get(name), reads, fresh, snapshots);
       }
       if (!value) {
-        return false;
+        return undefined;
       }
       values.set(name, value);
     }
@@ -1130,19 +1144,19 @@ class Inliner {
     const scope = scopeAt(this.context.scopes, this.context.parents, element);
     for (const reference of component.outer) {
       if (lookup(scope, reference.name) !== reference.binding) {
-        return false;
+        return undefined;
       }
     }
 
     const hoisted = component.statements.length > 0 || snapshots.length > 0;
     const host = hoisted ? this.hostOf(element) : undefined;
     if (hoisted && !host) {
-      return false;
+      return undefined;
     }
 
     const contextTexts = this.contextTexts(component, element);
     if (!contextTexts) {
-      return false;
+      return undefined;
     }
 
     // Build the copy on the original code, so this pass's other edits stay out of it.
@@ -1154,21 +1168,30 @@ class Inliner {
       copy.overwrite(read.start, read.end, text);
     }
 
-    const rootText = copy.slice(component.root.start, component.root.end);
-    this.context.s.overwrite(element.start, element.end, rootText);
-
-    if (host) {
-      const first = component.statements.at(0);
-      const last = component.statements.at(-1);
-      const texts = [...snapshots];
-      if (first && last) {
-        texts.push(copy.slice(first.start, last.end));
-      }
-      const entry = this.hosts.get(host.fn) ?? { host: host.host, texts: [] };
-      entry.texts.push(...texts);
-      this.hosts.set(host.fn, entry);
+    const statements = [...snapshots];
+    const first = component.statements.at(0);
+    const last = component.statements.at(-1);
+    if (first && last) {
+      statements.push(copy.slice(first.start, last.end));
     }
-    return true;
+    return {
+      element,
+      host,
+      statements,
+      root: copy.slice(component.root.start, component.root.end),
+    };
+  }
+
+  /**
+   * Writes a prepared copy over its call site.
+   */
+  private commit(site: PreparedSite): void {
+    this.context.s.overwrite(site.element.start, site.element.end, site.root);
+    if (site.host) {
+      const entry = this.hosts.get(site.host.fn) ?? { host: site.host.host, texts: [] };
+      entry.texts.push(...site.statements);
+      this.hosts.set(site.host.fn, entry);
+    }
   }
 
   /**
@@ -1542,6 +1565,124 @@ class Inliner {
   // Pass
   // ---------------------------------------------------------------------------
 
+  /**
+   * The components worth inlining in this pass: those whose copies are no
+   * larger than what they replace, which is their calls, and their
+   * declaration when nothing else uses it.
+   */
+  private worthwhileComponents(
+    sites: readonly CallSite[],
+    postponed: ReadonlySet<Component>,
+    otherUses: ReadonlyMap<Component, number>,
+  ): Set<Component> {
+    const byComponent = new Map<Component, JSXElement[]>();
+    for (const site of sites) {
+      if (!postponed.has(site.component)) {
+        const elements = byComponent.get(site.component) ?? [];
+        elements.push(site.element);
+        byComponent.set(site.component, elements);
+      }
+    }
+    const result = new Set<Component>();
+    if (this.context.options.alwaysInline) {
+      for (const component of byComponent.keys()) {
+        result.add(component);
+      }
+      return result;
+    }
+    // The copies made here are only measured, so their fresh names are not kept.
+    const names = this.context.scopes.names;
+    this.scratchNames = new Set(names);
+    try {
+      for (const [component, elements] of byComponent) {
+        const copies = elements
+          .map((element) => this.prepare(component, element))
+          .filter((copy) => copy !== undefined);
+        const removable =
+          component.declaration !== undefined &&
+          otherUses.get(component) === 0 &&
+          copies.length === elements.length &&
+          !this.context.options.sharedComponents.has(component.binding.name);
+        if (copies.length > 0 && this.isWorthInlining(component, copies, removable)) {
+          result.add(component);
+        }
+      }
+    } finally {
+      this.scratchNames = undefined;
+    }
+    return result;
+  }
+
+  /**
+   * Whether copies are no larger than the calls they replace, once lowered,
+   * counting the declaration they remove when `removable`.
+   */
+  private isWorthInlining(
+    component: Component,
+    copies: readonly PreparedSite[],
+    removable: boolean,
+  ): boolean {
+    const estimator = this.estimator();
+    let calls = removable && component.declaration ? estimator.node(component.declaration) : 0;
+    let inlined = 0;
+    for (const copy of copies) {
+      const inTemplate = this.sitsInTemplate(copy.element);
+      calls += estimator.jsx(copy.element, inTemplate);
+      inlined += copySize(
+        this.context.filename,
+        this.sizeHeader(),
+        copy,
+        inTemplate,
+        this.context.options,
+      );
+    }
+    return inlined <= calls;
+  }
+
+  /**
+   * Whether an element sits directly in an intrinsic element, whose
+   * template its copy joins. A provider this pass makes transparent is
+   * removed once its consumers are inlined, so the element above it counts.
+   */
+  private sitsInTemplate(element: JSXElement): boolean {
+    let parent = this.context.parents.get(element);
+    while (parent?.type === 'JSXElement' && this.transparent.has(parent)) {
+      parent = this.context.parents.get(parent);
+    }
+    return (
+      parent?.type === 'JSXElement' &&
+      parent.openingElement.name.type === 'JSXIdentifier' &&
+      isIntrinsicTag(parent.openingElement.name.name)
+    );
+  }
+
+  private sizeEstimator: SizeEstimator | undefined;
+
+  private estimator(): SizeEstimator {
+    this.sizeEstimator ??= new SizeEstimator(this.context.code);
+    return this.sizeEstimator;
+  }
+
+  private header: string | undefined;
+
+  /**
+   * What a copy measured on its own needs to know: the module's imports,
+   * and the names that alias Solid's exports.
+   */
+  private sizeHeader(): string {
+    if (this.header === undefined) {
+      const imports = this.context.program.body
+        .filter((statement) => statement.type === 'ImportDeclaration')
+        .map((statement) => this.context.code.slice(statement.start, statement.end));
+      const aliases = [...this.context.options.builtInAliases.keys()];
+      if (aliases.length > 0) {
+        imports.push(`var ${aliases.join(', ')};`);
+      }
+      this.header = imports.join('\n');
+    }
+    return this.header;
+  }
+
   run(): void {
     const components: Component[] = [];
     for (const binding of this.context.scopes.root.bindings.values()) {
@@ -1579,10 +1720,18 @@ class Inliner {
     // A component whose body changed in this pass is copied in the next one,
     // from its new body. A copy made now would miss what was inlined into it.
     const changedBodies = new Set<Component>(this.findTransparentProviders(components, sites));
+    const worthwhile = this.worthwhileComponents(sites, changedBodies, otherUses);
     for (const site of inBodyOrder(sites)) {
       const postponed = changedBodies.has(site.component);
-      const done = !postponed && this.inline(site.component, site.element);
-      if (done) {
+      // Each copy is made now, so it takes in the call sites inside it that
+      // were inlined before it.
+      const copy =
+        postponed || !worthwhile.has(site.component)
+          ? undefined
+          : this.prepare(site.component, site.element);
+      const done = copy !== undefined;
+      if (copy) {
+        this.commit(copy);
         this.changed = true;
         const elements = inlined.get(site.component) ?? [];
         elements.push(site.element);

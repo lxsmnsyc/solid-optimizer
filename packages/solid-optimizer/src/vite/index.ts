@@ -32,6 +32,9 @@ import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
 import { exposeLocals, readExportedComponent } from './inject';
+import { nameNamespaceTags } from './namespace';
+import type { UsageIndex } from './usage';
+import { buildUsageIndex } from './usage';
 import {
   MARKER,
   MissingHelperError,
@@ -44,7 +47,7 @@ import {
 
 export interface OptimizerOptions extends Pick<
   CompileOptions,
-  'fold' | 'inline' | 'contexts' | 'memos' | 'maxPasses'
+  'fold' | 'inline' | 'alwaysInline' | 'contexts' | 'memos' | 'maxPasses'
 > {
   /**
    * Where the optimizer runs.
@@ -185,6 +188,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   const compileOptions: CompileOptions = {
     fold: optimizer.fold,
     inline: optimizer.inline,
+    alwaysInline: optimizer.alwaysInline,
     contexts: optimizer.contexts,
     memos: optimizer.memos,
     maxPasses: optimizer.maxPasses,
@@ -547,6 +551,45 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return stripped.code;
   }
 
+  /** How the app uses each export, built once per environment and build. */
+  const usageIndexes = new Map<string, Promise<UsageIndex>>();
+
+  /**
+   * How the app uses each export, read from the modules the entries reach.
+   */
+  async function usageIndex(context: Rollup.PluginContext): Promise<UsageIndex> {
+    const key = environmentKey(context, '');
+    let pending = usageIndexes.get(key);
+    if (!pending) {
+      // An HTML entry is not a script, so its scripts are the entries.
+      const entries = [...context.getModuleIds()]
+        .filter((id) => context.getModuleInfo(id)?.isEntry === true)
+        .flatMap((id) => {
+          const info = context.getModuleInfo(id);
+          return /\.[mc]?[jt]sx?(?:\?|$)/.test(id)
+            ? [id]
+            : [...(info?.importedIds ?? []), ...(info?.dynamicallyImportedIds ?? [])];
+        });
+      pending = buildUsageIndex(entries, {
+        resolve: async (source, importer) => {
+          const resolved = await context.resolve(source, importer);
+          return !resolved || resolved.external || resolved.id.includes('/node_modules/')
+            ? undefined
+            : resolved.id;
+        },
+        read: async (id) => {
+          try {
+            return await readFile(stripQuery(id), 'utf8');
+          } catch {
+            return undefined;
+          }
+        },
+      });
+      usageIndexes.set(key, pending);
+    }
+    return pending;
+  }
+
   /**
    * The text that imports a binding under `local`.
    */
@@ -660,6 +703,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     const filename = stripQuery(id);
     const maps: string[] = [];
     const excluded = new Set<string>();
+    const usage = await usageIndex(context);
+    // The components copied here that leave their module, by module.
+    const absorbed = new Map<string, Set<string>>();
+    const isOnlyUser = (copy: Copy): boolean => {
+      const [module = '', exported = ''] = copy.key.split('\0');
+      return usage.isOnlyUser(module, exported, id, absorbed);
+    };
     // The contexts the copies import, which the provider pass needs to know.
     const contexts = new Map<string, Set<string>>();
     let code = source;
@@ -758,6 +808,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           importedContexts: Object.fromEntries(
             [...contexts].map(([module, exported]) => [module, [...exported]]),
           ),
+          // The original of a copy stays in its module for its other users.
+          sharedComponents: copies.filter((copy) => !isOnlyUser(copy)).map((copy) => copy.name),
         });
         const left = analyzeScopes(parse(filename, result.code)).root.bindings;
         const stuck = copies.filter((copy) => left.has(copy.name));
@@ -772,6 +824,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       }
       if (!result || !edit) {
         break;
+      }
+      // Their uses of other components move here with them.
+      for (const copy of copies.filter(isOnlyUser)) {
+        const [module = '', exported = ''] = copy.key.split('\0');
+        absorbed.set(module, new Set([...(absorbed.get(module) ?? []), exported]));
       }
       maps.push(
         edit.generateMap({ source: filename, hires: true, includeContent: true }).toString(),
@@ -808,6 +865,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (local.map) {
       code = local.code;
       maps.push(local.map.toString());
+    }
+    // `<Ns.Member>` would keep a namespace object, which lowered code does not.
+    const named = nameNamespaceTags(code, filename);
+    if (named) {
+      code = named.code;
+      maps.push(named.map);
     }
 
     // Components imported from other modules inline here, so the bundler
@@ -893,10 +956,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     buildStart() {
       moduleConstants.clear();
       jsxImports.clear();
+      usageIndexes.clear();
     },
     watchChange() {
       moduleConstants.clear();
       jsxImports.clear();
+      usageIndexes.clear();
     },
     async transform(source, id) {
       if (!isBuild() && optimizer.dev !== true) {
