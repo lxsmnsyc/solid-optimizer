@@ -102,6 +102,9 @@ type Fold =
 
 const EMPTY: Fold = { kind: 'empty' };
 
+/** Solid's calls that only create a value, so the bundler can drop an unused one. */
+const PURE_CALLS = new Set(['lazy', 'createContext']);
+
 /**
  * The globals worth folding. They only apply to a reference that binds to
  * nothing, which is when the global is what runs.
@@ -289,16 +292,19 @@ class Folder {
   // ---------------------------------------------------------------------------
 
   /**
-   * Marks a call to Solid's `lazy` as pure. It only creates the component,
-   * and loads nothing until it renders. A folded branch can leave it unused,
-   * and the annotation lets the bundler drop it along with its dynamic import.
+   * Marks a call to Solid's `lazy` or `createContext` as pure. `lazy` only
+   * creates the component, and loads nothing until it renders. A folded
+   * branch can leave it unused, and the annotation lets the bundler drop it
+   * along with its dynamic import. `createContext` only creates the context,
+   * which inlining can leave unused.
    */
   private annotatePure(call: CallExpression): void {
     if (call.callee.type !== 'Identifier') {
       return;
     }
     const binding = this.context.scopes.references.get(call.callee);
-    if (!binding || solidExport(binding, this.context.options) !== 'lazy') {
+    const identity = binding ? solidExport(binding, this.context.options) : undefined;
+    if (identity === undefined || !PURE_CALLS.has(identity)) {
       return;
     }
     const before = this.context.code.slice(0, call.start).trimEnd();

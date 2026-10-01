@@ -81,6 +81,12 @@ export interface CompileOptions {
    */
   importedConstants?: ImportedConstants;
   /**
+   * The exports of imported modules that are contexts made by Solid's
+   * `createContext`, keyed by the import specifier as the code writes it.
+   * A provider of an imported context can be removed like a local one.
+   */
+  importedContexts?: Readonly<Record<string, readonly string[]>>;
+  /**
    * The most passes to run. One pass can expose work for the next, such as
    * an inlined component whose props now fold. Compilation stops early once
    * a pass changes nothing.
@@ -124,6 +130,12 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
     builtInAliases: new Map(Object.entries(options.builtInAliases ?? {})),
     constantVars: options.constantVars ?? false,
     importedConstants: resolveImportedConstants(options.importedConstants),
+    importedContexts: new Map(
+      Object.entries(options.importedContexts ?? {}).map(([source, names]) => [
+        source,
+        new Set(names),
+      ]),
+    ),
   };
 }
 

@@ -23,13 +23,8 @@ This builds the app with and without the optimizer, in three chunking modes, int
 
 ## What to look for
 
-- `NavLink`, `Banner`, `Icon`, and `Counter` only appear in the entry chunk, so they inline there.
-- `Stat` only appears in the dashboard chunk, and `Legend` only in the chart chunk, so they inline there.
-- `Badge` only appears in `Table`, so it inlines in the chunk `Table` shares with the dashboard and settings pages.
-- `Card`, `Button`, and `Avatar` live in the entry chunk. The lazy pages keep calling them.
-- `Table` lives in a shared chunk, so the dashboard and settings pages keep calling it.
-- `Home` renders in a `<Switch>` fallback, so it stays a component, with `Counter` merged into it.
-- `Banner` folds on `SHOW_BANNER` and `THEME` from `config.ts` before bundling, so no chunk uses `<Dynamic>` or `<Show>`, and the runtime chunk drops them and the code only they needed.
-- `Tabs` and `Tab` share state through a context, and `Tab` uses `merge` and `omit`. Both inline into `Home`, and the provider is removed.
-- The shared runtime chunk still exports `spread`, `merge`, `omit`, and the context functions. `Tabs.tsx` uses them as written, and Rolldown decides a shared chunk's exports before the chunk step inlines `Tab`. Only `single` mode drops them.
-- In `single` mode, every component is in one chunk, so all of them inline, and the runtime code only they needed is dropped.
+- Every component is inlined before bundling, including into the lazy pages, so no chunk calls `Card`, `Table`, `Avatar`, or `Button` anymore. The `Table` chunk is gone, and in `default` mode the runtime moves into the entry chunk.
+- `Banner` folds on `SHOW_BANNER` and `THEME` from `config.ts` before bundling, so no chunk uses `<Dynamic>` or `<Show>`.
+- `Tabs` and `Tab` share state through a context, and `Tab` uses `merge` and `omit`. Both inline into `Home`, and the provider is removed, so the runtime keeps no `spread`, `merge`, `omit`, or context code.
+- `Home` renders in a `<Switch>` fallback, so it stays a component, with `Counter`, `Card`, and the tabs merged into it.
+- The lazy pages grow a little, since each holds its own copy of `Card`.

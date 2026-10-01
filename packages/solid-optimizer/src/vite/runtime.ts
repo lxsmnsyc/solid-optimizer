@@ -20,8 +20,9 @@ import type {
   ImportDeclarationSpecifier,
   ImportSpecifier,
   Node,
+  Program,
 } from 'oxc-parser';
-import { collectParents, forEachChild, parse } from '../ast';
+import { collectParents, forEachChild, parse, unwrap } from '../ast';
 import type { ScopeAnalysis } from '../scope';
 import { analyzeScopes, lookup, scopeAt } from '../scope';
 
@@ -101,8 +102,58 @@ export interface MarkerOptions {
 }
 
 /**
- * Appends the helper imports and the marker call to a module.
- * Returns `undefined` when the module needs no helper.
+ * The functions declared at the top level of a module, with the statement
+ * that declares each: `function A() {}`, `const A = () => ...`, and their
+ * `export` forms.
+ */
+function topLevelFunctions(program: Program): { statement: Node; fn: Node }[] {
+  const found: { statement: Node; fn: Node }[] = [];
+  for (const statement of program.body) {
+    const declaration =
+      statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration'
+        ? statement.declaration
+        : statement;
+    if (!declaration) {
+      continue;
+    }
+    if (declaration.type === 'FunctionDeclaration') {
+      found.push({ statement, fn: declaration });
+    } else if (
+      declaration.type === 'VariableDeclaration' &&
+      declaration.declarations.length === 1
+    ) {
+      const init = declaration.declarations.at(0)?.init;
+      const fn = init ? unwrap(init) : undefined;
+      if (fn?.type === 'ArrowFunctionExpression' || fn?.type === 'FunctionExpression') {
+        found.push({ statement, fn });
+      }
+    }
+  }
+  return found;
+}
+
+function containsJSX(node: Node): boolean {
+  let found = false;
+  const visit = (current: Node): void => {
+    if (found) {
+      return;
+    }
+    if (current.type === 'JSXElement' || current.type === 'JSXFragment') {
+      found = true;
+      return;
+    }
+    forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/**
+ * Adds the helper imports and the marker calls to a module.
+ *
+ * Each top-level function with JSX gets its own marker, so a component the
+ * bundler drops takes its helpers with it. JSX anywhere else gets a marker
+ * at the top level. Returns `undefined` when the module needs no helper.
  */
 export function addMarker(
   code: string,
@@ -141,10 +192,35 @@ export function addMarker(
       }
     }
   }
+  const call = `${MARKER}({ ${entries.join(', ')} })`;
   const s = new MagicString(code);
+  const functions = topLevelFunctions(program).filter(({ fn }) => containsJSX(fn));
+  for (const { fn } of functions) {
+    if (
+      fn.type !== 'FunctionDeclaration' &&
+      fn.type !== 'FunctionExpression' &&
+      fn.type !== 'ArrowFunctionExpression'
+    ) {
+      continue;
+    }
+    const { body } = fn;
+    if (!body) {
+      continue;
+    }
+    if (body.type === 'BlockStatement') {
+      s.appendLeft(body.start + 1, `${call};`);
+    } else {
+      s.prependRight(body.start, `{ ${call}; return `);
+      s.appendLeft(body.end, '; }');
+    }
+  }
+  const outside = program.body.some(
+    (statement) =>
+      !functions.some((entry) => entry.statement === statement) && containsJSX(statement),
+  );
   s.append(
     `\nimport { ${specifiers.join(', ')} } from ${JSON.stringify(options.moduleName)};\n` +
-      `${MARKER}({ ${entries.join(', ')} });\n`,
+      (outside ? `${call};\n` : ''),
   );
   return { code: s.toString(), map: generateMap(s, filename) };
 }

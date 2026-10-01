@@ -109,9 +109,9 @@ const NEVER_INLINED = new Set([
 ]);
 
 /**
- * Components each chunk still calls because they live in another chunk.
- * `Card`, `Button`, and `Avatar` live in the entry chunk, and `Table` in a
- * chunk the dashboard and settings pages share.
+ * Components each chunk may still call because they live in another chunk.
+ * Components are inlined across modules before bundling now, so none are
+ * expected, but a chunk that calls these is not a failure.
  */
 const CROSS_CHUNK: Record<Mode, Record<string, readonly string[]>> = {
   default: {
@@ -137,26 +137,27 @@ const totals: string[] = [];
 for (const mode of MODES) {
   const plain = readChunks(mode, 'plain');
   const optimized = readChunks(mode, 'optimized');
-  const width = Math.max(...optimized.map((chunk) => chunk.name.length), 5) + 2;
+  const width = Math.max(...[...plain, ...optimized].map((chunk) => chunk.name.length), 5) + 2;
 
   process.stdout.write(`\n## ${mode}\n\n`);
   process.stdout.write(
     `${pad('chunk', width)}${pad('plain (min+gz)', 16)}${pad('optimized', 12)}${pad('change', 20)}templates   component calls left\n`,
   );
-  let plainTotal = 0;
-  let optimizedTotal = 0;
-  for (const chunk of optimized) {
-    const before = plain.find((other) => other.name === chunk.name);
-    plainTotal += before?.gzipped ?? 0;
-    optimizedTotal += chunk.gzipped;
+  // A chunk can exist in only one build, since inlining changes how Rolldown splits.
+  const names = [...new Set([...plain, ...optimized].map((chunk) => chunk.name))].sort();
+  const plainTotal = plain.reduce((sum, chunk) => sum + chunk.gzipped, 0);
+  const optimizedTotal = optimized.reduce((sum, chunk) => sum + chunk.gzipped, 0);
+  for (const name of names) {
+    const before = plain.find((other) => other.name === name);
+    const chunk = optimized.find((other) => other.name === name);
     process.stdout.write(
-      `${pad(chunk.name, width)}${pad(kb(before?.gzipped ?? 0), 16)}${pad(kb(chunk.gzipped), 12)}${pad(change(before?.gzipped ?? 0, chunk.gzipped), 20)}${pad(`${String(before?.templates ?? 0)} → ${String(chunk.templates)}`, 12)}${callList(chunk.calls)}\n`,
+      `${pad(name, width)}${pad(before ? kb(before.gzipped) : '-', 16)}${pad(chunk ? kb(chunk.gzipped) : '-', 12)}${pad(change(before?.gzipped ?? 0, chunk?.gzipped ?? 0), 20)}${pad(`${String(before?.templates ?? 0)} → ${String(chunk?.templates ?? 0)}`, 12)}${chunk ? callList(chunk.calls) : '-'}\n`,
     );
 
-    if (!RUNTIME_CHUNKS.has(chunk.name)) {
+    if (chunk && !RUNTIME_CHUNKS.has(chunk.name)) {
       const allowed = CROSS_CHUNK[mode][chunk.name] ?? [];
       const unexpected = [...chunk.calls.keys()].filter(
-        (name) => !NEVER_INLINED.has(name) && !allowed.includes(name),
+        (call) => !NEVER_INLINED.has(call) && !allowed.includes(call),
       );
       if (unexpected.length > 0) {
         failures += 1;

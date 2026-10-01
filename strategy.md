@@ -225,34 +225,37 @@ Once oxc prints the parentheses, `repairJSXSequences` in `vite/runtime.ts` and i
 
 ## Component inlining across modules
 
-Status: proposed, not implemented.
+Status: implemented for chunk mode. Builds that hydrate still only inline within a module.
 
-Hydrating builds only inline components defined in the same module. Most apps keep one component per file, so those builds gain little. The plan is to inline an imported component while its importer is transformed, using the same resolve step as constants. The server and client builds see the same modules, so they make the same decisions.
+The chunk step inlines any component in the same chunk, but it runs after Rolldown has split the chunks. A shared chunk then still exports what an inlined component needed. In the demo, `Tab` spreads a view of its props and reads a context, so the runtime chunk kept `spread`, `merge`, `omit`, `createContext`, and `useContext` after `Tab` was gone. Inlining imported components while the importer is transformed lets Rolldown drop them, and what only they used, before it splits.
 
-This would also shrink shared runtime chunks in chunk mode. In the demo, `Tab` spreads a view of its props and reads a context. The chunk step inlines it and removes the provider, but the runtime chunk still exports `spread`, `merge`, `omit`, `createContext`, and `useContext`, because `Tabs.tsx` needed them when Rolldown split the chunks.
+### How it works
 
-### Where the component's code comes from
+In chunk mode, JSX is kept until `renderChunk`, so `this.load` of a module with JSX returns its JSX, after every other plugin transformed it.
 
-- Resolving is not the problem. Every import goes through `this.resolve`, so aliases, tsconfig paths, and resolver plugins apply.
-- The file on disk is not safe to read. A plugin that replaces or rewrites the module makes it wrong, as the constant probes showed.
-- `this.load` returns the code after Solid's JSX transform in module mode, so the JSX is gone.
-- `this.load` on a module with JSX can deadlock when two modules import each other.
+1. The importer finds each imported binding it uses as a JSX tag, and resolves its module.
+2. It loads that module and reads the exported component. Each binding the component refers to in its module is imported again: an import by the module it resolves to, and a local binding through an extra export, `__so_local$name`, which every module adds for the bindings its exported components need. Entry modules get no extra exports, since their exports are a public API.
+3. The copy is added to the importer under a new name, the tags point at it, and the importer is compiled. A copy the inline pass leaves behind is dropped and the module is compiled again without it, so a component is never in two places.
+4. Copies can call other imported components, which a few more rounds take in.
 
-A way through is to record the code of each JSX module at the point this plugin sees it, before Solid's transform. The importer then waits for that record with a check for cycles: it keeps a graph of which transform waits on which, and gives up on an import that would close a cycle. The recorded code misses what plugins after this one do, which has to be accepted or detected.
+A copy reuses an import the importer already has. Two imports of one context would be two bindings, and the provider pass would not match the reads to the provider. An imported context is known to `compile` through `importedContexts`, so its provider can be removed like a local one.
 
-### When a component can move
+The helper markers moved into each top-level function with JSX. A module-level marker kept every helper of a module alive, even after Rolldown dropped every component that used them.
 
-Everything the component's body refers to must be reachable from the importer:
+### Cycles
 
-- Its props, Solid's exports, and globals.
-- Bindings its module exports, which the importer can import by the module's resolved id.
-
-A reference to a private binding of its module keeps the call. So does a component that other plugins transform, such as one using macros or auto-imports.
+A transform that loads a module waits for that module's transform. Two modules that import each other's components would wait for each other forever. Each transform records the modules it waits for, and an import whose module already waits for the importer is not copied.
 
 ### Cost
 
-- The importer gains imports.
-- A component that is still called elsewhere keeps its definition, so its code can appear twice. A size limit is needed, such as only moving JSX-only components or components used once.
+- A component used in several chunks is copied into each. In the demo, `Card` and `Table` grew the lazy page chunks by 26 to 170 bytes each, and the total still dropped by a quarter.
+- Each module with imported components is compiled once more per round, which did not change the demo's build time.
+
+### Not covered yet
+
+- Builds that hydrate. `this.load` returns code after Solid's JSX transform there. They would need the code each module had before that transform, and the same cycle check.
+- Components from dependencies in `node_modules`.
+- A component another plugin transforms after this one, such as with macros. The copy is made from the module as the bundler loaded it, so that case is covered in chunk mode.
 
 ## Solid 1 catch-up
 
