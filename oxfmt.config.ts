@@ -9,6 +9,7 @@ export default defineConfig({
     '.changeset/*.md',
     'pnpm-lock.yaml',
     'examples/hackernews/src/**',
+    'examples/solid-ui/src/**',
     'examples/hackernews/public/**',
   ],
 });
