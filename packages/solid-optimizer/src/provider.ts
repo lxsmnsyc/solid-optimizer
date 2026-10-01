@@ -352,13 +352,9 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
       case 'Identifier': {
         // Another component's props run its parent's code when read, and
         // passing them on, as to `mergeProps()`, reads them somewhere else. A
-        // parameter declared under `root`, like a callback's, is a value.
+        // binding declared under `root`, like a callback's parameter, is a value.
         const binding = context.scopes.references.get(node);
-        if (
-          binding?.kind === 'param' &&
-          binding !== options.props &&
-          (binding.identifier.start < root.start || binding.identifier.end > root.end)
-        ) {
+        if (binding && runsOutsideCode(context, binding, root, options, 0)) {
           closed = false;
           return;
         }
@@ -371,6 +367,68 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
   };
   visit(root);
   return closed;
+}
+
+/**
+ * Whether using a binding declared outside `root` can run code that is not
+ * under `root`:
+ *
+ * - another component's props, whose getters run its parent's code;
+ * - a value built from them, like `mergeDefaultProps(defaults, props)`,
+ *   whose getters do the same;
+ * - a function, which `root` can call or pass on to be called.
+ *
+ * A component's own props, and values built from them, are replaced when
+ * it is inlined.
+ */
+function runsOutsideCode(
+  context: PassContext,
+  binding: Binding,
+  root: Node,
+  options: ClosedOptions,
+  depth: number,
+): boolean {
+  const { identifier, declaration } = binding;
+  if (
+    binding === options.props ||
+    (identifier.start >= root.start && identifier.end <= root.end) ||
+    isAccessor(context, binding) ||
+    // Calls of Solid's own functions are checked where they are made.
+    solidExport(binding, context.options) !== undefined
+  ) {
+    return false;
+  }
+  if (binding.kind === 'param' || binding.kind === 'function' || depth > 4) {
+    return true;
+  }
+  if (declaration.type !== 'VariableDeclarator' || !declaration.init) {
+    return false;
+  }
+  const init = unwrap(declaration.init);
+  if (isFunctionNode(init)) {
+    return true;
+  }
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) {
+      return;
+    }
+    if (node.type === 'Identifier') {
+      const target = context.scopes.references.get(node);
+      if (
+        target &&
+        target !== binding &&
+        (target.kind === 'param' || target.kind === 'const' || target.kind === 'let') &&
+        runsOutsideCode(context, target, root, options, depth + 1)
+      ) {
+        found = true;
+        return;
+      }
+    }
+    forEachChild(node, visit);
+  };
+  visit(init);
+  return found;
 }
 
 /**

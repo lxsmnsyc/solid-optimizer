@@ -127,6 +127,31 @@ export function Box(props) {
 }`);
   });
 
+  it('keeps a provider around a value built from props, whose getters run the parent code', () => {
+    kept(`import { mergeDefaultProps } from 'some-library';
+const Theme = createContext();
+export function Box(props) {
+  const merged = mergeDefaultProps({ size: 1 }, props);
+  return <div><Theme.Provider value="dark">{merged.children}</Theme.Provider></div>;
+}`);
+    kept(`const Theme = createContext();
+export function Box(props) {
+  const [local] = splitProps(props, ['children']);
+  return <div><Theme.Provider value="dark">{local.children}</Theme.Provider></div>;
+}`);
+  });
+
+  it('keeps a provider around a function declared outside it, which it can call', () => {
+    kept(`const Theme = createContext();
+const label = () => useContext(Theme);
+export const App = () => <main><Theme.Provider value="dark">{label}</Theme.Provider></main>;`);
+    kept(`const Theme = createContext();
+function label() {
+  return useContext(Theme);
+}
+export const App = () => <main><Theme.Provider value="dark"><For each={[1]}>{label}</For></Theme.Provider></main>;`);
+  });
+
   it('keeps a provider whose value can be undefined', () => {
     kept(`const Theme = createContext();
 export const App = (props) => <Theme.Provider value={maybe}><span>{useContext(Theme)}</span></Theme.Provider>;`);
