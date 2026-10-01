@@ -142,6 +142,14 @@ export function contextBinding(context: PassContext, name: Node): Binding | unde
   if (!binding || binding.mutated || binding.scope.parent !== undefined) {
     return undefined;
   }
+  if (binding.kind === 'import') {
+    const { source, imported } = binding;
+    const known =
+      source !== undefined &&
+      imported !== undefined &&
+      context.options.importedContexts.get(source)?.has(imported) === true;
+    return known ? binding : undefined;
+  }
   const { declaration } = binding;
   if (
     declaration.type !== 'VariableDeclarator' ||

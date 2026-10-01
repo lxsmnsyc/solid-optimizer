@@ -15,6 +15,8 @@ export interface ResolvedOptions {
   readonly constantVars: boolean;
   /** The constants imported modules export, by import specifier and export name. */
   readonly importedConstants: ResolvedImportedConstants;
+  /** The exports of imported modules that are contexts, by import specifier. */
+  readonly importedContexts: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /**

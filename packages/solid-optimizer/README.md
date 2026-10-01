@@ -88,7 +88,7 @@ export default defineConfig({
 
 The plugin optimizes in one of two modes.
 
-- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
+- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. Components imported from other modules are inlined there too, so the bundler drops them and the runtime code only they used. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
 - **Module mode** is for everything else. Each module is optimized before the official plugin lowers it. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so hydrating builds only inline within a module.
 
 Both modes fold constants imported from other modules in the project.
@@ -113,7 +113,9 @@ The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
 ### Limits
 
 - Chunk mode is skipped when the `babel` option is set, since those Babel plugins need each module.
-- Chunk mode imports the runtime helpers a merged tree can need into every module with JSX. A chunk that shares the runtime with another chunk exports these helpers even when nothing uses them.
+- Chunk mode adds an export named `__so_local$name` to a module for each local binding its exported components need, so a copy in another module can import it. Entry modules get none.
+- A component used in several chunks is copied into each of them.
+- Components from dependencies in `node_modules` are not copied.
 - Modules matched by the `extensions` option are lowered by the official plugin and are not optimized.
 
 ## Features

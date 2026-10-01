@@ -17,15 +17,20 @@
 import { createRequire } from 'node:module';
 import remapping from '@jridgewell/remapping';
 import type * as Babel from '@babel/core';
+import MagicString from 'magic-string';
+import type { Node, Program } from 'oxc-parser';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter } from 'vite';
 import type { Options as SolidPluginOptions } from 'vite-plugin-solid';
 import solidPlugin from 'vite-plugin-solid';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
+import { collectParents, parse } from '../ast';
+import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
 import type { Primitive } from '../value';
+import { exposeLocals, readExportedComponent } from './inject';
 import {
   MARKER,
   MissingHelperError,
@@ -169,6 +174,35 @@ function combineMaps(maps: (string | null | undefined)[]): string | null {
     return null;
   }
   return remapping(present.reverse(), () => null).toString();
+}
+
+/**
+ * The local name of each value a module imports, keyed by its source and
+ * the name it is imported as: an export name, `default`, or `*`.
+ */
+function importedNames(program: Program): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const statement of program.body) {
+    if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') {
+      continue;
+    }
+    for (const specifier of statement.specifiers) {
+      let imported = '*';
+      if (specifier.type === 'ImportDefaultSpecifier') {
+        imported = 'default';
+      } else if (specifier.type === 'ImportSpecifier') {
+        imported =
+          specifier.imported.type === 'Identifier'
+            ? specifier.imported.name
+            : specifier.imported.value;
+      }
+      const typeOnly = specifier.type === 'ImportSpecifier' && specifier.importKind === 'type';
+      if (!typeOnly) {
+        names.set(`${statement.source.value}\0${imported}`, specifier.local.name);
+      }
+    }
+  }
+  return names;
 }
 
 function isClient(context: { environment?: { config: { consumer: string } } }): boolean {
@@ -364,6 +398,282 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     };
   }
 
+  /** The modules each transform waits for, so two never wait for each other. */
+  const waiting = new Map<string, Set<string>>();
+
+  /** Whether the transform of `from` waits, directly or not, for `to`. */
+  const waitsFor = (from: string, to: string): boolean => {
+    const seen = new Set<string>();
+    const stack = [from];
+    for (let current = stack.pop(); current !== undefined; current = stack.pop()) {
+      if (current === to) {
+        return true;
+      }
+      if (!seen.has(current)) {
+        seen.add(current);
+        stack.push(...(waiting.get(current) ?? []));
+      }
+    }
+    return false;
+  };
+
+  /**
+   * The code of a module with JSX, as the bundler loads it. `undefined`
+   * when that module's transform waits for the importer, which would then
+   * wait for it in turn.
+   */
+  async function loadModule(
+    context: Rollup.PluginContext,
+    importer: string,
+    target: string,
+  ): Promise<string | undefined> {
+    if (waitsFor(target, importer)) {
+      return undefined;
+    }
+    const targets = waiting.get(importer) ?? new Set<string>();
+    targets.add(target);
+    waiting.set(importer, targets);
+    try {
+      const info = await context.load({ id: target });
+      return info.code ?? undefined;
+    } finally {
+      targets.delete(target);
+    }
+  }
+
+  /**
+   * The text that imports a binding under `local`.
+   */
+  function importText(local: string, imported: string, source: string): string {
+    const from = JSON.stringify(source);
+    if (imported === '*') {
+      return `import * as ${local} from ${from};`;
+    }
+    if (imported === 'default') {
+      return `import ${local} from ${from};`;
+    }
+    return `import { ${imported} as ${local} } from ${from};`;
+  }
+
+  interface Copy {
+    /** The module and export the copy comes from. */
+    readonly key: string;
+    readonly name: string;
+    /** The tags in the importer that call it. */
+    readonly tags: Node[];
+    readonly text: string;
+  }
+
+  interface CopyState {
+    /** Components that cannot be copied, or were left over before. */
+    readonly excluded: Set<string>;
+    /** The contexts the copies import, by module. */
+    readonly contexts: Map<string, Set<string>>;
+    /** Imports a binding into the importer, and gives its local name. */
+    readonly importAs: (base: string, imported: string, from: string) => string;
+  }
+
+  /**
+   * Reads the component `source` exports as `imported`, and imports what it
+   * needs into the importer. `undefined` when it cannot be copied.
+   */
+  async function copyImported(
+    context: Rollup.PluginContext,
+    id: string,
+    source: string,
+    imported: string,
+    state: CopyState,
+  ): Promise<{ key: string; text: (name: string) => string } | undefined> {
+    const resolved = await context.resolve(source, id);
+    if (
+      !resolved ||
+      resolved.external ||
+      resolved.id === id ||
+      resolved.id.includes('/node_modules/') ||
+      !isJSXModule(resolved.id)
+    ) {
+      return undefined;
+    }
+    const key = `${resolved.id}\0${imported}`;
+    if (state.excluded.has(key)) {
+      return undefined;
+    }
+    const loaded = await loadModule(context, id, resolved.id);
+    const component = loaded
+      ? readExportedComponent(loaded, stripQuery(resolved.id), imported, moduleSources)
+      : undefined;
+    if (!component) {
+      state.excluded.add(key);
+      return undefined;
+    }
+    // Each import of the module resolves from it, so the copy imports the same module.
+    const targets = new Map<string, string>();
+    for (const dependency of component.dependencies.values()) {
+      if (dependency.kind === 'import' && !moduleSources.includes(dependency.source)) {
+        // oxlint-disable-next-line no-await-in-loop
+        const target = await context.resolve(dependency.source, resolved.id);
+        if (!target) {
+          state.excluded.add(key);
+          return undefined;
+        }
+        targets.set(dependency.source, target.external ? dependency.source : target.id);
+      }
+    }
+    const rename = new Map<string, string>();
+    for (const [local, dependency] of component.dependencies) {
+      if (dependency.kind === 'import') {
+        const from = targets.get(dependency.source) ?? dependency.source;
+        rename.set(local, state.importAs(local, dependency.imported, from));
+        continue;
+      }
+      rename.set(local, state.importAs(local, dependency.exported, resolved.id));
+      if (dependency.context) {
+        const known = state.contexts.get(resolved.id) ?? new Set<string>();
+        known.add(dependency.exported);
+        state.contexts.set(resolved.id, known);
+      }
+    }
+    return { key, text: (name) => component.copy(name, rename) };
+  }
+
+  /**
+   * Copies the components a module imports from other modules with JSX into
+   * it, and inlines them there. A copy the inline pass cannot inline at
+   * every call is left out, so a component is never in both places. Copies
+   * can import components in turn, which a few more rounds take in.
+   */
+  async function inlineImports(
+    context: Rollup.PluginContext,
+    source: string,
+    id: string,
+    compileOptionsOfModule: CompileOptions,
+  ): Promise<{ code: string; maps: string[] } | undefined> {
+    const filename = stripQuery(id);
+    const maps: string[] = [];
+    const excluded = new Set<string>();
+    // The contexts the copies import, which the provider pass needs to know.
+    const contexts = new Map<string, Set<string>>();
+    let code = source;
+    for (let round = 0; round < 4; round += 1) {
+      const program = parse(filename, code);
+      const scopes = analyzeScopes(program);
+      const parents = collectParents(program);
+      const names = new Set(scopes.names);
+      const fresh = (base: string): string => {
+        let name = base;
+        for (let index = 1; names.has(name); index += 1) {
+          name = `${base}$${String(index)}`;
+        }
+        names.add(name);
+        return name;
+      };
+
+      // The module's own imports, so a copy reuses one instead of adding another.
+      // Two imports of one context would be two bindings to the provider pass.
+      const existing = importedNames(program);
+      // Imports added in this round, shared by every copy.
+      const imports: string[] = [];
+      const added = new Map<string, string>();
+      const importAs = (base: string, imported: string, from: string): string => {
+        const key = `${from}\0${imported}`;
+        const known = existing.get(key) ?? added.get(key);
+        if (known !== undefined) {
+          return known;
+        }
+        const name = fresh(base);
+        added.set(key, name);
+        imports.push(importText(name, imported, from));
+        return name;
+      };
+
+      // Each imported binding used as a JSX tag, and its copy.
+      const copies: Copy[] = [];
+      for (const statement of program.body) {
+        if (
+          statement.type !== 'ImportDeclaration' ||
+          statement.importKind === 'type' ||
+          moduleSources.includes(statement.source.value)
+        ) {
+          continue;
+        }
+        for (const specifier of statement.specifiers) {
+          const binding = scopes.root.bindings.get(specifier.local.name);
+          // Only tags are copied. The import stays for any other use.
+          const tags = (binding?.references ?? []).filter((reference) => {
+            const parent = parents.get(reference);
+            return (
+              (parent?.type === 'JSXOpeningElement' || parent?.type === 'JSXClosingElement') &&
+              parent.name === reference
+            );
+          });
+          if (
+            specifier.type === 'ImportNamespaceSpecifier' ||
+            binding?.imported === undefined ||
+            tags.length === 0
+          ) {
+            continue;
+          }
+          // oxlint-disable-next-line no-await-in-loop
+          const copy = await copyImported(context, id, statement.source.value, binding.imported, {
+            excluded,
+            contexts,
+            importAs,
+          });
+          if (copy) {
+            const name = fresh(specifier.local.name);
+            copies.push({ key: copy.key, name, tags, text: copy.text(name) });
+          }
+        }
+      }
+      if (copies.length === 0) {
+        break;
+      }
+
+      // Drop the copies the inline pass leaves behind, and try again without them.
+      let result: CompileResult | undefined;
+      let edit: MagicString | undefined;
+      for (let attempt = 0; attempt < 4 && copies.length > 0; attempt += 1) {
+        edit = new MagicString(code);
+        for (const copy of copies) {
+          for (const tag of copy.tags) {
+            edit.overwrite(tag.start, tag.end, copy.name);
+          }
+          edit.append(`\n${copy.text}\n`);
+        }
+        edit.append(`\n${imports.join('\n')}\n`);
+        result = compile(edit.toString(), {
+          ...compileOptionsOfModule,
+          filename,
+          sourceMap: true,
+          importedContexts: Object.fromEntries(
+            [...contexts].map(([module, exported]) => [module, [...exported]]),
+          ),
+        });
+        const left = analyzeScopes(parse(filename, result.code)).root.bindings;
+        const stuck = copies.filter((copy) => left.has(copy.name));
+        if (stuck.length === 0) {
+          break;
+        }
+        for (const copy of stuck) {
+          excluded.add(copy.key);
+          copies.splice(copies.indexOf(copy), 1);
+        }
+        result = undefined;
+      }
+      if (!result || !edit) {
+        break;
+      }
+      maps.push(
+        edit.generateMap({ source: filename, hires: true, includeContent: true }).toString(),
+      );
+      if (result.map) {
+        maps.push(result.map.toString());
+      }
+      code = result.code;
+    }
+    return code === source ? undefined : { code, maps };
+  }
+
   /**
    * Prepares a client module for chunk mode. It adds the helper marker
    * instead of lowering JSX. Vite strips the types afterwards.
@@ -380,7 +690,24 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // components it can reach are known.
     const moduleCompileOptions = await moduleOptions(context, source, id);
     const local = compile(source, { ...moduleCompileOptions, inline: false });
-    const code = local.code;
+    let code = local.code;
+    const maps: (string | null | undefined)[] = [local.map?.toString()];
+
+    // Components imported from other modules inline here, so the bundler
+    // drops them, and what only they used, before it splits the chunks.
+    if (moduleCompileOptions.inline !== false) {
+      const imported = await inlineImports(context, code, id, moduleCompileOptions);
+      if (imported) {
+        code = imported.code;
+        maps.push(...imported.maps);
+      }
+    }
+    // An entry's exports are its public API, so it gets no extra names.
+    const exposed = context.getModuleInfo(id)?.isEntry ? undefined : exposeLocals(code, filename);
+    if (exposed) {
+      code = exposed.code;
+      maps.push(exposed.map);
+    }
     // The helpers the module's JSX needs, as written and with its own
     // components inlined. Inlining can turn a spread into attributes, which
     // need helpers the spread did not.
@@ -397,7 +724,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     }
     preserved.add(id);
     if (needed.size === 0) {
-      return local.map ? { code, map: local.map.toString() } : null;
+      return code === source ? null : { code, map: combineMaps(maps) };
     }
     const marked = addMarker(code, filename, {
       moduleName,
@@ -407,11 +734,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
     });
     if (!marked) {
-      return local.map ? { code, map: local.map.toString() } : null;
+      return code === source ? null : { code, map: combineMaps(maps) };
     }
     return {
       code: marked.code,
-      map: combineMaps([local.map?.toString(), marked.map]),
+      map: combineMaps([...maps, marked.map]),
     };
   }
 

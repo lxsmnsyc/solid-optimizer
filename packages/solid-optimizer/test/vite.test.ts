@@ -294,6 +294,31 @@ describe('solid-optimizer/vite', () => {
     expect(plain.markup.match(/data-hk=/g)).toHaveLength(4);
   });
 
+  it('inlines components from other modules before splitting chunks', async () => {
+    const optimized = (await bundle('cross-module')).map((chunk) => chunk.code).join('\n');
+    const plain = (await bundle('cross-module', { optimizer: false }))
+      .map((chunk) => chunk.code)
+      .join('\n');
+    // The entry and the lazy page both inline `Badge`, so its spread goes too.
+    expect(optimized).not.toContain('createComponent(Badge');
+    expect(optimized).not.toMatch(/function spread\(/);
+    expect(plain).toMatch(/function spread\(/);
+
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    expect(text(await load('cross-module'))).toBe(
+      text(await load('cross-module', { optimizer: false })),
+    );
+  });
+
+  it('builds components in modules that import each other', async () => {
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    const optimized = text(await load('cycle'));
+    expect(optimized).toBe(text(await load('cycle', { optimizer: false })));
+    expect(optimized).toBe(
+      '<div class="a"><div class="b"><div class="a"><div class="b">end</div></div></div></div>',
+    );
+  });
+
   it('runs code-split chunks that share the runtime', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const optimized = text(await load('split'));
