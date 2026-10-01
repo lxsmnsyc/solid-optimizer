@@ -225,7 +225,7 @@ Once oxc prints the parentheses, `repairJSXSequences` in `vite/runtime.ts` and i
 
 ## Component inlining across modules
 
-Status: implemented for chunk mode. Builds that hydrate still only inline within a module.
+Status: implemented, in chunk mode and in module mode.
 
 The chunk step inlines any component in the same chunk, but it runs after Rolldown has split the chunks. A shared chunk then still exports what an inlined component needed. In the demo, `Tab` spreads a view of its props and reads a context, so the runtime chunk kept `spread`, `merge`, `omit`, `createContext`, and `useContext` after `Tab` was gone. Inlining imported components while the importer is transformed lets Rolldown drop them, and what only they used, before it splits.
 
@@ -242,6 +242,15 @@ A copy reuses an import the importer already has. Two imports of one context wou
 
 The helper markers moved into each top-level function with JSX. A module-level marker kept every helper of a module alive, even after Rolldown dropped every component that used them.
 
+### Module mode
+
+Builds that hydrate, and server builds, lower JSX in `transform`, so `this.load` returns code without JSX. The module step records the code it returns for each module, which still has its JSX, and an importer reads that record after `this.load` has run the module's transform. Types are stripped from it first, since the importer may be plain JavaScript.
+
+Hydration needs the server and client builds to inline the same components, so no decision can depend on the order modules are transformed in. Two rules keep it that way:
+
+- A module is not copied from when it imports the importer, directly or through other modules with JSX. The imports come from the files on disk, which both builds read alike. This also means no transform waits for one that waits for it.
+- Every module gets the extra exports, entries included. The two builds have different entries, and a module that is an entry in only one of them would otherwise be copied in only the other.
+
 ### Cycles
 
 A transform that loads a module waits for that module's transform. Two modules that import each other's components would wait for each other forever. Each transform records the modules it waits for, and an import whose module already waits for the importer is not copied.
@@ -253,7 +262,6 @@ A transform that loads a module waits for that module's transform. Two modules t
 
 ### Not covered yet
 
-- Builds that hydrate. `this.load` returns code after Solid's JSX transform there. They would need the code each module had before that transform, and the same cycle check.
 - Components from dependencies in `node_modules`.
 - A component another plugin transforms after this one, such as with macros. The copy is made from the module as the bundler loaded it, so that case is covered in chunk mode.
 

@@ -90,7 +90,7 @@ export default defineConfig({
 The plugin optimizes in one of two modes.
 
 - **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. Components imported from other modules are inlined there too, so the bundler drops them and the runtime code only they used. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
-- **Module mode** is for everything else. Each module is optimized before the official plugin lowers it. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so hydrating builds only inline within a module.
+- **Module mode** is for everything else. Each module is optimized before the official plugin lowers it, with the components it imports from other modules copied in first. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so every decision depends only on the modules. Two modules that import each other do not copy each other's components.
 
 Both modes fold constants imported from other modules in the project.
 
@@ -113,7 +113,7 @@ The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 ### Limits
 
 - Chunk mode is skipped when the `babel` option is set or `compiler` is `'babel'`, since those passes need each module.
-- Chunk mode adds an export named `__so_local$name` to a module for each local binding its exported components need, so a copy in another module can import it. Entry modules get none.
+- An export named `__so_local$name` is added to a module for each local binding its exported components need, so a copy in another module can import it. In chunk mode, entry modules get none.
 - A component used in several chunks is copied into each of them.
 - Components from dependencies in `node_modules` are not copied.
 - `.tsrx` modules are lowered by the official plugin and are not optimized.

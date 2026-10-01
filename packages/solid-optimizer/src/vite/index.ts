@@ -14,6 +14,7 @@
  *   differently, and hydration needs both to render the same tree, so
  *   hydrating builds only optimize within a module.
  */
+import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import remapping from '@jridgewell/remapping';
@@ -23,7 +24,7 @@ import type { Options as SolidPluginOptions } from '@solidjs/vite-plugin';
 import solidPlugin from '@solidjs/vite-plugin';
 import type { Node, Program } from 'oxc-parser';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
-import { createFilter } from 'vite';
+import { createFilter, transformWithOxc } from 'vite';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
 import { collectParents, parse } from '../ast';
@@ -144,6 +145,14 @@ function importedNames(program: Program): Map<string, string> {
     }
   }
   return names;
+}
+
+/**
+ * A key for a module in the build environment of `context`. The server and
+ * client builds transform the same module into different code.
+ */
+function environmentKey(context: { environment?: { name: string } }, id: string): string {
+  return `${context.environment?.name ?? ''}\0${id}`;
 }
 
 function isClient(context: { environment?: { config: { consumer: string } } }): boolean {
@@ -434,6 +443,111 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   }
 
   /**
+   * The code of each module with JSX as this plugin's module step returned
+   * it, before Solid's JSX transform lowers it. In module mode, an importer
+   * copies components from it.
+   */
+  const recorded = new Map<string, string>();
+
+  /** The modules with JSX each module imports, read from its file. */
+  const jsxImports = new Map<string, Promise<string[]>>();
+
+  /**
+   * The modules with JSX a module imports. They come from the file on disk,
+   * so they do not depend on the order modules are transformed in.
+   */
+  async function jsxImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
+    let pending = jsxImports.get(id);
+    if (!pending) {
+      pending = (async () => {
+        let code: string;
+        try {
+          code = await readFile(stripQuery(id), 'utf8');
+        } catch {
+          return [];
+        }
+        let program: Program;
+        try {
+          program = parse(stripQuery(id), code);
+        } catch {
+          return [];
+        }
+        const sources = new Set<string>();
+        for (const statement of program.body) {
+          if (
+            (statement.type === 'ImportDeclaration' && statement.importKind !== 'type') ||
+            ((statement.type === 'ExportNamedDeclaration' ||
+              statement.type === 'ExportAllDeclaration') &&
+              statement.source &&
+              statement.exportKind !== 'type')
+          ) {
+            const value = statement.source?.value;
+            if (value !== undefined && !moduleSources.includes(value)) {
+              sources.add(value);
+            }
+          }
+        }
+        const resolved = await Promise.all(
+          [...sources].map(async (source) => context.resolve(source, id)),
+        );
+        return resolved
+          .filter((target) => target && !target.external && isJSXModule(target.id))
+          .map((target) => target?.id ?? '');
+      })();
+      jsxImports.set(id, pending);
+    }
+    return pending;
+  }
+
+  /** Whether `from` imports `to`, directly or through other modules with JSX. */
+  async function reaches(
+    context: Rollup.PluginContext,
+    from: string,
+    to: string,
+  ): Promise<boolean> {
+    const seen = new Set<string>();
+    let frontier = [from];
+    while (frontier.length > 0) {
+      if (frontier.includes(to)) {
+        return true;
+      }
+      for (const id of frontier) {
+        seen.add(id);
+      }
+      // oxlint-disable-next-line no-await-in-loop
+      const next = await Promise.all(frontier.map(async (id) => jsxImportsOf(context, id)));
+      frontier = [...new Set(next.flat())].filter((id) => !seen.has(id));
+    }
+    return false;
+  }
+
+  /**
+   * The code of a module with JSX before Solid's JSX transform, with its
+   * types stripped. A module that imports the importer back is skipped, so
+   * no two transforms wait for each other, and the server and client builds
+   * skip the same ones.
+   */
+  async function loadRecorded(
+    context: Rollup.PluginContext,
+    importer: string,
+    target: string,
+  ): Promise<string | undefined> {
+    if (await reaches(context, target, importer)) {
+      return undefined;
+    }
+    await context.load({ id: target });
+    const code = recorded.get(environmentKey(context, target));
+    if (code === undefined) {
+      return undefined;
+    }
+    const stripped = await transformWithOxc(code, stripQuery(target), {
+      jsx: 'preserve',
+      sourcemap: false,
+    });
+    return stripped.code;
+  }
+
+  /**
    * The text that imports a binding under `local`.
    */
   function importText(local: string, imported: string, source: string): string {
@@ -463,6 +577,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     readonly contexts: Map<string, Set<string>>;
     /** Imports a binding into the importer, and gives its local name. */
     readonly importAs: (base: string, imported: string, from: string) => string;
+    /** The code of a module with JSX to copy from, or `undefined` to skip it. */
+    readonly load: (target: string) => Promise<string | undefined>;
   }
 
   /**
@@ -490,7 +606,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (state.excluded.has(key)) {
       return undefined;
     }
-    const loaded = await loadModule(context, id, resolved.id);
+    const loaded = await state.load(resolved.id);
     const component = loaded
       ? readExportedComponent(loaded, stripQuery(resolved.id), imported, moduleSources)
       : undefined;
@@ -539,6 +655,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     source: string,
     id: string,
     compileOptionsOfModule: CompileOptions,
+    load: (target: string) => Promise<string | undefined>,
   ): Promise<{ code: string; maps: string[] } | undefined> {
     const filename = stripQuery(id);
     const maps: string[] = [];
@@ -610,6 +727,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             excluded,
             contexts,
             importAs,
+            load,
           });
           if (copy) {
             const name = fresh(specifier.local.name);
@@ -695,7 +813,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // Components imported from other modules inline here, so the bundler
     // drops them, and what only they used, before it splits the chunks.
     if (moduleCompileOptions.inline !== false) {
-      const imported = await inlineImports(context, code, id, moduleCompileOptions);
+      const imported = await inlineImports(
+        context,
+        code,
+        id,
+        moduleCompileOptions,
+        async (target) => loadModule(context, id, target),
+      );
       if (imported) {
         code = imported.code;
         maps.push(...imported.maps);
@@ -768,22 +892,47 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     },
     buildStart() {
       moduleConstants.clear();
+      jsxImports.clear();
     },
     watchChange() {
       moduleConstants.clear();
+      jsxImports.clear();
     },
-    async transform(code, id) {
+    async transform(source, id) {
       if (!isBuild() && optimizer.dev !== true) {
         return null;
       }
       if ((chunkMode() && isClient(this)) || !isJSXModule(id)) {
         return null;
       }
-      const result = compile(code, await moduleOptions(this, code, id));
-      if (!result.map) {
+      const filename = stripQuery(id);
+      const sourceOptions = await moduleOptions(this, source, id);
+      const result = compile(source, sourceOptions);
+      let code = result.code;
+      const maps: (string | null | undefined)[] = [result.map?.toString()];
+      // Components imported from other modules inline here too. The server
+      // and client builds read the same modules, so they inline the same ones.
+      if (isBuild() && sourceOptions.inline !== false) {
+        const imported = await inlineImports(this, code, id, sourceOptions, async (target) =>
+          loadRecorded(this, id, target),
+        );
+        if (imported) {
+          code = imported.code;
+          maps.push(...imported.maps);
+        }
+        // Entries get the extra exports too. The server and client builds
+        // have different entries, and both have to copy the same components.
+        const exposed = exposeLocals(code, filename);
+        if (exposed) {
+          code = exposed.code;
+          maps.push(exposed.map);
+        }
+      }
+      recorded.set(environmentKey(this, id), code);
+      if (code === source) {
         return null;
       }
-      return { code: result.code, map: result.map.toString() };
+      return { code, map: combineMaps(maps) };
     },
   };
 
