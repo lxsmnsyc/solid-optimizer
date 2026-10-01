@@ -121,6 +121,47 @@ async function load(fixture: string, options: Options = {}): Promise<string> {
   }
 }
 
+/**
+ * Builds a fixture for the server and the client, renders it on the server,
+ * hydrates the markup in a DOM, and clicks its first button.
+ */
+async function hydrateFixture(
+  fixture: string,
+  optimizer: Options['optimizer'],
+): Promise<{ markup: string; hydrated: string; claimed: boolean }> {
+  const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+  const options: Options = { ssr: true, optimizer };
+  const server = (await bundle(fixture, options, { server: 'src/entry-server.tsx' })).at(0);
+  const client = await bundle(fixture, options, { client: 'src/entry-client.tsx' });
+  const out = path.join(scratch, `${fixture}-${optimizer === false ? 'plain' : 'optimized'}`);
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  writeFileSync(path.join(out, 'server.mjs'), server?.code ?? '');
+  const module: unknown = await import(pathToFileURL(path.join(out, 'server.mjs')).href);
+  if (!hasRender(module)) {
+    throw new Error('no render');
+  }
+  const markup = module.render();
+
+  const window = new Window();
+  window.document.body.innerHTML = `<div id="app">${markup}</div>`;
+  const serverButton = window.document.querySelector('button');
+  window.eval('window._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };');
+  // The runtime reads `import.meta` to resolve lazy modules, which a script cannot use.
+  const script = client.map((chunk) => chunk.code).join('\n');
+  window.eval(script.replaceAll('import.meta', '({})'));
+  await window.happyDOM.waitUntilComplete();
+  const button = window.document.querySelector('button');
+  button?.click();
+  await window.happyDOM.waitUntilComplete();
+  return {
+    markup,
+    hydrated: text(window.document.getElementById('app')?.innerHTML ?? ''),
+    // Hydration claims the server's nodes instead of rendering new ones.
+    claimed: serverButton !== null && serverButton === button,
+  };
+}
+
 describe('solid-optimizer/vite', () => {
   it('merges a client app into one template', async () => {
     const chunks = await bundle('basic');
@@ -235,45 +276,27 @@ describe('solid-optimizer/vite', () => {
     expect(client).toContain('client-only-analytics');
   });
 
+  it('hydrates server HTML with components inlined from other modules', async () => {
+    const optimized = await hydrateFixture('ssr-modules', undefined);
+    const plain = await hydrateFixture('ssr-modules', false);
+    expect(optimized.claimed).toBe(true);
+    expect(plain.claimed).toBe(true);
+    const keyless = (markup: string): string => markup.replaceAll(/ data-hk="[^"]*"/g, '');
+    expect(keyless(optimized.hydrated)).toBe(keyless(plain.hydrated));
+    expect(keyless(optimized.hydrated)).toBe(
+      '<main><h1 class="title">Hello</h1><button type="button"><span class="label">Clicks: 2</span></button><p class="dark">themed</p><i><b><i>even</i></b></i></main>',
+    );
+    // The server and client builds inline the same components. Only the
+    // modules that import each other keep their calls.
+    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(3);
+    expect(plain.markup.match(/data-hk=/g)).toHaveLength(8);
+  });
+
   it('hydrates server HTML when both builds optimize each module', async () => {
-    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const results: { markup: string; hydrated: string; claimed: boolean }[] = [];
     for (const optimizer of [undefined, false] as const) {
-      const options: Options = { ssr: true, optimizer };
       // oxlint-disable-next-line no-await-in-loop
-      const server = (await bundle('ssr', options, { server: 'src/entry-server.tsx' })).at(0);
-      // oxlint-disable-next-line no-await-in-loop
-      const client = await bundle('ssr', options, { client: 'src/entry-client.tsx' });
-      const out = path.join(scratch, `ssr-${String(optimizer)}`);
-      rmSync(out, { recursive: true, force: true });
-      mkdirSync(out, { recursive: true });
-      writeFileSync(path.join(out, 'server.mjs'), server?.code ?? '');
-      // oxlint-disable-next-line no-await-in-loop
-      const module: unknown = await import(pathToFileURL(path.join(out, 'server.mjs')).href);
-      if (!hasRender(module)) {
-        throw new Error('no render');
-      }
-      const markup = module.render();
-
-      const window = new Window();
-      window.document.body.innerHTML = `<div id="app">${markup}</div>`;
-      const serverButton = window.document.querySelector('button');
-      window.eval('window._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };');
-      // The runtime reads `import.meta` to resolve lazy modules, which a script cannot use.
-      const script = client.map((chunk) => chunk.code).join('\n');
-      window.eval(script.replaceAll('import.meta', '({})'));
-      // oxlint-disable-next-line no-await-in-loop
-      await window.happyDOM.waitUntilComplete();
-      const button = window.document.querySelector('button');
-      button?.click();
-      // oxlint-disable-next-line no-await-in-loop
-      await window.happyDOM.waitUntilComplete();
-      results.push({
-        markup,
-        hydrated: text(window.document.getElementById('app')?.innerHTML ?? ''),
-        // Hydration claims the server's nodes instead of rendering new ones.
-        claimed: serverButton !== null && serverButton === button,
-      });
+      results.push(await hydrateFixture('ssr', optimizer));
     }
     const optimized = results.at(0);
     const plain = results.at(1);
