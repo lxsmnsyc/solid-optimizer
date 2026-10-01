@@ -1001,6 +1001,7 @@ class Inliner {
         const { name } = parent.openingElement;
         const passable =
           this.transparent.has(parent) ||
+          this.assumedHosts?.has(parent) === true ||
           (name.type === 'JSXIdentifier' && isIntrinsicTag(name.name));
         if (!passable) {
           return undefined;
@@ -1168,6 +1169,12 @@ class Inliner {
 
   /** The names `freshName` takes from while copies are only measured. */
   private scratchNames: Set<string> | undefined;
+
+  /**
+   * Component calls measured as if they were inlined already, so the calls
+   * in their children can hoist statements through them.
+   */
+  private assumedHosts: ReadonlySet<JSXElement> | undefined;
 
   private freshName(base: string): string {
     const names = this.scratchNames ?? this.context.scopes.names;
@@ -1733,19 +1740,24 @@ class Inliner {
       return result;
     }
     // The copies made here are only measured, so their fresh names are not kept.
-    const names = this.context.scopes.names;
-    this.scratchNames = new Set(names);
+    this.scratchNames = new Set(this.context.scopes.names);
     try {
+      const copiesOf = new Map<Component, Map<JSXElement, PreparedSite | undefined>>();
       for (const [component, elements] of byComponent) {
-        const copies = elements
-          .map((element) => this.prepare(component, element))
-          .filter((copy) => copy !== undefined);
-        const removable =
-          component.declaration !== undefined &&
-          otherUses.get(component) === 0 &&
-          copies.length === elements.length &&
-          !this.context.options.sharedComponents.has(component.binding.name);
-        if (copies.length > 0 && this.isWorthInlining(component, copies, removable)) {
+        copiesOf.set(
+          component,
+          new Map(elements.map((element) => [element, this.prepare(component, element)])),
+        );
+      }
+      for (const [component, byElement] of copiesOf) {
+        const copies = [...byElement.values()].filter((copy) => copy !== undefined);
+        if (copies.length === 0) {
+          continue;
+        }
+        const gain =
+          this.inliningGain(component, copies, this.isRemovable(component, byElement, otherUses)) +
+          this.enabledGain(component, copies, copiesOf, otherUses);
+        if (gain >= 0) {
           result.add(component);
         }
       }
@@ -1756,14 +1768,75 @@ class Inliner {
   }
 
   /**
-   * Whether copies are no larger than the calls they replace, once lowered,
-   * counting the declaration they remove when `removable`.
+   * Whether inlining every call removes a component: nothing else uses it,
+   * every call can be inlined, and its code is not kept elsewhere.
    */
-  private isWorthInlining(
+  private isRemovable(
+    component: Component,
+    copies: ReadonlyMap<JSXElement, PreparedSite | undefined>,
+    otherUses: ReadonlyMap<Component, number>,
+  ): boolean {
+    return (
+      component.declaration !== undefined &&
+      otherUses.get(component) === 0 &&
+      [...copies.values()].every((copy) => copy !== undefined) &&
+      !this.context.options.sharedComponents.has(component.binding.name)
+    );
+  }
+
+  /**
+   * What inlining `component` saves through the calls in its children that
+   * can only be inlined once it is: a component with statements needs an
+   * element around its call to hoist them to.
+   */
+  private enabledGain(
+    component: Component,
+    copies: readonly PreparedSite[],
+    copiesOf: ReadonlyMap<Component, ReadonlyMap<JSXElement, PreparedSite | undefined>>,
+    otherUses: ReadonlyMap<Component, number>,
+  ): number {
+    const elements = copies.map((copy) => copy.element);
+    this.assumedHosts = new Set(elements);
+    let gain = 0;
+    try {
+      for (const [other, byElement] of copiesOf) {
+        if (other === component) {
+          continue;
+        }
+        const enabled = new Map(byElement);
+        let changed = false;
+        for (const [element, copy] of byElement) {
+          if (!copy && elements.some((outer) => isWithin(element, outer))) {
+            const next = this.prepare(other, element);
+            enabled.set(element, next);
+            changed ||= next !== undefined;
+          }
+        }
+        if (!changed) {
+          continue;
+        }
+        const now = [...byElement.values()].filter((copy) => copy !== undefined);
+        const then = [...enabled.values()].filter((copy) => copy !== undefined);
+        const before = now.length > 0 ? Math.max(0, this.inliningGain(other, now, false)) : 0;
+        const after = this.inliningGain(other, then, this.isRemovable(other, enabled, otherUses));
+        gain += Math.max(0, after - before);
+      }
+    } finally {
+      this.assumedHosts = undefined;
+    }
+    return gain;
+  }
+
+  /**
+   * How much smaller the copies are than the calls they replace, once
+   * lowered, counting the declaration they remove when `removable`.
+   * Negative when they are larger.
+   */
+  private inliningGain(
     component: Component,
     copies: readonly PreparedSite[],
     removable: boolean,
-  ): boolean {
+  ): number {
     const estimator = this.estimator();
     let calls = removable && component.declaration ? estimator.node(component.declaration) : 0;
     let inlined = 0;
@@ -1778,7 +1851,7 @@ class Inliner {
         this.context.options,
       );
     }
-    return inlined <= calls;
+    return calls - inlined;
   }
 
   /**
@@ -1790,6 +1863,9 @@ class Inliner {
     let parent = this.context.parents.get(element);
     while (parent?.type === 'JSXElement' && this.transparent.has(parent)) {
       parent = this.context.parents.get(parent);
+    }
+    if (parent?.type === 'JSXElement' && this.assumedHosts?.has(parent) === true) {
+      return true;
     }
     return (
       parent?.type === 'JSXElement' &&

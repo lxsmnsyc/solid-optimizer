@@ -31,4 +31,4 @@ This builds the app with and without the optimizer, in three chunking modes, int
 
 - Kobalte ships its JSX source, so the optimizer also inlines inside Kobalte.
 - The wrappers, like `Card`, `Button` and `SelectItem`, are used many times, and most of them render a Kobalte component. Each copy would repeat the wrapper's `cn(...)` call and class string without merging into a template, so they stay components. Small components, and those used once, are inlined.
-- The bundles shrink by 0.1–1.3%.
+- The bundles shrink by 0.2–1.3%.

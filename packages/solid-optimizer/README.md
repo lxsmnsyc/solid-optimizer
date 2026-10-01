@@ -203,10 +203,11 @@ Every copy repeats the component's own code, so inlining a component at many cal
 - A copy saves the component call, and the getters of its props. Elements it puts directly in another element join that element's template.
 - A copy costs the component's statements, its dynamic attributes and children, and the elements that cannot join a template. Constant props are folded first, so a branch they rule out costs nothing.
 - When every call inlines and nothing else uses the component, its declaration goes away too.
+- A call in its children that can only inline once it does, because that component has statements to hoist, counts too.
 
 A component inlines only when its copies are no larger. A small component, or one used once, inlines at every call. A wrapper used many times, whose root is another component, like most wrappers of a component library, stays a component.
 
-In the Vite plugin, a component copied from another module only counts its declaration when the importer is the only module that uses it. The plugin reads which modules use each export from the files the entries reach. A re-export, a dynamic import, or a use as a value counts as another user.
+In the Vite plugin, a component copied from another module only counts its declaration when the importer is the only module that uses it. The plugin reads which modules use each export from the files the entries reach, and from the module scripts of an HTML entry. A re-export, a dynamic import, or a use as a value counts as another user.
 
 Set `alwaysInline` to inline every component that can be.
 

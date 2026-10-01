@@ -70,6 +70,23 @@ export const App = () => <main><Card class="a">one</Card></main>;`;
     expect(optimize(app, { sharedComponents: ['Card'] })).toContain('<Card class="a">one</Card>');
   });
 
+  it('counts the calls in its children that can only inline once it does', () => {
+    // A copy of `Card` brings its own template, which is larger than the call.
+    // `Counter` has statements, which need an element around its call.
+    const app = `import { createSignal } from 'solid-js';
+function Card(props) {
+  return <section class="card"><h2>{props.title}</h2>{props.children}</section>;
+}
+function Counter(props) {
+  const [count, setCount] = createSignal(props.start);
+  return <button type="button" class="counter" onClick={() => setCount(count() + 1)}>{props.label}: {count()}</button>;
+}
+export const Home = () => <Card title="Home"><Counter label="Clicks" start={0} /></Card>;`;
+    const code = optimize(app, { sharedComponents: ['Card'] });
+    expect(code).not.toContain('<Card');
+    expect(code).not.toContain('<Counter');
+  });
+
   it('inlines every component it can with alwaysInline', () => {
     const code = optimize(
       `import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';

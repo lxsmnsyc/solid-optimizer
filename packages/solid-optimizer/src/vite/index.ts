@@ -560,6 +560,43 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return stripped.code;
   }
 
+  /**
+   * The scripts an entry runs: the entry itself, or the module scripts of an
+   * HTML entry. `undefined` when an HTML entry has an inline module script,
+   * whose imports the usage index cannot read.
+   */
+  async function scriptEntries(
+    context: Rollup.PluginContext,
+    id: string,
+  ): Promise<string[] | undefined> {
+    if (/\.[mc]?[jt]sx?(?:\?|$)/.test(id)) {
+      return [id];
+    }
+    let html: string;
+    try {
+      html = await readFile(stripQuery(id), 'utf8');
+    } catch {
+      return undefined;
+    }
+    const scripts: string[] = [];
+    for (const [tag] of html.matchAll(/<script\b[^>]*>/gi)) {
+      if (!/\btype\s*=\s*["']?module/i.test(tag)) {
+        continue;
+      }
+      const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+      if (src === undefined) {
+        return undefined;
+      }
+      // oxlint-disable-next-line no-await-in-loop
+      const resolved = await context.resolve(src, id);
+      if (!resolved || resolved.external) {
+        return undefined;
+      }
+      scripts.push(resolved.id);
+    }
+    return scripts;
+  }
+
   /** How the app uses each export, built once per environment and build. */
   const usageIndexes = new Map<string, Promise<UsageIndex>>();
 
@@ -570,30 +607,30 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     const key = environmentKey(context, '');
     let pending = usageIndexes.get(key);
     if (!pending) {
-      // An HTML entry is not a script, so its scripts are the entries.
-      const entries = [...context.getModuleIds()]
-        .filter((id) => context.getModuleInfo(id)?.isEntry === true)
-        .flatMap((id) => {
-          const info = context.getModuleInfo(id);
-          return /\.[mc]?[jt]sx?(?:\?|$)/.test(id)
-            ? [id]
-            : [...(info?.importedIds ?? []), ...(info?.dynamicallyImportedIds ?? [])];
+      pending = (async () => {
+        const entries = await Promise.all(
+          [...context.getModuleIds()]
+            .filter((id) => context.getModuleInfo(id)?.isEntry === true)
+            .map(async (id) => scriptEntries(context, id)),
+        );
+        // A script the index cannot read could use any export.
+        const known = entries.every((scripts) => scripts !== undefined);
+        return buildUsageIndex(known ? entries.flat() : [], {
+          resolve: async (source, importer) => {
+            const resolved = await context.resolve(source, importer);
+            return !resolved || resolved.external || resolved.id.includes('/node_modules/')
+              ? undefined
+              : resolved.id;
+          },
+          read: async (id) => {
+            try {
+              return await readFile(stripQuery(id), 'utf8');
+            } catch {
+              return undefined;
+            }
+          },
         });
-      pending = buildUsageIndex(entries, {
-        resolve: async (source, importer) => {
-          const resolved = await context.resolve(source, importer);
-          return !resolved || resolved.external || resolved.id.includes('/node_modules/')
-            ? undefined
-            : resolved.id;
-        },
-        read: async (id) => {
-          try {
-            return await readFile(stripQuery(id), 'utf8');
-          } catch {
-            return undefined;
-          }
-        },
-      });
+      })();
       usageIndexes.set(key, pending);
     }
     return pending;
