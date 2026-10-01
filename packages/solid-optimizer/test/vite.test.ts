@@ -236,6 +236,13 @@ describe('solid-optimizer/vite', () => {
     expect(optimized.app.textContent).toBe('on2');
   });
 
+  it('builds a module with no code', async () => {
+    const { app } = await run(
+      await bundle('empty-module', {}, undefined, { codeSplitting: false }),
+    );
+    expect(app.innerHTML).toBe('<p>rendered</p>');
+  });
+
   it('renders and updates like the unoptimized build', async () => {
     const optimized = await run(await bundle('basic'));
     const plain = await run(await bundle('basic', { optimizer: false }));
