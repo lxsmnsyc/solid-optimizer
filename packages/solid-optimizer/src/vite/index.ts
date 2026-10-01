@@ -159,7 +159,8 @@ function lower(
       plugins: /\.[mc]?tsx$/i.test(filename) ? ['jsx', 'typescript'] : ['jsx'],
     },
   });
-  if (!result?.code) {
+  // An empty module, like a chunk a library build left empty, lowers to ''.
+  if (typeof result?.code !== 'string') {
     throw new Error(`[solid-optimizer] babel-preset-solid produced no code for ${filename}`);
   }
   return { code: result.code, map: result.map ? JSON.stringify(result.map) : undefined };
