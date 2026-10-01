@@ -40,6 +40,8 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `filename` sets the parser and the source map source. `.ts` and `.tsx` parse as TypeScript. Anything else parses as JSX. Defaults to `input.jsx`.
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
+- `alwaysInline` inlines every component that can be, even where the copies are larger than the calls they replace. Defaults to `false`. See [Only where it is smaller](#only-where-it-is-smaller).
+- `sharedComponents` lists top-level components whose code stays in the bundle wherever they are inlined, like a copy of a component that other modules import too. They only inline where each copy is smaller than its call.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
 - `server` compiles for the server. It removes `createEffect` and `onMount`, and reduces `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`, `createMemo`, `createRenderEffect`, and `createComputed` to what they do on the server. Defaults to `false`.
@@ -105,7 +107,7 @@ The optimizer is off while serving. Set `optimizer.dev` to run module mode in de
 The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
 
 - `optimizer: false` uses `vite-plugin-solid` as it is.
-- `optimizer.fold`, `optimizer.inline`, `optimizer.contexts`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
+- `optimizer.fold`, `optimizer.inline`, `optimizer.alwaysInline`, `optimizer.contexts`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 - `optimizer.server` applies the `server` option in server builds. Defaults to `true`.
@@ -114,7 +116,7 @@ The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
 
 - Chunk mode is skipped when the `babel` option is set, since those Babel plugins need each module.
 - An export named `__so_local$name` is added to a module for each local binding its exported components need, so a copy in another module can import it. In chunk mode, entry modules get none.
-- A component used in several chunks is copied into each of them.
+- A component used in several chunks is copied into each of them, where each copy is no larger than its call.
 - Components from dependencies in `node_modules` are not copied.
 - Modules matched by the `extensions` option are lowered by the official plugin and are not optimized.
 
@@ -193,6 +195,20 @@ Inlining accepts two differences:
 - Moved statements run before the host's JSX is created. The order of effect registration between siblings can change.
 
 Inlined JSX is a copy, so its source map points at the call site it replaced.
+
+#### Only where it is smaller
+
+Every copy repeats the component's own code, so inlining a component at many calls can make the output larger than the calls were. Before inlining, each component's copies are compared with what they replace, as Solid's JSX transform would lower them:
+
+- A copy saves the component call, and the getters of its props. Elements it puts directly in another element join that element's template.
+- A copy costs the component's statements, its dynamic attributes and children, and the elements that cannot join a template. Constant props are folded first, so a branch they rule out costs nothing.
+- When every call inlines and nothing else uses the component, its declaration goes away too.
+
+A component inlines only when its copies are no larger. A small component, or one used once, inlines at every call. A wrapper used many times, whose root is another component, like most wrappers of a component library, stays a component.
+
+In the Vite plugin, a component copied from another module only counts its declaration when the importer is the only module that uses it. The plugin reads which modules use each export from the files the entries reach. A re-export, a dynamic import, or a use as a value counts as another user.
+
+Set `alwaysInline` to inline every component that can be.
 
 ### Context inlining
 

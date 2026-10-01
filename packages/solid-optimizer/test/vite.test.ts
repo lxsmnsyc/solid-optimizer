@@ -294,8 +294,9 @@ describe('solid-optimizer/vite', () => {
       '<main><h1 class="title">Hello</h1><button type="button"><span class="label">Clicks: 2</span></button><p class="dark">themed</p><i><b><i>even</i></b></i></main>',
     );
     // The server and client builds inline the same components. Only the
-    // modules that import each other keep their calls.
-    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(3);
+    // modules that import each other keep their calls: `Even` stays in its
+    // module for `Odd`, so a copy in `App` would only add code.
+    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(4);
     expect(plain.markup.match(/data-hk=/g)).toHaveLength(8);
   });
 

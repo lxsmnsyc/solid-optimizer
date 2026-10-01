@@ -17,6 +17,10 @@ export interface ResolvedOptions {
   readonly importedConstants: ResolvedImportedConstants;
   /** The exports of imported modules that are contexts, by import specifier. */
   readonly importedContexts: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Components whose code stays elsewhere however they are inlined here. */
+  readonly sharedComponents: ReadonlySet<string>;
+  /** Whether to inline components even where the copies are larger. */
+  readonly alwaysInline: boolean;
 }
 
 /**
@@ -66,6 +70,8 @@ export function solidExport(binding: Binding, options: ResolvedOptions): string 
  */
 export interface PassContext {
   readonly code: string;
+  /** The file name, which picks the parser. */
+  readonly filename: string;
   readonly s: MagicString;
   readonly program: Program;
   readonly parents: Parents;

@@ -101,6 +101,20 @@ export interface CompileOptions {
    */
   importedContexts?: Readonly<Record<string, readonly string[]>>;
   /**
+   * Top-level components whose code stays in the bundle wherever they are
+   * inlined, like a copy of a component that other modules import too.
+   * Inlining one is only worth it where each copy is smaller than its call.
+   */
+  sharedComponents?: readonly string[];
+  /**
+   * Inline every component that can be, even where the copies are larger
+   * than the calls and declaration they replace. By default, a component is
+   * only inlined where its copies are estimated to be no larger.
+   *
+   * @default false
+   */
+  alwaysInline?: boolean;
+  /**
    * The most passes to run. One pass can expose work for the next, such as
    * an inlined component whose props now fold. Compilation stops early once
    * a pass changes nothing.
@@ -150,6 +164,8 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
         new Set(names),
       ]),
     ),
+    sharedComponents: new Set(options.sharedComponents),
+    alwaysInline: options.alwaysInline ?? false,
   };
 }
 
@@ -170,6 +186,7 @@ function runPass(
   const program = parse(filename, code);
   const context: PassContext = {
     code,
+    filename,
     s: new MagicString(code),
     program,
     parents: collectParents(program),
