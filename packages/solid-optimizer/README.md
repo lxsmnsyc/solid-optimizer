@@ -10,16 +10,18 @@
 
 ## Install
 
+The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x.
+
 ```bash
-npm i -D solid-optimizer
+npm i -D solid-optimizer@next
 ```
 
 ```bash
-yarn add -D solid-optimizer
+yarn add -D solid-optimizer@next
 ```
 
 ```bash
-pnpm add -D solid-optimizer
+pnpm add -D solid-optimizer@next
 ```
 
 ## Usage
