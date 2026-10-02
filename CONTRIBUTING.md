@@ -32,6 +32,7 @@ Run these from the repository root.
 - `pnpm type-check` type-checks everything with TypeScript 7.
 - `pnpm lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter). `pnpm lint:fix` applies fixes.
 - `pnpm fmt` formats with [oxfmt](https://oxc.rs/docs/guide/usage/formatter). `pnpm fmt:check` only checks.
+- `pnpm bench` builds every example with and without the optimizer and writes their bundle sizes and build times to [`benchmarks.md`](benchmarks.md). Build the package first. Each pull request also gets a comment comparing its numbers with its base branch.
 
 ## Releases
 
