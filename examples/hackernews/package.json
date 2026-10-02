@@ -1,0 +1,25 @@
+{
+  "name": "hackernews",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.ts && node report.ts",
+    "dev": "vite",
+    "report": "node report.ts",
+    "serve": "vite preview",
+    "type-check": "tsc --noEmit",
+    "verify": "node verify.ts"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.10.10",
+    "solid-js": "^1.9.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "happy-dom": "^20.14.5",
+    "solid-optimizer": "workspace:*",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vite-plugin-solid": "^2.11.14"
+  }
+}

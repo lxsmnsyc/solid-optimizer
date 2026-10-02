@@ -1,7 +1,3 @@
 packages:
-  - packages/**/*
-  - examples/**/*
-onlyBuiltDependencies:
-  - '@biomejs/biome'
-  - esbuild
-  - nx
+  - packages/*
+  - examples/*
