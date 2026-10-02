@@ -1,5 +1,4 @@
-import { createContext, createEffect, createSignal, Show, useContext } from 'solid-js';
-import { trackClicks } from './analytics';
+import { createContext, createSignal, Show, useContext } from 'solid-js';
 
 const DEBUG = false;
 
@@ -9,7 +8,6 @@ function Title(props: { label: string }) {
 
 function Counter(props: { initial: number; label: string }) {
   const [count, setCount] = createSignal(props.initial);
-  createEffect(() => trackClicks(count()));
   return (
     <button type="button" onClick={() => setCount(count() + 1)}>
       {props.label}: {count()}
@@ -32,9 +30,9 @@ export function App() {
         <pre>debug</pre>
       </Show>
       <Counter initial={1} label="Clicks" />
-      <Theme.Provider value="dark">
+      <Theme value="dark">
         <Themed />
-      </Theme.Provider>
+      </Theme>
     </main>
   );
 }

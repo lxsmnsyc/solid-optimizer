@@ -64,11 +64,11 @@ describe('control-flow components', () => {
     );
   });
 
-  it('resolves <Index> over an empty list to its fallback', () => {
+  it('resolves <Repeat> with a count below one to its fallback', () => {
     expect(
-      folded('const view = <Index each={[]} fallback={<span>none</span>}>{i => <li />}</Index>;'),
+      folded('const view = <Repeat count={0} fallback={<span>none</span>}>{i => <li />}</Repeat>;'),
     ).toBe('const view = <span>none</span>;');
-    expect(lowered('const view = <Index each={items()}>{i => <li />}</Index>;')).toContain(
+    expect(lowered('const view = <Repeat count={3}>{i => <li />}</Repeat>;')).toContain(
       'createComponent',
     );
   });
@@ -145,7 +145,7 @@ describe('control-flow components', () => {
     ).not.toContain('createComponent');
     expect(
       lowered(
-        'import { Show } from "solid-js/web";\nconst view = <Show when={true}><div /></Show>;',
+        'import { Show } from "@solidjs/web";\nconst view = <Show when={true}><div /></Show>;',
       ),
     ).not.toContain('createComponent');
     expect(
@@ -169,7 +169,7 @@ describe('control-flow components', () => {
     ).toContain('createComponent');
     expect(
       lowered(
-        'import { Suspense as Show } from "solid-js";\nconst view = <Show when={true}><div /></Show>;',
+        'import { Reveal as Show } from "solid-js";\nconst view = <Show when={true}><div /></Show>;',
       ),
     ).toContain('createComponent');
     expect(
@@ -188,7 +188,7 @@ describe('control-flow components', () => {
   });
 
   it('never folds components that wait on runtime state', () => {
-    for (const tag of ['Portal', 'Suspense', 'SuspenseList', 'ErrorBoundary']) {
+    for (const tag of ['Portal', 'Loading', 'Errored', 'Reveal']) {
       const code = `const view = <${tag} when={false}><div /></${tag}>;`;
       expect(folded(code)).toBe(code);
     }

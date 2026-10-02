@@ -41,15 +41,10 @@ describe('memo inlining', () => {
     }
   });
 
-  it('ignores an initial value, which only reaches `prev`', () => {
-    const output = memos(component('const v = createMemo(() => [a()], []);', '<i>{v()}</i>'));
-    expect(output).toContain('<i>{[a()]}</i>');
-  });
-
   it('inlines a memo with equals: false', () => {
     const output = memos(
       component(
-        'const total = createMemo(() => a() + b(), undefined, { equals: false });',
+        'const total = createMemo(() => a() + b(), { equals: false });',
         '<span>{total()}</span>',
       ),
     );
@@ -59,7 +54,7 @@ describe('memo inlining', () => {
   it('inlines a block body that only returns', () => {
     const output = memos(
       component(
-        'const list = createMemo(() => {\n    return items().slice(0, 3);\n  }, undefined, { equals: false });',
+        'const list = createMemo(() => {\n    return items().slice(0, 3);\n  }, { equals: false });',
         '<ul>{list()}</ul>',
       ),
     );
@@ -123,7 +118,7 @@ describe('memo inlining', () => {
       // Async.
       component('const v = createMemo(async () => [await a()]);', '<i>{v()}</i>'),
       // Other options.
-      component("const v = createMemo(() => [a()], undefined, { name: 'v' });", '<i>{v()}</i>'),
+      component("const v = createMemo(() => [a()], { name: 'v' });", '<i>{v()}</i>'),
       // Escapes.
       component('const v = createMemo(() => [a()]);\n  use(v);', '<i>{v()}</i>'),
       // Not Solid's createMemo.

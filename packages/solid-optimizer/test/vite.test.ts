@@ -178,12 +178,7 @@ describe('solid-optimizer/vite', () => {
     const code = chunks.map((chunk) => chunk.code).join('\n');
     expect(code).toContain('__esmMin');
     expect(code).not.toContain('__SOLID_OPTIMIZER_KEEP__');
-    const { app, window } = await run(chunks);
-    // A lazy page resolves after the first render.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 50);
-    });
-    await window.happyDOM.waitUntilComplete();
+    const { app } = await run(chunks);
     expect(app.innerHTML.replaceAll(/<!--[^>]*-->/g, '')).toBe(
       '<main><section class="card"><h2>Home</h2><p>eager</p></section><section class="card"><h2>Lazy</h2><ul><li>a</li><li>b</li></ul></section></main>',
     );
@@ -267,28 +262,12 @@ describe('solid-optimizer/vite', () => {
     expect(html(optimized.app)).toContain('Clicks: 2');
   });
 
-  it('drops code only effects use from the server bundle', async () => {
-    const serverCode = async (options: Options): Promise<string> => {
-      const chunks = await bundle('ssr', options, { server: 'src/entry-server.tsx' });
-      return chunks.map((chunk) => chunk.code).join('\n');
-    };
-    const optimized = await serverCode({ ssr: true });
-    const plain = await serverCode({ ssr: true, optimizer: false });
-    const client = (await bundle('ssr', { ssr: true }, { client: 'src/entry-client.tsx' }))
-      .map((chunk) => chunk.code)
-      .join('\n');
-    // The effect is removed while modules are transformed, so the bundler never keeps its import.
-    expect(optimized).not.toContain('client-only-analytics');
-    expect(plain).toContain('client-only-analytics');
-    expect(client).toContain('client-only-analytics');
-  });
-
   it('hydrates server HTML with components inlined from other modules', async () => {
     const optimized = await hydrateFixture('ssr-modules', undefined);
     const plain = await hydrateFixture('ssr-modules', false);
     expect(optimized.claimed).toBe(true);
     expect(plain.claimed).toBe(true);
-    const keyless = (markup: string): string => markup.replaceAll(/ data-hk="[^"]*"/g, '');
+    const keyless = (markup: string): string => markup.replaceAll(/ _hk="[^"]*"/g, '');
     expect(keyless(optimized.hydrated)).toBe(keyless(plain.hydrated));
     expect(keyless(optimized.hydrated)).toBe(
       '<main><h1 class="title">Hello</h1><button type="button"><span class="label">Clicks: 2</span></button><p class="dark">themed</p><i><b><i>even</i></b></i></main>',
@@ -296,8 +275,8 @@ describe('solid-optimizer/vite', () => {
     // The server and client builds inline the same components. Only the
     // modules that import each other keep their calls: `Even` stays in its
     // module for `Odd`, so a copy in `App` would only add code.
-    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(4);
-    expect(plain.markup.match(/data-hk=/g)).toHaveLength(8);
+    expect(optimized.markup.match(/_hk=/g)).toHaveLength(4);
+    expect(plain.markup.match(/_hk=/g)).toHaveLength(8);
   });
 
   it('hydrates server HTML when both builds optimize each module', async () => {
@@ -314,15 +293,15 @@ describe('solid-optimizer/vite', () => {
     expect(optimized.claimed).toBe(true);
     expect(plain.claimed).toBe(true);
     expect(optimized.hydrated).toBe(
-      '<main data-hk="00"><h1 class="title">Hello</h1><button type="button">Clicks: 2</button><p class="dark">themed</p></main>',
+      '<main _hk="0"><h1 class="title">Hello</h1><button type="button">Clicks: 2</button><p class="dark">themed</p></main>',
     );
-    expect(optimized.hydrated.replaceAll(/ data-hk="[^"]*"/g, '')).toBe(
-      plain.hydrated.replaceAll(/ data-hk="[^"]*"/g, ''),
+    expect(optimized.hydrated.replaceAll(/ _hk="\d+"/g, '')).toBe(
+      plain.hydrated.replaceAll(/ _hk="\d+"/g, ''),
     );
     // The merged tree needs one hydration key instead of one per component.
-    // The context provider is removed on both sides.
-    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(1);
-    expect(plain.markup.match(/data-hk=/g)).toHaveLength(4);
+    // The context provider is removed on both sides, with its root owner.
+    expect(optimized.markup.match(/_hk=/g)).toHaveLength(1);
+    expect(plain.markup.match(/_hk=/g)).toHaveLength(4);
   });
 
   it('inlines components from other modules before splitting chunks', async () => {

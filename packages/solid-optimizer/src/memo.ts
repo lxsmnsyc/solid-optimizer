@@ -41,7 +41,6 @@ import { solidExport, textOf } from './context';
 import { usesFunctionContext } from './inline';
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
-import { isSideEffectFree } from './value';
 
 /**
  * Props of Solid's built-in components that are read inside a memo, once per update.
@@ -50,7 +49,7 @@ const TRACKED_PROPS = new Map([
   ['Show', 'when'],
   ['Match', 'when'],
   ['For', 'each'],
-  ['Index', 'each'],
+  ['Repeat', 'count'],
 ]);
 
 /**
@@ -120,20 +119,10 @@ class MemoInliner {
     if (init?.type !== 'CallExpression' || !this.isCreateMemo(init.callee)) {
       return undefined;
     }
-    // Solid 1 takes `createMemo(compute, initialValue?, options?)`. The
-    // initial value only reaches the computation as `prev`, which a
-    // computation without parameters never reads.
     const args = init.arguments;
     const compute = args.at(0);
-    const initialValue = args.at(1);
-    const options = args.at(2);
-    if (
-      args.length > 3 ||
-      compute === undefined ||
-      compute.type === 'SpreadElement' ||
-      initialValue?.type === 'SpreadElement' ||
-      (initialValue !== undefined && !isSideEffectFree(initialValue))
-    ) {
+    const options = args.at(1);
+    if (args.length > 2 || compute === undefined || compute.type === 'SpreadElement') {
       return undefined;
     }
     const fn = unwrap(compute);

@@ -3,26 +3,26 @@ import { addMarker, generatedImports, repairJSXSequences } from '../src/vite/run
 
 describe('generatedImports', () => {
   it('lists only the helpers the JSX transform added', () => {
-    const code = `import type { JSX } from "solid-js/web";
-import { render } from "solid-js/web";
-import { template as _$template } from "solid-js/web";
-import { insert as _$insert } from "solid-js/web";
+    const code = `import type { JSX } from "@solidjs/web";
+import { render } from "@solidjs/web";
+import { template as _$template } from "@solidjs/web";
+import { insert as _$insert } from "@solidjs/web";
 import { createSignal } from "solid-js";
 `;
-    expect(generatedImports(code, 'a.tsx', 'solid-js/web')).toEqual(['template', 'insert']);
+    expect(generatedImports(code, 'a.tsx', '@solidjs/web')).toEqual(['template', 'insert']);
   });
 });
 
 describe('addMarker', () => {
   it('keeps only the built-ins the module still uses', () => {
-    const code = `import { Dynamic } from "solid-js/web";
+    const code = `import { Dynamic } from "@solidjs/web";
 import { For, Show } from "solid-js";
 export const list = <For each={[]}>{() => <p />}</For>;
 `;
     const marked = addMarker(code, 'a.tsx', {
-      moduleName: 'solid-js/web',
+      moduleName: '@solidjs/web',
       helpers: new Set(['template']),
-      moduleSources: ['solid-js', 'solid-js/web'],
+      moduleSources: ['solid-js', '@solidjs/web'],
       builtIns: new Set(['Dynamic', 'For', 'Show']),
     });
     // A folded `<Show>` or `<Dynamic>` leaves an unused import, which the bundler drops.

@@ -10,7 +10,7 @@ function app(
   imports = "import { createSignal } from 'solid-js';",
 ): Record<string, string> {
   return {
-    'main.tsx': `import { render } from 'solid-js/web';
+    'main.tsx': `import { render } from '@solidjs/web';
 ${imports}
 ${body}
 render(() => <App />, document.getElementById('app')!);
@@ -46,9 +46,9 @@ function App() {
   return (
     <main>
       <Label />
-      <Theme.Provider value="dark">
+      <Theme value="dark">
         <div><Label /></div>
-      </Theme.Provider>
+      </Theme>
     </main>
   );
 }`,
@@ -68,7 +68,7 @@ function App() {
       app(
         `const Theme = createContext('light');
 function ThemeProvider(props) {
-  return <Theme.Provider value={props.theme}>{props.children}</Theme.Provider>;
+  return <Theme value={props.theme}>{props.children}</Theme>;
 }
 function Label() {
   const theme = useContext(Theme);
@@ -101,8 +101,8 @@ function App() {
   return (
     <main>
       <Label />
-      <Theme.Provider value="dark"><Label /></Theme.Provider>
-      <Theme.Provider value="blue"><Theme.Provider value="red"><Label /></Theme.Provider></Theme.Provider>
+      <Theme value="dark"><Label /></Theme>
+      <Theme value="blue"><Theme value="red"><Label /></Theme></Theme>
     </main>
   );
 }`,
@@ -131,7 +131,7 @@ function App() {
   return (
     <main>
       <button type="button" onClick={() => setCount(count() + 1)}>+</button>
-      <Count.Provider value={count}><Panel /></Count.Provider>
+      <Count value={count}><Panel /></Count>
     </main>
   );
 }`,
@@ -403,7 +403,7 @@ describe('createMemo', () => {
         `function App() {
   const [name, setName] = createSignal('a');
   const badge = createMemo(() => <b>{name()}</b>);
-  const length = createMemo(() => name().length, undefined, { equals: false });
+  const length = createMemo(() => name().length, { equals: false });
   return (
     <main>
       <button type="button" onClick={() => setName(name() + 'b')}>grow</button>
@@ -442,13 +442,13 @@ describe('createMemo', () => {
   });
 });
 
-describe('mergeProps() and splitProps()', () => {
+describe('merge() and omit()', () => {
   it('renders defaults and reactive props the same', async () => {
     const code = await expectSameBehavior(
       'views-merge',
       app(
         `function Badge(props) {
-  const merged = mergeProps({ tone: 'plain', label: 'none' }, props);
+  const merged = merge({ tone: 'plain', label: 'none' }, props);
   return <span class={merged.tone}>{merged.label}</span>;
 }
 function App() {
@@ -462,7 +462,7 @@ function App() {
     </main>
   );
 }`,
-        "import { createSignal, mergeProps } from 'solid-js';",
+        "import { createSignal, merge } from 'solid-js';",
       ),
       ['button', 'button'],
     );
@@ -474,8 +474,8 @@ function App() {
       'views-omit',
       app(
         `function Action(props) {
-  const [local, rest] = splitProps(props, ['tone']);
-  return <button type="button" class={local.tone} {...rest} />;
+  const rest = omit(props, 'tone');
+  return <button type="button" class={props.tone} {...rest} />;
 }
 function App() {
   const [count, setCount] = createSignal(0);
@@ -487,11 +487,11 @@ function App() {
     </main>
   );
 }`,
-        "import { createSignal, splitProps } from 'solid-js';",
+        "import { createSignal, omit } from 'solid-js';",
       ),
       ['button', 'button'],
     );
     expect(code).not.toContain('Action');
-    expect(code).not.toContain('splitProps(');
+    expect(code).not.toContain('omit(');
   });
 });

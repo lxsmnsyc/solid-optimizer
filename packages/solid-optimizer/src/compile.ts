@@ -8,7 +8,6 @@ import type { PassContext, ResolvedOptions } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
-import { simplifyServer } from './server';
 import { removeProviders } from './provider';
 import { analyzeScopes } from './scope';
 import type { Primitive } from './value';
@@ -35,19 +34,6 @@ export interface CompileOptions {
    */
   inline?: boolean;
   /**
-   * Compile for the server: remove `createEffect` and `onMount`, and reduce
-   * `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`,
-   * `createMemo`, `createRenderEffect`, and `createComputed` to what they do
-   * on the server.
-   *
-   * This runs once, after the other passes. The server and client build
-   * make the same folding and inlining decisions from the same code, so the
-   * server renders the tree the client hydrates.
-   *
-   * @default false
-   */
-  server?: boolean;
-  /**
    * Remove context providers whose reads are all visible, and give each
    * read the provider's value.
    *
@@ -65,14 +51,14 @@ export interface CompileOptions {
    * The names of Solid's built-in components. A tag only folds when it is
    * one of these, and an empty list turns control-flow folding off.
    *
-   * @default ['For', 'Show', 'Switch', 'Match', 'Suspense', 'SuspenseList', 'Portal', 'Index', 'Dynamic', 'ErrorBoundary']
+   * @default ['For', 'Show', 'Switch', 'Match', 'Loading', 'Reveal', 'Portal', 'Repeat', 'Dynamic', 'Errored']
    */
   builtIns?: readonly string[];
   /**
    * The modules that export Solid's built-in components. A tag imported from
    * anywhere else is a different component.
    *
-   * @default ['solid-js', 'solid-js/web']
+   * @default ['solid-js', '@solidjs/web']
    */
   moduleSources?: readonly string[];
   /**
@@ -143,15 +129,15 @@ const DEFAULT_BUILT_INS = [
   'Show',
   'Switch',
   'Match',
-  'Suspense',
-  'SuspenseList',
+  'Loading',
+  'Reveal',
   'Portal',
-  'Index',
+  'Repeat',
   'Dynamic',
-  'ErrorBoundary',
+  'Errored',
 ];
 
-const DEFAULT_MODULE_SOURCES = ['solid-js', 'solid-js/web'];
+const DEFAULT_MODULE_SOURCES = ['solid-js', '@solidjs/web'];
 
 function resolveOptions(options: CompileOptions): ResolvedOptions {
   return {
@@ -252,16 +238,6 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     }
     if (!changed) {
       break;
-    }
-  }
-
-  if (options.server ?? false) {
-    const result = runPass(current, filename, resolved, sourceMap, simplifyServer);
-    if (result) {
-      current = result.code;
-      if (result.map !== undefined) {
-        maps.push(result.map);
-      }
     }
   }
 

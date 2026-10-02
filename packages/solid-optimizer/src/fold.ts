@@ -7,9 +7,8 @@
  * branch, and the branch joins the surrounding template instead of paying for
  * a component call, a memo, and an insert.
  *
- * It follows the `optimize` option of Solid 2.0's `@solidjs/compiler`
- * (https://github.com/solidjs/solid/pull/3231), applied to Solid 1's
- * control-flow components.
+ * This is a port of the `optimize` option of `@solidjs/compiler`
+ * (https://github.com/solidjs/solid/pull/3231).
  *
  * # What folds
  *
@@ -19,13 +18,13 @@
  * - Statements a constant condition makes unreachable: `if`/`else` branches,
  *   `while (false)` loops, and anything after a `return`, `throw`, `break`,
  *   or `continue`.
- * - `<Show when>`, `<For each>`, `<Index each>`, `<Switch>`/`<Match when>`,
+ * - `<Show when>`, `<For each>`, `<Repeat count>`, `<Switch>`/`<Match when>`,
  *   and `<Dynamic component>` with a static intrinsic tag name.
  *
  * # What does not fold
  *
- * `<Portal>`, `<Suspense>`, `<SuspenseList>`, and `<ErrorBoundary>` exist for
- * a runtime condition no static analysis can decide. A control-flow component with a
+ * `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` exist for a runtime
+ * condition no static analysis can decide. A control-flow component with a
  * spread attribute is left alone, since the spread can supply or override the
  * prop the fold reads. Function children also stop a fold, since the runtime
  * decides from their arity whether to call them.
@@ -83,7 +82,7 @@ import {
  * The control-flow components this pass resolves.
  * `Match` is absent: it only has meaning inside a `<Switch>`, which folds it.
  */
-const FOLDABLE_FLOW = new Set(['Show', 'For', 'Index', 'Switch', 'Dynamic']);
+const FOLDABLE_FLOW = new Set(['Show', 'For', 'Repeat', 'Switch', 'Dynamic']);
 
 /**
  * What a resolved control-flow element renders in its place.
@@ -460,8 +459,9 @@ class Folder {
       case 'Show':
         return this.foldShow(element);
       case 'For':
-      case 'Index':
         return this.foldFor(element);
+      case 'Repeat':
+        return this.foldRepeat(element);
       case 'Switch':
         return this.foldSwitch(element);
       case 'Dynamic':
@@ -562,11 +562,30 @@ class Folder {
     }
     const { expression } = each.value;
     // `each={[]}` renders the fallback, and so does a statically falsy `each`,
-    // which `mapArray` and `indexArray` treat as an empty list. Either way the expression is
+    // which `mapArray` treats as an empty list. Either way the expression is
     // dropped, so it has to be skippable.
     const empty =
       arrayLiteralLength(expression) === 0 || truthiness(expression, this.lookup) === false;
     if (!empty || !isSideEffectFree(expression)) {
+      return undefined;
+    }
+    return this.fallback(element);
+  }
+
+  private foldRepeat(element: JSXElement): Fold | undefined {
+    const count = findAttribute(element, 'count');
+    if (
+      count?.value?.type !== 'JSXExpressionContainer' ||
+      count.value.expression.type === 'JSXEmptyExpression'
+    ) {
+      return undefined;
+    }
+    const value = evaluate(count.value.expression, this.lookup);
+    if (typeof value?.value !== 'number') {
+      return undefined;
+    }
+    // Written this way so `NaN` counts as empty, like `repeat` does.
+    if (value.value >= 1) {
       return undefined;
     }
     return this.fallback(element);

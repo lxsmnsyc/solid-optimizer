@@ -10,15 +10,15 @@ import { optimize } from './utils';
  */
 const CARD = `
 function Card(props) {
-  const [local, others] = splitProps(props, ['class']);
-  return <Primitive class={cn('rounded-lg border bg-card text-card-foreground shadow-sm', local.class)} {...others} />;
+  const others = omit(props, 'class');
+  return <Primitive class={cn('rounded-lg border bg-card text-card-foreground shadow-sm', props.class)} {...others} />;
 }
 `;
 
 describe('size-aware inlining', () => {
   it('inlines a component used once, whose declaration goes away', () => {
     const code =
-      optimize(`import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+      optimize(`import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card></main>;`);
     expect(code).not.toContain('<Card');
@@ -27,7 +27,7 @@ export const App = () => <main><Card class="a">one</Card></main>;`);
 
   it('keeps a component with code of its own that many calls would repeat', () => {
     const code =
-      optimize(`import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+      optimize(`import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => (
   <main>
@@ -64,7 +64,7 @@ export const App = () => <p><Button variant="primary">a</Button><Button variant=
   });
 
   it('keeps a component whose code stays elsewhere unless each copy is smaller', () => {
-    const app = `import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+    const app = `import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card></main>;`;
     expect(optimize(app, { sharedComponents: { Card: 0 } })).toContain(
@@ -91,7 +91,7 @@ export const Home = () => <Card title="Home"><Counter label="Clicks" start={0} /
 
   it('inlines every component it can with alwaysInline', () => {
     const code = optimize(
-      `import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+      `import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card><Card class="b">two</Card><Card class="c">three</Card></main>;`,
       { alwaysInline: true },

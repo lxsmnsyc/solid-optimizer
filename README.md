@@ -1,23 +1,27 @@
 # solid-optimizer
 
-> Experimental compile-time optimizer for SolidJS 1.x
+> Experimental compile-time optimizer for SolidJS 2.0
 
 [![NPM](https://img.shields.io/npm/v/solid-optimizer.svg)](https://www.npmjs.com/package/solid-optimizer)
 
 `solid-optimizer` rewrites JSX before Solid's JSX transform lowers it. It inlines components and resolves control flow whose outcome is known at build time, so more markup lands in fewer templates.
 
+![A small app compiled by Solid's JSX transform alone and with solid-optimizer first. The optimized build has 1 template instead of 5, and its server HTML has 1 hydration key instead of 4.](https://github.com/lxsmnsyc/solid-optimizer/blob/main/examples/showcase/comparison.png?raw=true)
+
 ## Install
 
+The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x.
+
 ```bash
-npm i -D solid-optimizer
+npm i -D solid-optimizer@next
 ```
 
 ```bash
-yarn add -D solid-optimizer
+yarn add -D solid-optimizer@next
 ```
 
 ```bash
-pnpm add -D solid-optimizer
+pnpm add -D solid-optimizer@next
 ```
 
 ## Usage
@@ -42,9 +46,8 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
-- `server` compiles for the server. It removes `createEffect` and `onMount`, and reduces `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`, `createMemo`, `createRenderEffect`, and `createComputed` to what they do on the server. Defaults to `false`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
-- `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', 'solid-js/web']`.
+- `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
 - `sourceMap` turns the source map on or off. Defaults to `true`.
@@ -72,7 +75,7 @@ It keeps `export const` bindings whose value folds, a `let` the module never wri
 
 ## Vite
 
-`solid-optimizer/vite` replaces `vite-plugin-solid`. It takes the same options and wraps the official plugin, so SSR and HMR keep working.
+`solid-optimizer/vite` replaces `@solidjs/vite-plugin`. It takes the same options and wraps the official plugin, so SSR, server functions, and HMR keep working.
 
 ```js
 // vite.config.js
@@ -84,7 +87,7 @@ export default defineConfig({
 });
 ```
 
-`vite-plugin-solid` and `vite` are peer dependencies.
+`@solidjs/vite-plugin` and `vite` are peer dependencies.
 
 The plugin optimizes in one of two modes.
 
@@ -102,21 +105,20 @@ The optimizer is off while serving. Set `optimizer.dev` to run module mode in de
 
 ### Options
 
-The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
+The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 
-- `optimizer: false` uses `vite-plugin-solid` as it is.
+- `optimizer: false` uses `@solidjs/vite-plugin` as it is.
 - `optimizer.fold`, `optimizer.inline`, `optimizer.contexts`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
-- `optimizer.server` applies the `server` option in server builds. Defaults to `true`.
 
 ### Limits
 
-- Chunk mode is skipped when the `babel` option is set, since those Babel plugins need each module.
+- Chunk mode is skipped when the `babel` option is set or `compiler` is `'babel'`, since those passes need each module.
 - An export named `__so_local$name` is added to a module for each local binding its exported components need, so a copy in another module can import it. In chunk mode, entry modules get none.
 - A component used in several chunks is copied into each of them.
 - Components from dependencies in `node_modules` are not copied.
-- Modules matched by the `extensions` option are lowered by the official plugin and are not optimized.
+- `.tsrx` modules are lowered by the official plugin and are not optimized.
 
 ## Features
 
@@ -162,29 +164,28 @@ Solid then creates one template for `<main>` instead of two.
 A component inlines when all of these hold:
 
 - It is declared once at the top level, with a capitalized name.
-- Its parameter is one identifier that is only read as `props.name`, or passed to `mergeProps()` and `splitProps()`. See below.
+- Its parameter is one identifier that is only read as `props.name`, or passed to `merge()` and `omit()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
 - The call site has no spread attribute, no `ref`, and no namespaced attribute.
 
-The props can go through `mergeProps()` and `splitProps()` first, declared as a `const` in the component:
+The props can go through `merge()` and `omit()` first, declared as a `const` in the component:
 
 ```jsx
 function Button(props) {
-  const merged = mergeProps({ type: 'button' }, props);
-  const [local, rest] = splitProps(merged, ['label']);
+  const merged = merge({ type: 'button' }, props);
+  const rest = omit(merged, 'label');
   return (
     <button type={merged.type} {...rest}>
-      {local.label}
+      {props.label}
     </button>
   );
 }
 ```
 
 - A default has to be a literal, like `'button'`, `0`, or `false`.
-- `splitProps()` has to name its keys in array literals.
-- A view can only be read as `view.name`, spread onto an element, or passed to another `mergeProps()` or `splitProps()`.
-- A prop that can be `undefined` falls back to the default behind it, the way `mergeProps()` reads it.
+- `omit()` has to name its keys as string literals.
+- A view can only be read as `view.name`, spread onto an element, or passed to another `merge()` or `omit()`.
 - A spread becomes the attributes the call site passes, and it cannot repeat an attribute the element already has. Its `children` become the element's children, so the element must have none of its own.
 
 Inlining accepts two differences:
@@ -196,7 +197,7 @@ Inlined JSX is a copy, so its source map points at the call site it replaced.
 
 ### Context inlining
 
-A context provider, `<Ctx.Provider>`, whose readers are all visible is removed, and each read gets the provider's value.
+A context provider whose readers are all visible is removed, and each read gets the provider's value.
 
 ```jsx
 const Theme = createContext();
@@ -209,9 +210,9 @@ function Label() {
 export function App() {
   return (
     <main>
-      <Theme.Provider value="dark">
+      <Theme value="dark">
         <Label />
-      </Theme.Provider>
+      </Theme>
     </main>
   );
 }
@@ -239,41 +240,28 @@ See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy
 
 ### Memo inlining
 
-A `createMemo` whose result is new on every run, or that sets `equals: false` in its options,, such as an object, array, or JSX, never stops an update. When it is also read once, as the whole of a tracked JSX expression, the read runs the computation itself.
+A `createMemo` whose result is new on every run, such as an object, array, or JSX, never stops an update. When it is also read once, as the whole of a tracked JSX expression, the read runs the computation itself.
 
 ```jsx
 const style = createMemo(() => ({ color: color() }));
 return <p style={style()} />;
 ```
 
-becomes `<p style={{ color: color() }} />`. The computation must take no `prev` parameter, so an initial value, the second argument in Solid 1, is ignored.
-
-### Server builds
-
-On the server, Solid renders once and never updates, so its reactive primitives reduce to plain calls.
-
-- `createEffect` and `onMount` are removed. Whatever only they used, like a charting library, drops out of the server bundle.
-- `untrack(fn)` and `batch(fn)` become `fn()`, and `startTransition(fn)` calls `fn()` and returns nothing.
-- `createDeferred(source)` becomes `source`, and `getListener()` becomes `null`.
-- `createMemo`, `createRenderEffect`, and `createComputed` run their function once, in place.
-
-This runs after the other optimizations, while modules are transformed. The server and client build then make the same inlining decisions, so hydration still matches.
-
-Two differences are accepted. A function passed to `createMemo`, `createRenderEffect`, or `createComputed` no longer gets its own owner, so an `onCleanup` inside it registers on the enclosing one. Inside `catchError` or `<ErrorBoundary>`, an error it throws stops the component instead of leaving the memo `undefined`.
+becomes `<p style={{ color: color() }} />`. See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy.md) for the exact rules.
 
 ### Constant folding and control flow
 
-This follows the `optimize` option of Solid 2.0's `@solidjs/compiler` ([solidjs/solid#3231](https://github.com/solidjs/solid/pull/3231)), applied to Solid 1's components.
+This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](https://github.com/solidjs/solid/pull/3231)).
 
 - Constant expressions fold, including `const` bindings and `let` bindings nothing writes to, at any scope.
 - Branches that a constant condition never takes are removed. So are statements after a `return`, `throw`, `break`, or `continue`.
 - `<Show when>` becomes its children or its `fallback`.
 - `<For each>` becomes its `fallback` when `each` is an empty array literal or a falsy constant.
-- `<Index each>` becomes its `fallback` under the same conditions as `<For each>`.
+- `<Repeat count>` becomes its `fallback` when `count` is below one.
 - `<Switch>` drops each `<Match>` that is always false, and becomes the first `<Match>` that is always true.
 - `<Dynamic component="div">` becomes `<div>`.
 
-A built-in only folds when the tag resolves to Solid's component. The tag must bind to nothing, or be imported from one of `moduleSources`. A tag with a spread attribute or a function child never folds. `<Portal>`, `<Suspense>`, `<SuspenseList>`, and `<ErrorBoundary>` never fold.
+A built-in only folds when the tag resolves to Solid's component. The tag must bind to nothing, or be imported from one of `moduleSources`. A tag with a spread attribute or a function child never folds. `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` never fold.
 
 A call to Solid's `lazy` is marked `/* @__PURE__ */`, so the bundler drops one that a folded branch left unused, along with its chunk.
 

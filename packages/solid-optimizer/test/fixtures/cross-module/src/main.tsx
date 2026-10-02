@@ -1,5 +1,5 @@
-import { render } from 'solid-js/web';
-import { lazy, Suspense } from 'solid-js';
+import { render } from '@solidjs/web';
+import { lazy, Loading } from 'solid-js';
 import { Badge } from './Badge';
 
 const Page = lazy(() => import('./Page'));
@@ -10,9 +10,9 @@ function App() {
       <Badge tone="info" title="eager">
         eager
       </Badge>
-      <Suspense fallback={<p>loading</p>}>
+      <Loading fallback={<p>loading</p>}>
         <Page />
-      </Suspense>
+      </Loading>
     </main>
   );
 }

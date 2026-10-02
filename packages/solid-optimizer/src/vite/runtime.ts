@@ -2,7 +2,7 @@
  * Keeps Solid's runtime helpers reachable while JSX waits in a bundled chunk.
  *
  * Solid's JSX transform imports helpers like `template` and `insert` from
- * `solid-js/web`. When the transform runs on a chunk, the bundle is already
+ * `@solidjs/web`. When the transform runs on a chunk, the bundle is already
  * built, so a new bare import cannot be resolved or bundled anymore. Instead,
  * every module imports the helpers it will need before bundling, and passes
  * them to a marker call. The bundler keeps the call, since it could have side
@@ -91,7 +91,7 @@ export function generatedImports(code: string, filename: string, source: string)
 }
 
 export interface MarkerOptions {
-  /** The module the helpers come from, usually `solid-js/web`. */
+  /** The module the helpers come from, usually `@solidjs/web`. */
   readonly moduleName: string;
   /** The helpers to keep. */
   readonly helpers: ReadonlySet<string>;
@@ -258,7 +258,7 @@ export function repairJSXSequences(code: string, filename: string): EditResult |
 }
 
 export interface ChunkRuntime extends EditResult {
-  /** The chunk's name for each helper, keyed by the name `solid-js/web` exports. */
+  /** The chunk's name for each helper, keyed by the name `@solidjs/web` exports. */
   readonly helpers: ReadonlyMap<string, string>;
   /** The built-in each chunk binding refers to, keyed by the chunk's name for it. */
   readonly builtInAliases: Record<string, string>;

@@ -1,6 +1,6 @@
 # Build phases
 
-How `solid-optimizer/vite` turns a Solid app into optimized chunks. It wraps the official plugin, `vite-plugin-solid`, hooks into its `transform`, and adds its own `renderChunk`. This branch targets Solid 1; the Solid 2 branch wraps `@solidjs/vite-plugin` instead.
+How `solid-optimizer/vite` turns a Solid app into optimized chunks. It wraps the official plugin (`@solidjs/vite-plugin` on Solid 2, `vite-plugin-solid` on Solid 1), hooks into its `transform`, and adds its own `renderChunk`.
 
 ## Two modes
 
@@ -17,7 +17,7 @@ flowchart LR
   end
   subgraph module [Module mode]
     direction LR
-    B1["Transform (module step)<br/>compile with inlining,<br/>copy components, record output"] --> B2["Official plugin lowers<br/>babel-preset-solid, per module"] --> B3["Rolldown bundles<br/>no renderChunk step"]
+    B1["Transform (module step)<br/>compile with inlining,<br/>copy components, record output"] --> B2["Official plugin lowers<br/>Solid's compiler, per module"] --> B3["Rolldown bundles<br/>no renderChunk step"]
   end
 ```
 
@@ -28,8 +28,8 @@ Chunk mode sees more code at once, so it inlines more. Module mode keeps each mo
 Every phase calls the same `compile()`: four passes in a fixed order, repeated until a round changes nothing, at most 10 rounds (`maxPasses`). Each pass parses the code afresh, edits it with MagicString, and adds a source map that chains onto the last.
 
 1. **Fold** evaluates constants, including those imported from other modules (`importedConstants`), resolves control flow whose outcome is known (`<Show when={true}>`, `<Switch>`, `<For>` over constants), and drops unreachable code.
-2. **Inline** replaces component calls with the component's JSX, reading props directly or through `mergeProps()` and `splitProps()` views. It only inlines a component where its copies are no larger than what they replace. See [Size-aware inlining](#size-aware-inlining).
-3. **Remove providers** drops a context provider, `<Ctx.Provider>`, when every reader below it is visible, giving each read the provider's value.
+2. **Inline** replaces component calls with the component's JSX, reading props directly or through `merge()` and `omit()` views (`mergeProps` and `splitProps` on Solid 1). It only inlines a component where its copies are no larger than what they replace. See [Size-aware inlining](#size-aware-inlining).
+3. **Remove providers** drops a context provider when every reader below it is visible, giving each read the provider's value.
 4. **Inline memos** replaces a `createMemo` that is read only once with its expression. A memo read more than once stays.
 
 One round often opens work for the next: an inlined component's constant props fold, and a folded branch frees a provider. Server builds then run `simplifyServer` once, which removes effects and reduces reactive primitives to what they do on the server.
@@ -58,7 +58,7 @@ Rolldown resolves, tree-shakes, and splits chunks, with `jsx: 'preserve'` so JSX
 
 1. Read the markers: the helpers each part of the chunk needs, and the names Rolldown gave Solid's built-ins. `Show` may be `Show$1`, or a local declaration.
 2. Compile the whole chunk, with top-level `var` treated as a constant (`constantVars`), since Rolldown turns `const` into `var`. Any component in the chunk inlines anywhere in it.
-3. Lower the JSX with `babel-preset-solid`, and link the helper imports to the runtime's exports.
+3. Lower the JSX with Solid's compiler, and link the helper imports to the runtime's exports.
 4. If the merged tree needs a helper no module asked for, warn and lower the chunk as written instead.
 
 ## Module mode
@@ -101,7 +101,7 @@ A component inlines only where its copies are estimated to be no larger, once lo
 - **Look-ahead.** A component with statements needs an element around its call to hoist them to. When a component's children hold such calls, the estimate measures them as if the component were inlined, and credits what they would save.
 - **Escape hatch.** `alwaysInline` skips the estimate and inlines everything that can be.
 
-The estimate cannot see runtime helpers that the bundle drops once their last use is gone, or how the copies change Rolldown's chunk split. Every build of the example apps is smaller than plain: solid-ui by 0.2–1.2% and Hacker News by 0.4–1.1% on this branch, and the demo by 23–25% on the Solid 2 branch.
+The estimate cannot see runtime helpers that the bundle drops once their last use is gone, or how the copies change Rolldown's chunk split. On the three test apps every build is smaller than plain: the demo by 23–25%, solid-ui by 0.2–1.2%, and Hacker News by 0.4–1.1%.
 
 ## Consistency and limits
 

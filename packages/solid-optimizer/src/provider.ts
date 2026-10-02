@@ -1,17 +1,17 @@
 /**
  * The provider pass: removes context providers whose reads are all visible.
  *
- * In Solid 1, a context carries a provider component, `Ctx.Provider`. The
- * provider reads `props.value` once, untracked, when it is created, and
- * every `useContext(Ctx)` under it returns that value. When every code path
- * that can run under a provider is visible, each read can take the value
- * directly, and the provider only costs a component call, a render effect,
- * and a template boundary:
+ * In Solid 2.0, a context is its own provider component. The provider reads
+ * `props.value` once, untracked, when it is created, and every
+ * `useContext(Ctx)` under it returns that value. When every code path that
+ * can run under a provider is visible, each read can take the value
+ * directly, and the provider only costs a component call, a root owner, and
+ * a template boundary:
  *
  * ```jsx
- * <Theme.Provider value="dark">
+ * <Theme value="dark">
  *   <span>{useContext(Theme)}</span>
- * </Theme.Provider>
+ * </Theme>
  * ```
  *
  * becomes `<><span>{"dark"}</span></>`.
@@ -23,9 +23,9 @@
  *
  * # Accepted differences
  *
- * - The provider's owner is gone, which shifts the hydration keys after
- *   it. A server build and its client build must compile with the same
- *   options.
+ * - The provider's root owner is gone, which shifts the hydration keys
+ *   after it. A server build and its client build must compile with the
+ *   same options.
  * - A getter defined by the app, other than on a component's props, that
  *   calls `useContext` is not seen.
  */
@@ -54,20 +54,22 @@ export const CONTEXT_SAFE_PRIMITIVES = [
   'createMemo',
   'createEffect',
   'createRenderEffect',
-  'createComputed',
+  'createStore',
+  'createProjection',
+  'createOptimistic',
   'onCleanup',
-  'onMount',
+  'onSettled',
   'untrack',
-  'batch',
   'useContext',
+  'flush',
   'mapArray',
-  'indexArray',
-  'mergeProps',
-  'splitProps',
+  'repeat',
+  'merge',
+  'omit',
 ];
 
 /** Primitives that return a getter and a setter, as `[get, set]`. */
-const ACCESSOR_PAIRS = new Set(['createSignal']);
+const ACCESSOR_PAIRS = new Set(['createSignal', 'createStore', 'createOptimistic']);
 
 export interface Provider {
   readonly element: JSXElement;
@@ -77,15 +79,15 @@ export interface Provider {
 }
 
 /**
- * The provider a JSX element creates: `Ctx.Provider`, where `Ctx` is a
- * top-level `createContext(...)` from Solid that nothing writes to, with one
- * `value` attribute holding a value that is never `undefined`.
+ * The provider a JSX element creates: a tag that refers to a top-level
+ * `createContext(...)` from Solid, nothing writes to, with one `value`
+ * attribute holding a value that is never `undefined`.
  *
- * `useContext` returns the default when the value is `undefined`, so a
- * value that could be `undefined` keeps its provider.
+ * `useContext` throws when the value and the default are both `undefined`,
+ * so a value that could be `undefined` keeps its provider.
  */
 export function providerOf(context: PassContext, element: JSXElement): Provider | undefined {
-  const binding = providerContext(context, element.openingElement.name);
+  const binding = contextBinding(context, element.openingElement.name);
   if (!binding || element.openingElement.selfClosing) {
     return undefined;
   }
@@ -118,21 +120,7 @@ export function providerOf(context: PassContext, element: JSXElement): Provider 
 }
 
 /**
- * The context a `Ctx.Provider` tag provides.
- */
-export function providerContext(context: PassContext, name: Node): Binding | undefined {
-  if (
-    name.type !== 'JSXMemberExpression' ||
-    name.object.type !== 'JSXIdentifier' ||
-    name.property.name !== 'Provider'
-  ) {
-    return undefined;
-  }
-  return contextBinding(context, name.object);
-}
-
-/**
- * The top-level context binding an identifier refers to.
+ * The top-level context binding a tag or identifier refers to.
  */
 export function contextBinding(context: PassContext, name: Node): Binding | undefined {
   if (name.type !== 'JSXIdentifier' && name.type !== 'Identifier') {
@@ -351,7 +339,7 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
         break;
       case 'Identifier': {
         // Another component's props run its parent's code when read, and
-        // passing them on, as to `mergeProps()`, reads them somewhere else. A
+        // passing them on, as to `merge()`, reads them somewhere else. A
         // binding declared under `root`, like a callback's parameter, is a value.
         const binding = context.scopes.references.get(node);
         if (binding && runsOutsideCode(context, binding, root, options, 0)) {
@@ -432,8 +420,8 @@ function runsOutsideCode(
 }
 
 /**
- * Whether an expression is a `mergeProps()` or `splitProps()` view of a
- * component's own props, with only literal objects and keys besides.
+ * Whether an expression is a `merge()` or `omit()` view of a component's
+ * own props, with only literal objects and keys besides.
  */
 function isOwnView(
   context: PassContext,
@@ -451,13 +439,14 @@ function isOwnView(
     if (binding === props) {
       return true;
     }
-    call = binding ? viewInit(context, binding) : undefined;
+    const init = binding ? constantInit(context, binding) : undefined;
+    call = init ? unwrap(init) : undefined;
   }
   if (call?.type !== 'CallExpression') {
     return false;
   }
   const callee = solidCallee(context, call);
-  if (callee !== 'mergeProps' && callee !== 'splitProps') {
+  if (callee !== 'merge' && callee !== 'omit') {
     return false;
   }
   return call.arguments.every((argument) => {
@@ -467,34 +456,10 @@ function isOwnView(
     const inner = unwrap(argument);
     return (
       inner.type === 'ObjectExpression' ||
-      (inner.type === 'ArrayExpression' &&
-        inner.elements.every((key) => key?.type === 'Literal' && typeof key.value === 'string')) ||
+      (inner.type === 'Literal' && typeof inner.value === 'string') ||
       isOwnView(context, inner, props, depth + 1)
     );
   });
-}
-
-/**
- * The call a view binding comes from: `const view = mergeProps(...)`, or
- * one of the names in `const [a, b] = splitProps(...)`.
- */
-function viewInit(context: PassContext, binding: Binding): Node | undefined {
-  const init = constantInit(context, binding);
-  if (init) {
-    return unwrap(init);
-  }
-  const { declaration } = binding;
-  if (
-    binding.mutated ||
-    binding.kind !== 'const' ||
-    declaration.type !== 'VariableDeclarator' ||
-    declaration.id.type !== 'ArrayPattern' ||
-    !declaration.id.elements.some((element) => element === binding.identifier) ||
-    !declaration.init
-  ) {
-    return undefined;
-  }
-  return unwrap(declaration.init);
 }
 
 function isVisibleElement(
@@ -503,13 +468,13 @@ function isVisibleElement(
   options: ClosedOptions,
 ): boolean {
   const { name } = element.openingElement;
-  if (providerContext(context, name)) {
-    return true;
-  }
   if (name.type !== 'JSXIdentifier') {
     return false;
   }
   if (isIntrinsicTag(name.name)) {
+    return true;
+  }
+  if (contextBinding(context, name)) {
     return true;
   }
   const binding = context.scopes.references.get(name);
@@ -704,7 +669,7 @@ export function contextReads(context: PassContext, root: Node, target: Binding):
     if (
       node !== root &&
       node.type === 'JSXElement' &&
-      providerContext(context, node.openingElement.name) === target
+      contextBinding(context, node.openingElement.name) === target
     ) {
       return;
     }
@@ -738,7 +703,7 @@ export function hasNestedProvider(context: PassContext, provider: Provider): boo
     if (
       node !== provider.element &&
       node.type === 'JSXElement' &&
-      providerContext(context, node.openingElement.name) === provider.context
+      contextBinding(context, node.openingElement.name) === provider.context
     ) {
       nested = true;
       return;

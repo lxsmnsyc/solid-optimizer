@@ -45,18 +45,17 @@
  * subtree only runs visible code. Statements move out through it, and each
  * `useContext` of its context in a copy becomes its value. See `provider.ts`.
  *
- * The props can also be read through `mergeProps()` and `splitProps()` views
- * declared in the component. Each call site knows which props it passes, so
- * a read of a view resolves to a prop, a prop with a literal default, a
- * default, or `undefined`, and a spread of a view becomes the attributes it
- * holds.
+ * The props can also be read through `merge()` and `omit()` views declared
+ * in the component. Each call site knows which props it passes, so a read
+ * of a view resolves to a prop, a literal default, or `undefined`, and a
+ * spread of a view becomes the attributes it holds.
  *
  * # Accepted differences
  *
  * - A prop that is a function and is called as `props.name()` runs with
  *   `this` set to its own receiver instead of the props object.
  * - Statements moved into the host run before the host's JSX is created,
- *   instead of while it is created. The order of `onMount` and effect
+ *   instead of while it is created. The order of `onSettled` and effect
  *   registration across siblings can change.
  */
 import MagicString from 'magic-string';
@@ -90,10 +89,10 @@ import { isConstantDeclaration, textOf } from './context';
 import type { Piece } from './jsx';
 import type { ClosedOptions, Provider } from './provider';
 import {
+  contextBinding,
   contextReads,
   findProviders,
   isClosed,
-  providerContext,
   solidCallee,
   stableValueText,
 } from './provider';
@@ -116,19 +115,16 @@ interface PropRead extends ReadCount {
 }
 
 /**
- * One source of a `mergeProps()` or `splitProps()` view: the props, or an
- * object of literal defaults, with the keys a `splitProps()` hides from it
- * or keeps only.
+ * One source of a `merge()` or `omit()` view: the props, or an object of
+ * literal defaults, with the keys an `omit()` hides from it.
  */
 interface ViewSource {
   /** The default of each key, as literal text, or `undefined` for the props. */
   readonly defaults: ReadonlyMap<string, string> | undefined;
   readonly hidden: ReadonlySet<string>;
-  /** The only keys it holds, for a group `splitProps()` picked. */
-  readonly only: ReadonlySet<string> | undefined;
 }
 
-/** A props object made with `mergeProps()` and `splitProps()`, in source order. */
+/** A props object made with `merge()` and `omit()`, in source order. */
 interface View {
   readonly sources: readonly ViewSource[];
 }
@@ -137,61 +133,18 @@ interface ViewRead extends PropRead {
   readonly view: View;
 }
 
-/**
- * What a key of a view reads as at a call site: the prop, the prop with a
- * default for when it is `undefined`, or a text.
- */
-type Resolution =
-  | { readonly kind: 'props' }
-  | { readonly kind: 'fallback'; readonly text: string }
-  | { readonly kind: 'text'; readonly text: string };
-
 interface ResolvedSpread {
   readonly spread: ViewSpread;
-  readonly keys: ReadonlyMap<string, Resolution>;
+  /** Each key and its default text, or `undefined` when the props hold it. */
+  readonly keys: ReadonlyMap<string, string | undefined>;
 }
 
 interface ResolvedViews {
   /** Reads of the props, including view reads the props answer. */
   readonly propReads: readonly PropRead[];
-  /** View reads the props answer, unless the prop is `undefined`. */
-  readonly fallbacks: ReadonlyMap<PropRead, string>;
   /** View reads a default or nothing answers, and their text. */
   readonly texts: ReadonlyMap<Node, string>;
   readonly spreads: readonly ResolvedSpread[];
-}
-
-/**
- * A prop read that falls back to a default when the prop is `undefined`,
- * the way `mergeProps()` reads it.
- */
-function withFallback(text: string, fallback: string): string {
-  return `((value) => (value !== undefined ? value : ${fallback}))(${text})`;
-}
-
-function allows(source: ViewSource, key: string): boolean {
-  return !source.hidden.has(key) && (source.only === undefined || source.only.has(key));
-}
-
-/**
- * Whether an expression passed as a prop is never `undefined`.
- */
-function isDefinedExpression(node: Expression): boolean {
-  const inner = unwrap(node);
-  switch (inner.type) {
-    case 'ObjectExpression':
-    case 'ArrayExpression':
-    case 'ArrowFunctionExpression':
-    case 'FunctionExpression':
-    case 'ClassExpression':
-    case 'NewExpression':
-    case 'TemplateLiteral':
-    case 'JSXElement':
-    case 'JSXFragment':
-      return true;
-    default:
-      return evaluate(inner, () => undefined)?.value !== undefined;
-  }
 }
 
 interface ViewSpread extends ReadCount {
@@ -215,7 +168,7 @@ interface Component {
   readonly props: readonly PropRead[];
   /** The props parameter, when there is one. */
   readonly param: Binding | undefined;
-  /** Reads of a `mergeProps()` or `splitProps()` view, which a call site resolves. */
+  /** Reads of a `merge()` or `omit()` view, which a call site resolves. */
   readonly viewReads: readonly ViewRead[];
   /** Spreads of a view onto an element, which become the attributes it holds. */
   readonly viewSpreads: readonly ViewSpread[];
@@ -403,7 +356,7 @@ function isDynamic(node: Node): boolean {
  * Whether any expression short of a sequence can replace `node` without
  * parentheses, because its slot is a whole expression of its own.
  */
-export function acceptsAnyExpression(context: PassContext, node: Node): boolean {
+function acceptsAnyExpression(context: PassContext, node: Node): boolean {
   const parent = context.parents.get(node);
   if (!parent) {
     return false;
@@ -712,9 +665,9 @@ class Inliner {
   }
 
   /**
-   * Finds the `mergeProps()` and `splitProps()` views of the props declared
-   * in a component's statements, and how each is used. A view can only be
-   * read as `view.name`, spread onto an element, or passed to another view.
+   * Finds the `merge()` and `omit()` views of the props declared in a
+   * component's statements, and how each is used. A view can only be read
+   * as `view.name`, spread onto an element, or passed to another view.
    * `undefined` when a view is used any other way.
    */
   private analyzeViews(
@@ -741,40 +694,25 @@ class Inliner {
         statement.type !== 'VariableDeclaration' ||
         statement.kind !== 'const' ||
         statement.declarations.length !== 1 ||
-        !declarator?.init
+        declarator?.id.type !== 'Identifier' ||
+        !declarator.init
       ) {
         continue;
       }
       const init = unwrap(declarator.init);
-      if (init.type !== 'CallExpression') {
+      const callee = init.type === 'CallExpression' ? solidCallee(this.context, init) : undefined;
+      if (init.type !== 'CallExpression' || (callee !== 'merge' && callee !== 'omit')) {
         continue;
       }
-      const callee = solidCallee(this.context, init);
-      let declared: [Node | null, View][] | null | undefined;
-      if (callee === 'mergeProps' && declarator.id.type === 'Identifier') {
-        const view = this.viewOf(init, param, views, args);
-        declared = view ? [[declarator.id, view]] : view;
-      } else if (callee === 'splitProps' && declarator.id.type === 'ArrayPattern') {
-        declared = this.splitViews(init, declarator.id.elements, param, views, args);
-      } else {
+      const view = this.viewOf(callee, init, param, views, args);
+      if (view === null) {
         continue;
       }
-      if (declared === null) {
-        continue;
-      }
-      if (!declared) {
+      const binding = scope.bindings.get(declarator.id.name);
+      if (!view || !binding || binding.mutated) {
         return undefined;
       }
-      for (const [identifier, view] of declared) {
-        if (identifier?.type !== 'Identifier') {
-          continue;
-        }
-        const binding = scope.bindings.get(identifier.name);
-        if (!binding || binding.mutated) {
-          return undefined;
-        }
-        views.set(binding, view);
-      }
+      views.set(binding, view);
       declarations.push(statement);
     }
 
@@ -812,57 +750,75 @@ class Inliner {
   }
 
   /**
-   * The sources a view argument stands for: the props, a view, or a nested
-   * `mergeProps()` call.
-   */
-  private viewSources(
-    argument: Node,
-    param: Binding | undefined,
-    views: ReadonlyMap<Binding, View>,
-    args: Set<Node>,
-  ): readonly ViewSource[] | undefined {
-    if (argument.type === 'CallExpression') {
-      if (solidCallee(this.context, argument) !== 'mergeProps') {
-        return undefined;
-      }
-      return this.viewOf(argument, param, views, args)?.sources;
-    }
-    if (argument.type !== 'Identifier') {
-      return undefined;
-    }
-    const binding = this.context.scopes.references.get(argument);
-    if (binding && binding === param) {
-      return [{ defaults: undefined, hidden: new Set(), only: undefined }];
-    }
-    return binding ? views.get(binding)?.sources : undefined;
-  }
-
-  /**
-   * The view a `mergeProps()` call makes. `null` when it does not take the
-   * props or another view, and `undefined` when it does but its other
-   * arguments are not literal objects.
+   * The view a `merge()` or `omit()` call makes. `null` when it does not
+   * take the props or another view, and `undefined` when it does but its
+   * other arguments are not literal.
    */
   private viewOf(
+    callee: 'merge' | 'omit',
     call: CallExpression,
     param: Binding | undefined,
     views: ReadonlyMap<Binding, View>,
     args: Set<Node>,
   ): View | null | undefined {
+    const sourcesOf = (argument: Node): readonly ViewSource[] | undefined => {
+      if (argument.type === 'CallExpression') {
+        const nested = solidCallee(this.context, argument);
+        if (nested !== 'merge' && nested !== 'omit') {
+          return undefined;
+        }
+        return this.viewOf(nested, argument, param, views, args)?.sources;
+      }
+      if (argument.type !== 'Identifier') {
+        return undefined;
+      }
+      const binding = this.context.scopes.references.get(argument);
+      if (binding && binding === param) {
+        return [{ defaults: undefined, hidden: new Set() }];
+      }
+      return binding ? views.get(binding)?.sources : undefined;
+    };
     const involved = call.arguments.some(
-      (argument) =>
-        argument.type !== 'SpreadElement' &&
-        this.viewSources(unwrap(argument), param, views, new Set()) !== undefined,
+      (argument) => argument.type !== 'SpreadElement' && sourcesOf(unwrap(argument)) !== undefined,
     );
     if (!involved) {
       return null;
     }
+
+    if (callee === 'omit') {
+      const first = call.arguments.at(0);
+      const keys = call.arguments.slice(1);
+      if (first === undefined || first.type === 'SpreadElement') {
+        return undefined;
+      }
+      const target = unwrap(first);
+      const base = sourcesOf(target);
+      const hidden: string[] = [];
+      for (const key of keys) {
+        if (key.type !== 'Literal' || typeof key.value !== 'string') {
+          return undefined;
+        }
+        hidden.push(key.value);
+      }
+      if (!base) {
+        return undefined;
+      }
+      args.add(target);
+      return {
+        sources: base.map((source) => ({
+          defaults: source.defaults,
+          hidden: new Set([...source.hidden, ...hidden]),
+        })),
+      };
+    }
+
     const sources: ViewSource[] = [];
     for (const argument of call.arguments) {
       if (argument.type === 'SpreadElement') {
         return undefined;
       }
       const inner = unwrap(argument);
-      const existing = this.viewSources(inner, param, views, args);
+      const existing = sourcesOf(inner);
       if (existing) {
         args.add(inner);
         sources.push(...existing);
@@ -891,74 +847,14 @@ class Inliner {
         }
         defaults.set(key, text);
       }
-      sources.push({ defaults, hidden: new Set(), only: undefined });
+      sources.push({ defaults, hidden: new Set() });
     }
     return { sources };
   }
 
-  /**
-   * The views `const [a, b, rest] = splitProps(view, ['x'], ['y'])` makes,
-   * each with its identifier. A key belongs to the first group that names
-   * it, and the last view holds the keys no group names. `null` when the
-   * call does not take the props or a view.
-   */
-  private splitViews(
-    call: CallExpression,
-    elements: readonly (Node | null)[],
-    param: Binding | undefined,
-    views: ReadonlyMap<Binding, View>,
-    args: Set<Node>,
-  ): [Node | null, View][] | null | undefined {
-    const first = call.arguments.at(0);
-    if (first === undefined || first.type === 'SpreadElement') {
-      return null;
-    }
-    const target = unwrap(first);
-    const base = this.viewSources(target, param, views, args);
-    if (!base) {
-      return null;
-    }
-    args.add(target);
-    const groups: string[][] = [];
-    for (const group of call.arguments.slice(1)) {
-      if (group.type !== 'ArrayExpression') {
-        return undefined;
-      }
-      const keys: string[] = [];
-      for (const key of group.elements) {
-        if (key?.type !== 'Literal' || typeof key.value !== 'string') {
-          return undefined;
-        }
-        keys.push(key.value);
-      }
-      groups.push(keys);
-    }
-    if (
-      elements.length > groups.length + 1 ||
-      elements.some((element) => element?.type === 'RestElement')
-    ) {
-      return undefined;
-    }
-    const claimed = new Set<string>();
-    const filters = groups.map((keys) => {
-      const owned = keys.filter((key) => !claimed.has(key));
-      for (const key of owned) {
-        claimed.add(key);
-      }
-      return new Set(owned);
-    });
-    return elements.map((element, index): [Node | null, View] => {
-      const only = filters.at(index);
-      const sources = base.map((source) => ({
-        defaults: source.defaults,
-        hidden: only ? source.hidden : new Set([...source.hidden, ...claimed]),
-        only: only
-          ? new Set([...only].filter((key) => source.only === undefined || source.only.has(key)))
-          : source.only,
-      }));
-      return [element, { sources }];
-    });
-  }
+  // ---------------------------------------------------------------------------
+  // Call sites
+  // ---------------------------------------------------------------------------
 
   /**
    * Whether a function is a component, which Solid runs untracked. Only a
@@ -1000,9 +896,9 @@ class Inliner {
       if (parent.type === 'JSXElement') {
         const { name } = parent.openingElement;
         const passable =
-          this.transparent.has(parent) ||
           this.assumedHosts?.has(parent) === true ||
-          (name.type === 'JSXIdentifier' && isIntrinsicTag(name.name));
+          (name.type === 'JSXIdentifier' &&
+            (isIntrinsicTag(name.name) || this.transparent.has(parent)));
         if (!passable) {
           return undefined;
         }
@@ -1213,7 +1109,7 @@ class Inliner {
     }
 
     // What each view read and spread resolves to at this call site.
-    const views = this.resolveViews(component, element, attributes, hasChildren);
+    const views = this.resolveViews(component, attributes, hasChildren);
     if (!views) {
       return undefined;
     }
@@ -1230,12 +1126,9 @@ class Inliner {
     for (const read of views.propReads) {
       count(read.name, read);
     }
-    for (const read of views.fallbacks.keys()) {
-      count(read.name, read);
-    }
     for (const spread of views.spreads) {
-      for (const [key, resolution] of spread.keys) {
-        if (resolution.kind !== 'text') {
+      for (const [key, source] of spread.keys) {
+        if (source === undefined) {
           count(key, spread.spread);
         }
       }
@@ -1341,7 +1234,7 @@ class Inliner {
     ) {
       const target =
         node.type === 'JSXElement'
-          ? providerContext(this.context, node.openingElement.name)
+          ? contextBinding(this.context, node.openingElement.name)
           : undefined;
       if (node.type !== 'JSXElement' || !target || seen.has(target)) {
         continue;
@@ -1436,73 +1329,45 @@ class Inliner {
   }
 
   /**
-   * Resolves each view read and spread of a component at a call site.
-   * `mergeProps()` reads the last source whose value is not `undefined`, so
-   * a prop that can be `undefined` falls back to the default behind it. A
-   * spread becomes the keys it holds, and its `children` become the
-   * element's children. `undefined` when a spread repeats an attribute, or
-   * holds `children` for an element that has some.
+   * Resolves each view read and spread of a component at a call site. A
+   * read becomes a read of the props, or the text of a default. A spread
+   * becomes the keys it holds, in the order `merge()` gives them, and its
+   * `children` become the element's children. `undefined` when a spread
+   * repeats an attribute, or holds `children` for an element that has some.
    */
   private resolveViews(
     component: Component,
-    element: JSXElement,
     attributes: ReadonlyMap<string, JSXAttribute>,
     hasChildren: boolean,
   ): ResolvedViews | undefined {
     const has = (key: string): boolean =>
       attributes.has(key) || (key === 'children' && hasChildren);
-    // Whether the prop the call site passes for `key` is never `undefined`.
-    const defined = (key: string): boolean => {
-      const attribute = attributes.get(key);
-      if (attribute) {
-        const { value } = attribute;
-        if (value?.type !== 'JSXExpressionContainer') {
-          return true;
+    // The last source that has the key answers, even when its value is `undefined`.
+    const resolve = (view: View, key: string): string | undefined => {
+      for (let index = view.sources.length - 1; index >= 0; index -= 1) {
+        const source = view.sources.at(index);
+        if (!source || source.hidden.has(key)) {
+          continue;
         }
-        return (
-          value.expression.type !== 'JSXEmptyExpression' && isDefinedExpression(value.expression)
-        );
-      }
-      const significant = element.children.filter((child) => !isInsignificant(child));
-      const only = significant.at(0);
-      if (significant.length !== 1 || only?.type !== 'JSXExpressionContainer') {
-        return true;
-      }
-      return only.expression.type !== 'JSXEmptyExpression' && isDefinedExpression(only.expression);
-    };
-    const resolve = (view: View, key: string): Resolution => {
-      const sources = view.sources.filter((source) => allows(source, key));
-      for (let index = sources.length - 1; index >= 0; index -= 1) {
-        const source = sources.at(index);
-        const text = source?.defaults?.get(key);
+        const text = source.defaults?.get(key);
         if (text !== undefined) {
-          return { kind: 'text', text };
+          return text;
         }
-        if (source && !source.defaults && has(key)) {
-          if (defined(key)) {
-            return { kind: 'props' };
-          }
-          const fallback = sources
-            .slice(0, index)
-            .findLast((earlier) => earlier.defaults?.has(key))
-            ?.defaults?.get(key);
-          return fallback === undefined ? { kind: 'props' } : { kind: 'fallback', text: fallback };
+        if (!source.defaults && has(key)) {
+          return undefined;
         }
       }
-      return { kind: 'text', text: 'void 0' };
+      return 'void 0';
     };
 
     const propReads: PropRead[] = [...component.props];
-    const fallbacks = new Map<PropRead, string>();
     const texts = new Map<Node, string>();
     for (const read of component.viewReads) {
-      const resolution = resolve(read.view, read.name);
-      if (resolution.kind === 'props') {
+      const text = resolve(read.view, read.name);
+      if (text === undefined) {
         propReads.push(read);
-      } else if (resolution.kind === 'fallback') {
-        fallbacks.set(read, resolution.text);
       } else {
-        texts.set(read.member, resolution.text);
+        texts.set(read.member, text);
       }
     }
 
@@ -1513,12 +1378,16 @@ class Inliner {
     const spreads: ResolvedSpread[] = [];
     const taken = new Map<JSXElement, Set<string>>();
     for (const spread of component.viewSpreads) {
-      // Keys come in the order the sources first hold them.
-      const order = new Set<string>();
+      // A key sits where the last source that carries it puts it.
+      const order: string[] = [];
       for (const source of spread.view.sources) {
         const keys = source.defaults ? [...source.defaults.keys()] : callKeys;
-        for (const key of keys.filter((name) => allows(source, name))) {
-          order.add(key);
+        for (const key of keys.filter((name) => !source.hidden.has(name))) {
+          const index = order.indexOf(key);
+          if (index !== -1) {
+            order.splice(index, 1);
+          }
+          order.push(key);
         }
       }
       let names = taken.get(spread.element);
@@ -1535,23 +1404,22 @@ class Inliner {
         }
         taken.set(spread.element, names);
       }
-      const keys = new Map<string, Resolution>();
+      const keys = new Map<string, string | undefined>();
       for (const key of order) {
-        const resolution = resolve(spread.view, key);
         // Children become the element's children, so it must have none of its own.
         const fits =
           key === 'children'
-            ? spread.element.openingElement.selfClosing && resolution.kind !== 'fallback'
+            ? spread.element.openingElement.selfClosing
             : /^[A-Za-z_$][\w$-]*$/.test(key);
         if (!fits || names.has(key)) {
           return undefined;
         }
         names.add(key);
-        keys.set(key, resolution);
+        keys.set(key, resolve(spread.view, key));
       }
       spreads.push({ spread, keys });
     }
-    return { propReads, fallbacks, texts, spreads };
+    return { propReads, texts, spreads };
   }
 
   /**
@@ -1569,26 +1437,16 @@ class Inliner {
       const bare = text !== 'void 0' || acceptsAnyExpression(this.context, member);
       copy.overwrite(member.start, member.end, bare ? text : `(${text})`);
     }
-    for (const [read, fallback] of views.fallbacks) {
-      const text = values.get(read.name)?.text ?? 'void 0';
-      copy.overwrite(read.member.start, read.member.end, withFallback(text, fallback));
-    }
     for (const { spread, keys } of views.spreads) {
       const parts: string[] = [];
       let children: string | undefined;
-      for (const [key, resolution] of keys) {
+      for (const [key, text] of keys) {
         const value = values.get(key);
         if (key === 'children') {
-          children = this.spreadChildren(element, resolution, value);
-          continue;
+          children = this.spreadChildren(element, text, value);
+        } else {
+          parts.push(`${key}={${text ?? value?.text ?? 'void 0'}}`);
         }
-        let text = value?.text ?? 'void 0';
-        if (resolution.kind === 'text') {
-          text = resolution.text;
-        } else if (resolution.kind === 'fallback') {
-          text = withFallback(text, resolution.text);
-        }
-        parts.push(`${key}={${text}}`);
       }
       const { attribute } = spread;
       if (parts.length === 0) {
@@ -1614,11 +1472,11 @@ class Inliner {
    */
   private spreadChildren(
     element: JSXElement,
-    resolution: Resolution,
+    text: string | undefined,
     value: PropValue | undefined,
   ): string | undefined {
-    if (resolution.kind === 'text') {
-      return resolution.text === 'void 0' ? undefined : `{${resolution.text}}`;
+    if (text !== undefined) {
+      return text === 'void 0' ? undefined : `{${text}}`;
     }
     if (!value) {
       return undefined;

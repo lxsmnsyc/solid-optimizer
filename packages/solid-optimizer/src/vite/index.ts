@@ -1,8 +1,8 @@
 /**
- * `solid-optimizer/vite`: `vite-plugin-solid` with the optimizer built in.
+ * `solid-optimizer/vite`: `@solidjs/vite-plugin` with the optimizer built in.
  *
- * It takes the same options as `vite-plugin-solid`, plus `optimizer`, and
- * returns the official plugin with the optimizer wired in. It runs in one of
+ * It takes the same options as `@solidjs/vite-plugin`, plus `optimizer`, and
+ * returns the official plugins with the optimizer wired in. It runs in one of
  * two modes.
  *
  * - Chunk mode keeps JSX through bundling. Each chunk is optimized as a whole
@@ -16,21 +16,21 @@
  */
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import remapping from '@jridgewell/remapping';
-import type * as Babel from '@babel/core';
 import MagicString from 'magic-string';
+import type * as SolidCompiler from '@solidjs/compiler';
+import type { Options as SolidPluginOptions } from '@solidjs/vite-plugin';
+import solidPlugin from '@solidjs/vite-plugin';
 import type { Node, Program } from 'oxc-parser';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter, transformWithOxc } from 'vite';
-import type { Options as SolidPluginOptions } from 'vite-plugin-solid';
-import solidPlugin from 'vite-plugin-solid';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
 import { collectParents, parse } from '../ast';
 import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
-import type { Primitive } from '../value';
 import { exposeLocals, readExportedComponent } from './inject';
 import { nameNamespaceTags } from './namespace';
 import type { UsageIndex } from './usage';
@@ -50,13 +50,6 @@ export interface OptimizerOptions extends Pick<
   'fold' | 'inline' | 'alwaysInline' | 'contexts' | 'memos' | 'maxPasses'
 > {
   /**
-   * Reduce Solid's reactive primitives to what they do on the server, in
-   * server builds. See the `server` option of `compile`.
-   *
-   * @default true
-   */
-  server?: boolean;
-  /**
    * Where the optimizer runs.
    *
    * - `auto` uses chunk mode for client builds that do not hydrate, and module mode otherwise.
@@ -74,35 +67,14 @@ export interface OptimizerOptions extends Pick<
 }
 
 export interface Options extends Partial<SolidPluginOptions> {
-  /** Set to `false` to use `vite-plugin-solid` as it is. */
+  /** Set to `false` to use `@solidjs/vite-plugin` as it is. */
   optimizer?: OptimizerOptions | false;
 }
 
-/** The options `babel-preset-solid` takes. */
-type JSXOptions = NonNullable<SolidPluginOptions['solid']> & {
-  generate?: 'dom' | 'ssr' | 'universal';
-  hydratable?: boolean;
-};
+type Compiler = typeof SolidCompiler;
+type JSXOptions = SolidCompiler.TransformOptions;
 
-interface Compiler {
-  readonly babel: typeof Babel;
-  readonly preset: Babel.PluginTarget;
-}
-
-const DEFAULT_MODULE_NAME = 'solid-js/web';
-
-const DEFAULT_BUILT_INS = [
-  'For',
-  'Show',
-  'Switch',
-  'Match',
-  'Suspense',
-  'SuspenseList',
-  'Portal',
-  'Index',
-  'Dynamic',
-  'ErrorBoundary',
-];
+const DEFAULT_MODULE_NAME = '@solidjs/web';
 
 const JSX_MODULE = /\.[mc]?[jt]sx$/i;
 
@@ -127,46 +99,14 @@ function withRelated(helpers: readonly string[]): Set<string> {
   return result;
 }
 
-function loadCompiler(): Compiler {
-  // Use the Babel and preset `vite-plugin-solid` uses, so both lower JSX the same way.
-  const require = createRequire(import.meta.url);
-  const pluginRequire = createRequire(require.resolve('vite-plugin-solid'));
-  const presetRequire = createRequire(pluginRequire.resolve('babel-preset-solid'));
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const babel = presetRequire('@babel/core') as typeof Babel;
-  const preset: unknown = pluginRequire('babel-preset-solid');
-  if (typeof preset !== 'function') {
-    throw new TypeError('[solid-optimizer] babel-preset-solid did not load');
-  }
-  return { babel, preset };
-}
+const LAZY_PLACEHOLDER = /"__SOLID_LAZY_MODULE__:([^"]+)"/g;
 
-/**
- * Lowers JSX with `babel-preset-solid`, as `vite-plugin-solid` does.
- */
-function lower(
-  compiler: Compiler,
-  code: string,
-  filename: string,
-  options: JSXOptions,
-): { code: string; map: string | undefined } {
-  const result = compiler.babel.transformSync(code, {
-    filename,
-    sourceFileName: filename,
-    presets: [[compiler.preset, options]],
-    ast: false,
-    sourceMaps: true,
-    configFile: false,
-    babelrc: false,
-    parserOpts: {
-      plugins: /\.[mc]?tsx$/i.test(filename) ? ['jsx', 'typescript'] : ['jsx'],
-    },
-  });
-  // An empty module, like a chunk a library build left empty, lowers to ''.
-  if (typeof result?.code !== 'string') {
-    throw new Error(`[solid-optimizer] babel-preset-solid produced no code for ${filename}`);
-  }
-  return { code: result.code, map: result.map ? JSON.stringify(result.map) : undefined };
+function loadCompiler(): Compiler {
+  // Use the compiler `@solidjs/vite-plugin` uses, so both lower JSX the same way.
+  const require = createRequire(import.meta.url);
+  const pluginRequire = createRequire(require.resolve('@solidjs/vite-plugin'));
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return pluginRequire('@solidjs/compiler') as Compiler;
 }
 
 function stripQuery(id: string): string {
@@ -224,14 +164,27 @@ function isClient(context: { environment?: { config: { consumer: string } } }): 
 
 export default function solidOptimizer(options: Options = {}): Plugin[] {
   const { optimizer: optimizerOption, ...solidOptions } = options;
-  const main = solidPlugin(solidOptions);
+  const plugins = solidPlugin(solidOptions);
   if (optimizerOption === false) {
-    return [main];
+    return plugins;
   }
   const optimizer = optimizerOption ?? {};
   const moduleName = solidOptions.solid?.moduleName ?? DEFAULT_MODULE_NAME;
   const moduleSources = [...new Set(['solid-js', DEFAULT_MODULE_NAME, moduleName])];
-  const builtIns = new Set(solidOptions.solid?.builtIns ?? DEFAULT_BUILT_INS);
+  const builtIns = new Set(
+    solidOptions.solid?.builtIns ?? [
+      'For',
+      'Show',
+      'Switch',
+      'Match',
+      'Loading',
+      'Reveal',
+      'Portal',
+      'Repeat',
+      'Dynamic',
+      'Errored',
+    ],
+  );
   const compileOptions: CompileOptions = {
     fold: optimizer.fold,
     inline: optimizer.inline,
@@ -255,14 +208,29 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
 
   /**
    * The JSX options the official plugin passes for a posture, so the
-   * lowering here matches it. Mirrors the `transform` hook of `vite-plugin-solid`.
+   * lowering here matches it. Mirrors `getSolidOptions` in `@solidjs/vite-plugin`.
    */
   const jsxOptions = (isSsr: boolean): JSXOptions => {
-    let posture: JSXOptions = { generate: 'dom', hydratable: false };
-    if (solidOptions.ssr) {
+    let posture: Pick<JSXOptions, 'generate' | 'hydratable'>;
+    if (solidOptions.start && !solidOptions.ssr) {
+      posture = { generate: isSsr ? 'ssr' : 'dom', hydratable: false };
+    } else if (solidOptions.ssr) {
       posture = { generate: isSsr ? 'ssr' : 'dom', hydratable: true };
+    } else {
+      posture = { generate: 'dom', hydratable: false };
     }
-    return { ...posture, ...solidOptions.solid };
+    const dev = solidOptions.dev === true || (solidOptions.dev !== false && !isBuild());
+    const names = dev || solidOptions.observe === true;
+    const { sourceNames, ...rest } = solidOptions.solid ?? {};
+    let resolvedNames: JSXOptions['sourceNames'] = false;
+    if (typeof sourceNames === 'boolean') {
+      resolvedNames = sourceNames;
+    } else if (sourceNames !== undefined || names) {
+      const components = sourceNames?.components ?? names;
+      const bindings = sourceNames?.bindings ?? names;
+      resolvedNames = components || bindings ? { components, bindings } : false;
+    }
+    return { ...posture, dev, sourceNames: resolvedNames, ...rest };
   };
 
   /**
@@ -272,8 +240,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (!isBuild() || (optimizer.mode ?? 'auto') !== 'auto') {
       return false;
     }
-    // The user's Babel plugins have to see the modules, which chunk mode skips.
-    if (solidOptions.babel) {
+    // A Babel pass or backend has to see the modules, which chunk mode skips.
+    if (solidOptions.babel || solidOptions.compiler === 'babel') {
       return false;
     }
     const client = jsxOptions(false);
@@ -281,7 +249,9 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   };
 
   const isJSXModule = (id: string): boolean => {
-    filter ??= createFilter(solidOptions.include, solidOptions.exclude);
+    filter ??= createFilter(solidOptions.include, solidOptions.exclude, {
+      resolve: config?.root,
+    });
     return filter(id) && JSX_MODULE.test(stripQuery(id));
   };
 
@@ -345,11 +315,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         return [specifier, constants.exports] as const;
       }),
     );
-    return Object.fromEntries(
-      entries.filter(
-        (entry): entry is readonly [string, Record<string, Primitive>] => entry !== undefined,
-      ),
-    );
+    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
   }
 
   async function constantsOf(
@@ -410,6 +376,31 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       filename,
       importedConstants: await importedConstants(context, imports, filename, new Set([filename])),
     };
+  }
+
+  async function resolveLazyModuleUrls(
+    context: Rollup.TransformPluginContext,
+    code: string,
+    importer: string,
+  ): Promise<string> {
+    const root = config?.root ?? process.cwd();
+    let result = code;
+    for (const match of code.matchAll(LAZY_PLACEHOLDER)) {
+      const specifier = match.at(1);
+      if (specifier === undefined) {
+        continue;
+      }
+      // oxlint-disable-next-line no-await-in-loop
+      const resolved = await context.resolve(specifier, importer);
+      if (resolved) {
+        const queryIndex = resolved.id.indexOf('?');
+        const file = queryIndex === -1 ? resolved.id : resolved.id.slice(0, queryIndex);
+        const query = queryIndex === -1 ? '' : resolved.id.slice(queryIndex);
+        const relative = path.relative(root, file).split(path.sep).join('/') + query;
+        result = result.replace(match[0], JSON.stringify(relative));
+      }
+    }
+    return result;
   }
 
   /** The modules each transform waits for, so two never wait for each other. */
@@ -893,23 +884,30 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   }
 
   /**
-   * Prepares a client module for chunk mode. It adds the helper marker
-   * instead of lowering JSX. Vite strips the types afterwards.
+   * Prepares a client module for chunk mode. It runs the passes the official
+   * plugin runs before lowering JSX, and adds the helper marker instead of
+   * lowering.
    */
   async function keepJSX(
-    context: Rollup.PluginContext,
+    context: Rollup.TransformPluginContext,
     source: string,
     id: string,
   ): Promise<Rollup.TransformResult> {
     const filename = stripQuery(id);
+    const solidCompiler = getCompiler();
+    const maps: (string | null | undefined)[] = [];
+    let code = source;
+
     // Fold and inline memos before bundling. A branch that folds away takes
     // its imports and `lazy()` chunks out of the module graph, which the
     // chunk step can no longer do. Inlining waits for the chunk, where the
     // components it can reach are known.
-    const moduleCompileOptions = await moduleOptions(context, source, id);
-    const local = compile(source, { ...moduleCompileOptions, inline: false });
-    let code = local.code;
-    const maps: (string | null | undefined)[] = [local.map?.toString()];
+    const moduleCompileOptions = await moduleOptions(context, code, id);
+    const local = compile(code, { ...moduleCompileOptions, inline: false });
+    if (local.map) {
+      code = local.code;
+      maps.push(local.map.toString());
+    }
     // `<Ns.Member>` would keep a namespace object, which lowered code does not.
     const named = nameNamespaceTags(code, filename);
     if (named) {
@@ -938,44 +936,51 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       code = exposed.code;
       maps.push(exposed.map);
     }
+
+    const lazy = await solidCompiler.transformLazyAsync(code, { filename, sourceMap: true });
+    code = lazy.code;
+    maps.push(lazy.map);
+
     // The helpers the module's JSX needs, as written and with its own
     // components inlined. Inlining can turn a spread into attributes, which
     // need helpers the spread did not.
+    const lowering = jsxOptions(false);
+    const needed = new Set<string>();
     const inlined =
       moduleCompileOptions.inline === false
         ? undefined
         : compile(code, { ...moduleCompileOptions, sourceMap: false });
-    const needed = new Set<string>();
     for (const version of new Set([code, inlined?.code ?? code])) {
-      const dryRun = lower(getCompiler(), version, filename, jsxOptions(false));
+      // oxlint-disable-next-line no-await-in-loop
+      const dryRun = await solidCompiler.transformAsync(version, { ...lowering, filename });
       for (const helper of generatedImports(dryRun.code, filename, moduleName)) {
         needed.add(helper);
       }
     }
+    if (needed.size > 0) {
+      const marked = addMarker(code, filename, {
+        moduleName,
+        helpers: withRelated([...needed]),
+        moduleSources,
+        // The passes also recognize these primitives, which a chunk renames too.
+        builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
+      });
+      if (marked) {
+        code = marked.code;
+        maps.push(marked.map);
+      }
+    }
+
+    code = await resolveLazyModuleUrls(context, code, filename);
     preserved.add(id);
-    if (needed.size === 0) {
-      return code === source ? null : { code, map: combineMaps(maps) };
-    }
-    const marked = addMarker(code, filename, {
-      moduleName,
-      helpers: withRelated([...needed]),
-      moduleSources,
-      // The passes also recognize these primitives, which a chunk renames too.
-      builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
-    });
-    if (!marked) {
-      return code === source ? null : { code, map: combineMaps(maps) };
-    }
-    return {
-      code: marked.code,
-      map: combineMaps([...maps, marked.map]),
-    };
+    return { code, map: combineMaps(maps) };
   }
 
-  const originalTransform = main.transform;
+  const main = plugins.find((plugin) => plugin.name === 'solid');
+  const originalTransform = main?.transform;
   const originalHandler =
     typeof originalTransform === 'function' ? originalTransform : originalTransform?.handler;
-  if (originalHandler) {
+  if (main && originalHandler) {
     main.transform = async function transform(code, id, transformOptions) {
       if (chunkMode() && isClient(this) && isJSXModule(id)) {
         return keepJSX(this, code, id);
@@ -1008,11 +1013,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         return null;
       }
       const filename = stripQuery(id);
-      const sourceOptions: CompileOptions = {
-        ...(await moduleOptions(this, source, id)),
-        // The server renders once, so its reactive primitives reduce to plain calls.
-        server: optimizer.server !== false && !isClient(this),
-      };
+      const sourceOptions = await moduleOptions(this, source, id);
       const result = compile(source, sourceOptions);
       let code = result.code;
       const maps: (string | null | undefined)[] = [result.map?.toString()];
@@ -1077,15 +1078,23 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         if (!runtime) {
           return null;
         }
+        const lowerChunk = (source: string): SolidCompiler.TransformResult =>
+          getCompiler().transform(source, {
+            ...jsxOptions(false),
+            // The compiler picks its parser by extension, and a chunk is a `.js` file with JSX.
+            filename: `${filename}.jsx`,
+            sourceMap: true,
+          });
         let optimized: CompileResult | undefined = compile(runtime.code, {
           ...compileOptions,
           filename,
           constantVars: true,
           builtInAliases: runtime.builtInAliases,
         });
-        let lowered = lower(getCompiler(), optimized.code, filename, jsxOptions(false));
         let linked: { code: string; map: string };
+        let lowered: SolidCompiler.TransformResult;
         try {
+          lowered = lowerChunk(optimized.code);
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
         } catch (error) {
           if (!(error instanceof MissingHelperError)) {
@@ -1097,7 +1106,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           // so the chunks do not have to match anything else.
           this.warn(`${error.message} ${filename} is not optimized.`);
           optimized = undefined;
-          lowered = lower(getCompiler(), runtime.code, filename, jsxOptions(false));
+          lowered = lowerChunk(runtime.code);
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
         }
         return {
@@ -1131,5 +1140,5 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     },
   };
 
-  return [modulePlugin, main, moduleTypePlugin, chunkPlugin];
+  return [modulePlugin, ...plugins, moduleTypePlugin, chunkPlugin];
 }

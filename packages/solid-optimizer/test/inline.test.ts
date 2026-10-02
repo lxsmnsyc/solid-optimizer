@@ -256,9 +256,9 @@ export function Home() {
   it('inlines a TypeScript component with expression statements', () => {
     // TypeScript's AST marks every expression statement with `directive: null`.
     const code = `
-import { onMount } from 'solid-js';
+import { onSettled } from 'solid-js';
 function Box(props: { label: string }) {
-  onMount(() => log(props.label));
+  onSettled(() => log(props.label));
   return <div>{props.label}</div>;
 }
 export function App() {
