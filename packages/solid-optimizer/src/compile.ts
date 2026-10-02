@@ -1,6 +1,8 @@
 import type { SourceMap } from '@jridgewell/remapping';
+import type { Program } from 'oxc-parser';
 import remapping from '@jridgewell/remapping';
 import MagicString from 'magic-string';
+import type { Parents } from './ast';
 import { collectParents, parse } from './ast';
 import type { ImportedConstants } from './constants';
 import { constantExports, namedImportSources, resolveImportedConstants } from './constants';
@@ -10,6 +12,7 @@ import { inline } from './inline';
 import { inlineMemos } from './memo';
 import { simplifyServer } from './server';
 import { removeProviders } from './provider';
+import type { ScopeAnalysis } from './scope';
 import { analyzeScopes } from './scope';
 import type { Primitive } from './value';
 
@@ -178,21 +181,35 @@ interface PassResult {
   map: string | undefined;
 }
 
+/** A parse of some code, which passes that change nothing can share. */
+interface Parsed {
+  readonly code: string;
+  readonly program: Program;
+  readonly parents: Parents;
+  readonly scopes: ScopeAnalysis;
+}
+
+function parseCode(code: string, filename: string): Parsed {
+  const program = parse(filename, code);
+  return { code, program, parents: collectParents(program), scopes: analyzeScopes(program) };
+}
+
 function runPass(
-  code: string,
+  parsed: Parsed,
   filename: string,
   options: ResolvedOptions,
   sourceMap: boolean,
   pass: Pass,
 ): PassResult | undefined {
-  const program = parse(filename, code);
+  const { code } = parsed;
   const context: PassContext = {
     code,
     filename,
     s: new MagicString(code),
-    program,
-    parents: collectParents(program),
-    scopes: analyzeScopes(program),
+    program: parsed.program,
+    parents: parsed.parents,
+    // A pass adds the names it gives out, so each pass starts from the parse's own.
+    scopes: { ...parsed.scopes, names: new Set(parsed.scopes.names) },
     options,
   };
   if (!pass(context)) {
@@ -237,11 +254,20 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
 
   const maps: string[] = [];
   let current = code;
+  // A pass that changes nothing leaves the code as it was, so the next pass
+  // reuses the parse instead of parsing the same code again.
+  let parsed: Parsed | undefined;
+  const parsedCurrent = (): Parsed => {
+    if (parsed?.code !== current) {
+      parsed = parseCode(current, filename);
+    }
+    return parsed;
+  };
   const maxPasses = options.maxPasses ?? 10;
   for (let round = 0; round < maxPasses; round += 1) {
     let changed = false;
     for (const pass of passes) {
-      const result = runPass(current, filename, resolved, sourceMap, pass);
+      const result = runPass(parsedCurrent(), filename, resolved, sourceMap, pass);
       if (result) {
         changed = true;
         current = result.code;
@@ -256,7 +282,7 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   }
 
   if (options.server ?? false) {
-    const result = runPass(current, filename, resolved, sourceMap, simplifyServer);
+    const result = runPass(parsedCurrent(), filename, resolved, sourceMap, simplifyServer);
     if (result) {
       current = result.code;
       if (result.map !== undefined) {
