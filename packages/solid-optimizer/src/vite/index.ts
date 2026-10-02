@@ -113,9 +113,13 @@ function stripQuery(id: string): string {
   return id.replace(/\?.*$/, '');
 }
 
-function combineMaps(maps: (string | null | undefined)[]): string | null {
+/**
+ * Chains the maps of each step into one, or `null` when the build writes no
+ * source maps, since chaining the maps of a large chunk takes a while.
+ */
+function combineMaps(wanted: boolean, maps: (string | null | undefined)[]): string | null {
   const present = maps.filter((map): map is string => typeof map === 'string');
-  if (present.length === 0) {
+  if (!wanted || present.length === 0) {
     return null;
   }
   return remapping(present.reverse(), () => null).toString();
@@ -205,6 +209,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   };
 
   const isBuild = (): boolean => config?.command === 'build';
+  /** Whether the output needs source maps: while serving, or when the build writes them. */
+  const wantsMaps = (): boolean => !isBuild() || Boolean(config?.build.sourcemap);
 
   /**
    * The JSX options the official plugin passes for a posture, so the
@@ -368,12 +374,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     const filename = stripQuery(id);
     // The dev server cannot give back the code of a loaded module.
     if (optimizer.fold === false || !isBuild()) {
-      return { ...compileOptions, filename };
+      return { ...compileOptions, filename, sourceMap: wantsMaps() };
     }
     const { imports } = readModuleConstants(code, { filename });
     return {
       ...compileOptions,
       filename,
+      sourceMap: wantsMaps(),
       importedConstants: await importedConstants(context, imports, filename, new Set([filename])),
     };
   }
@@ -842,7 +849,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         result = compile(edit.toString(), {
           ...compileOptionsOfModule,
           filename,
-          sourceMap: true,
+          sourceMap: wantsMaps(),
           importedContexts: Object.fromEntries(
             [...contexts].map(([module, exported]) => [module, [...exported]]),
           ),
@@ -872,9 +879,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         const [module = '', exported = ''] = copy.key.split('\0');
         absorbed.set(module, new Set([...(absorbed.get(module) ?? []), exported]));
       }
-      maps.push(
-        edit.generateMap({ source: filename, hires: true, includeContent: true }).toString(),
-      );
+      if (wantsMaps()) {
+        maps.push(
+          edit.generateMap({ source: filename, hires: true, includeContent: true }).toString(),
+        );
+      }
       if (result.map) {
         maps.push(result.map.toString());
       }
@@ -904,8 +913,9 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // components it can reach are known.
     const moduleCompileOptions = await moduleOptions(context, code, id);
     const local = compile(code, { ...moduleCompileOptions, inline: false });
+    // `map` is `null` when nothing changed, and when the build writes no maps.
+    code = local.code;
     if (local.map) {
-      code = local.code;
       maps.push(local.map.toString());
     }
     // `<Ns.Member>` would keep a namespace object, which lowered code does not.
@@ -937,7 +947,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       maps.push(exposed.map);
     }
 
-    const lazy = await solidCompiler.transformLazyAsync(code, { filename, sourceMap: true });
+    const lazy = await solidCompiler.transformLazyAsync(code, { filename, sourceMap: wantsMaps() });
     code = lazy.code;
     maps.push(lazy.map);
 
@@ -973,7 +983,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
 
     code = await resolveLazyModuleUrls(context, code, filename);
     preserved.add(id);
-    return { code, map: combineMaps(maps) };
+    return { code, map: combineMaps(wantsMaps(), maps) };
   }
 
   const main = plugins.find((plugin) => plugin.name === 'solid');
@@ -1039,7 +1049,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if (code === source) {
         return null;
       }
-      return { code, map: combineMaps(maps) };
+      return { code, map: combineMaps(wantsMaps(), maps) };
     },
   };
 
@@ -1083,11 +1093,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             ...jsxOptions(false),
             // The compiler picks its parser by extension, and a chunk is a `.js` file with JSX.
             filename: `${filename}.jsx`,
-            sourceMap: true,
+            sourceMap: wantsMaps(),
           });
         let optimized: CompileResult | undefined = compile(runtime.code, {
           ...compileOptions,
           filename,
+          sourceMap: wantsMaps(),
           constantVars: true,
           builtInAliases: runtime.builtInAliases,
         });
@@ -1111,7 +1122,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         }
         return {
           code: linked.code,
-          map: combineMaps([
+          map: combineMaps(wantsMaps(), [
             repaired?.map,
             runtime.map,
             optimized?.map?.toString(),

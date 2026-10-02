@@ -1,5 +1,5 @@
-import type { Expression, JSXChild, Node, Program } from 'oxc-parser';
-import { parseSync, visitorKeys } from 'oxc-parser';
+import type { Expression, JSXChild, Node, ParserOptions, Program } from 'oxc-parser';
+import { parseSync, rawTransferSupported, visitorKeys } from 'oxc-parser';
 
 /**
  * Keys that only hold TypeScript types. Types never run, so no pass reads or rewrites them.
@@ -82,12 +82,20 @@ export function collectParents(program: Program): Parents {
   return parents;
 }
 
+/**
+ * Raw transfer hands the AST over in shared memory instead of as JSON, which
+ * is several times faster to read. It is not in the options' type yet.
+ */
+const RAW_TRANSFER = rawTransferSupported();
+
 export function parse(filename: string, code: string): Program {
-  const result = parseSync(filename, code, {
+  const options: ParserOptions & { experimentalRawTransfer?: boolean } = {
     lang: languageOf(filename),
     sourceType: 'module',
     preserveParens: true,
-  });
+    experimentalRawTransfer: RAW_TRANSFER,
+  };
+  const result = parseSync(filename, code, options);
   const error = result.errors.at(0);
   if (error) {
     throw new SyntaxError(`[solid-optimizer] ${filename}: ${error.codeframe ?? error.message}`);
