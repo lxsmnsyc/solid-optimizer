@@ -752,9 +752,10 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     const usage = await usageIndex(context);
     // The components copied here that leave their module, by module.
     const absorbed = new Map<string, Set<string>>();
-    const isOnlyUser = (copy: Copy): boolean => {
+    // How many modules use the original of a copy, this one included.
+    const usersOf = (copy: Copy): number => {
       const [module = '', exported = ''] = copy.key.split('\0');
-      return usage.isOnlyUser(module, exported, id, absorbed);
+      return usage.users(module, exported, id, absorbed);
     };
     // The contexts the copies import, which the provider pass needs to know.
     const contexts = new Map<string, Set<string>>();
@@ -855,7 +856,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             [...contexts].map(([module, exported]) => [module, [...exported]]),
           ),
           // The original of a copy stays in its module for its other users.
-          sharedComponents: copies.filter((copy) => !isOnlyUser(copy)).map((copy) => copy.name),
+          sharedComponents: Object.fromEntries(
+            copies
+              .map((copy): [string, number] => [copy.name, usersOf(copy)])
+              .filter(([, users]) => users !== 1),
+          ),
         });
         const left = analyzeScopes(parse(filename, result.code)).root.bindings;
         const stuck = copies.filter((copy) => left.has(copy.name));
@@ -872,7 +877,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         break;
       }
       // Their uses of other components move here with them.
-      for (const copy of copies.filter(isOnlyUser)) {
+      for (const copy of copies.filter((item) => usersOf(item) === 1)) {
         const [module = '', exported = ''] = copy.key.split('\0');
         absorbed.set(module, new Set([...(absorbed.get(module) ?? []), exported]));
       }
