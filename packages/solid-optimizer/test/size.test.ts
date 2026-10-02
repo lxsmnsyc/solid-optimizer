@@ -67,7 +67,9 @@ export const App = () => <p><Button variant="primary">a</Button><Button variant=
     const app = `import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card></main>;`;
-    expect(optimize(app, { sharedComponents: ['Card'] })).toContain('<Card class="a">one</Card>');
+    expect(optimize(app, { sharedComponents: { Card: 0 } })).toContain(
+      '<Card class="a">one</Card>',
+    );
   });
 
   it('counts the calls in its children that can only inline once it does', () => {
@@ -82,7 +84,7 @@ function Counter(props) {
   return <button type="button" class="counter" onClick={() => setCount(count() + 1)}>{props.label}: {count()}</button>;
 }
 export const Home = () => <Card title="Home"><Counter label="Clicks" start={0} /></Card>;`;
-    const code = optimize(app, { sharedComponents: ['Card'] });
+    const code = optimize(app, { sharedComponents: { Card: 0 } });
     expect(code).not.toContain('<Card');
     expect(code).not.toContain('<Counter');
   });

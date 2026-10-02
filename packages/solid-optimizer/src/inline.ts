@@ -1613,7 +1613,7 @@ class Inliner {
           continue;
         }
         const gain =
-          this.inliningGain(component, copies, this.isRemovable(component, byElement, otherUses)) +
+          this.inliningGain(component, copies, this.removedShare(component, byElement, otherUses)) +
           this.enabledGain(component, copies, copiesOf, otherUses);
         if (gain >= 0) {
           result.add(component);
@@ -1626,20 +1626,25 @@ class Inliner {
   }
 
   /**
-   * Whether inlining every call removes a component: nothing else uses it,
-   * every call can be inlined, and its code is not kept elsewhere.
+   * How much of a component's declaration inlining every call removes: all
+   * of it when nothing else uses it, the module's share when other modules
+   * use it too, and none when a call cannot be inlined or anything else
+   * keeps it.
    */
-  private isRemovable(
+  private removedShare(
     component: Component,
     copies: ReadonlyMap<JSXElement, PreparedSite | undefined>,
     otherUses: ReadonlyMap<Component, number>,
-  ): boolean {
-    return (
-      component.declaration !== undefined &&
-      otherUses.get(component) === 0 &&
-      [...copies.values()].every((copy) => copy !== undefined) &&
-      !this.context.options.sharedComponents.has(component.binding.name)
-    );
+  ): number {
+    if (
+      component.declaration === undefined ||
+      otherUses.get(component) !== 0 ||
+      [...copies.values()].some((copy) => copy === undefined)
+    ) {
+      return 0;
+    }
+    const users = this.context.options.sharedComponents.get(component.binding.name) ?? 1;
+    return users > 0 ? 1 / users : 0;
   }
 
   /**
@@ -1675,8 +1680,8 @@ class Inliner {
         }
         const now = [...byElement.values()].filter((copy) => copy !== undefined);
         const then = [...enabled.values()].filter((copy) => copy !== undefined);
-        const before = now.length > 0 ? Math.max(0, this.inliningGain(other, now, false)) : 0;
-        const after = this.inliningGain(other, then, this.isRemovable(other, enabled, otherUses));
+        const before = now.length > 0 ? Math.max(0, this.inliningGain(other, now, 0)) : 0;
+        const after = this.inliningGain(other, then, this.removedShare(other, enabled, otherUses));
         gain += Math.max(0, after - before);
       }
     } finally {
@@ -1687,16 +1692,17 @@ class Inliner {
 
   /**
    * How much smaller the copies are than the calls they replace, once
-   * lowered, counting the declaration they remove when `removable`.
+   * lowered, counting the `share` of the declaration they remove.
    * Negative when they are larger.
    */
   private inliningGain(
     component: Component,
     copies: readonly PreparedSite[],
-    removable: boolean,
+    share: number,
   ): number {
     const estimator = this.estimator();
-    let calls = removable && component.declaration ? estimator.node(component.declaration) : 0;
+    let calls =
+      share > 0 && component.declaration ? share * estimator.node(component.declaration) : 0;
     let inlined = 0;
     for (const copy of copies) {
       const inTemplate = this.sitsInTemplate(copy.element);

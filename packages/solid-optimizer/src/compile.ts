@@ -87,11 +87,13 @@ export interface CompileOptions {
    */
   importedContexts?: Readonly<Record<string, readonly string[]>>;
   /**
-   * Top-level components whose code stays in the bundle wherever they are
-   * inlined, like a copy of a component that other modules import too.
-   * Inlining one is only worth it where each copy is smaller than its call.
+   * Top-level components that other modules use too, by the number of
+   * modules that use them, this one included. Inlining one here only counts
+   * its share of the declaration, which goes away once every one of them
+   * inlines it. `0` keeps it whatever is inlined, like a component that is
+   * also passed as a value.
    */
-  sharedComponents?: readonly string[];
+  sharedComponents?: Readonly<Record<string, number>>;
   /**
    * Inline every component that can be, even where the copies are larger
    * than the calls and declaration they replace. By default, a component is
@@ -150,7 +152,7 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
         new Set(names),
       ]),
     ),
-    sharedComponents: new Set(options.sharedComponents),
+    sharedComponents: new Map(Object.entries(options.sharedComponents ?? {})),
     alwaysInline: options.alwaysInline ?? false,
   };
 }

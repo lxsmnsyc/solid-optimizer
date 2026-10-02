@@ -43,7 +43,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `alwaysInline` inlines every component that can be, even where the copies are larger than the calls they replace. Defaults to `false`. See [Only where it is smaller](#only-where-it-is-smaller).
-- `sharedComponents` lists top-level components whose code stays in the bundle wherever they are inlined, like a copy of a component that other modules import too. They only inline where each copy is smaller than its call.
+- `sharedComponents` maps top-level components that other modules use too to the number of modules that use them, this one included. Inlining one only counts its share of the declaration. `0` keeps the declaration whatever is inlined.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
@@ -206,7 +206,7 @@ Every copy repeats the component's own code, so inlining a component at many cal
 
 A component inlines only when its copies are no larger. A small component, or one used once, inlines at every call. A wrapper used many times, whose root is another component, like most wrappers of a component library, stays a component.
 
-In the Vite plugin, a component copied from another module only counts its declaration when the importer is the only module that uses it. The plugin reads which modules use each export from the files the entries reach, and from the module scripts of an HTML entry. A re-export, a dynamic import, or a use as a value counts as another user.
+In the Vite plugin, a component copied from another module counts the module's share of its declaration: all of it when the importer is its only user, and one part in n when n modules use it, since it goes away once every one of them copies it. The plugin reads which modules use each export from the files the entries reach, and from the module scripts of an HTML entry. A re-export, a dynamic import, a use as a value, or a user the component's module imports back keeps the declaration whole.
 
 Set `alwaysInline` to inline every component that can be.
 

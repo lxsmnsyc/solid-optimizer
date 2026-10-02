@@ -17,8 +17,8 @@ export interface ResolvedOptions {
   readonly importedConstants: ResolvedImportedConstants;
   /** The exports of imported modules that are contexts, by import specifier. */
   readonly importedContexts: ReadonlyMap<string, ReadonlySet<string>>;
-  /** Components whose code stays elsewhere however they are inlined here. */
-  readonly sharedComponents: ReadonlySet<string>;
+  /** Components other modules use too, by the number of modules that use them. */
+  readonly sharedComponents: ReadonlyMap<string, number>;
   /** Whether to inline components even where the copies are larger. */
   readonly alwaysInline: boolean;
 }

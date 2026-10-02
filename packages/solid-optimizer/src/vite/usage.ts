@@ -19,17 +19,18 @@ import { analyzeScopes } from '../scope';
 
 export interface UsageIndex {
   /**
-   * Whether `user` is the only module that uses `exportName` of `module`,
-   * and only as JSX tags. `absorbed` holds, by module, the exported
+   * How many modules use `exportName` of `module`, counting `user`, when
+   * they only use it as JSX tags. `0` when anything else uses it, which
+   * keeps it whoever copies it. `absorbed` holds, by module, the exported
    * components that were copied into `user` and leave their module, so the
    * uses inside them count as uses in `user`.
    */
-  isOnlyUser(
+  users(
     module: string,
     exportName: string,
     user: string,
     absorbed: ReadonlyMap<string, ReadonlySet<string>>,
-  ): boolean;
+  ): number;
 }
 
 export interface UsageHost {
@@ -60,6 +61,25 @@ class Usage implements UsageIndex {
   /** Modules any of whose exports can be used in a way the index does not follow. */
   private readonly opaque = new Set<string>();
 
+  /** The modules each module imports. */
+  readonly imports = new Map<string, readonly string[]>();
+
+  /** Whether `from` imports `to`, directly or through other modules. */
+  private reaches(from: string, to: string): boolean {
+    const seen = new Set<string>();
+    const stack = [from];
+    for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+      if (id === to) {
+        return true;
+      }
+      if (!seen.has(id)) {
+        seen.add(id);
+        stack.push(...(this.imports.get(id) ?? []));
+      }
+    }
+    return false;
+  }
+
   private entry(module: string, name: string): ExportUsage {
     const key = `${module}\0${name}`;
     let usage = this.exports.get(key);
@@ -87,26 +107,27 @@ class Usage implements UsageIndex {
     this.opaque.add(module);
   }
 
-  isOnlyUser(
+  users(
     module: string,
     exportName: string,
     user: string,
     absorbed: ReadonlyMap<string, ReadonlySet<string>>,
-  ): boolean {
+  ): number {
     if (this.opaque.has(module)) {
-      return false;
+      return 0;
     }
     const usage = this.exports.get(`${module}\0${exportName}`);
     if (!usage || usage.other || usage.importers.size === 0) {
-      return false;
+      return 0;
     }
+    const users = new Set([user]);
     for (const [importer, containers] of usage.importers) {
       const moved = absorbed.get(importer);
-      if (importer !== user && ![...containers].every((name) => moved?.has(name) === true)) {
-        return false;
-      }
+      users.add([...containers].every((name) => moved?.has(name) === true) ? user : importer);
     }
-    return true;
+    // A module the component's module imports never gets a copy of it, so
+    // the original stays for it.
+    return [...users].some((id) => this.reaches(module, id)) ? 0 : users.size;
   }
 }
 
@@ -372,6 +393,7 @@ export async function buildUsageIndex(
           }
         }
         recordModule(usage, id, program, targets);
+        usage.imports.set(id, [...targets.values()]);
         return [...targets.values()];
       }),
     );

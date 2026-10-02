@@ -110,24 +110,13 @@ const NEVER_INLINED = new Set([
 
 /**
  * Components each chunk may still call. A component used by several chunks
- * is copied into a chunk only where the copy is no larger than the call, and
- * where the components it is used with stay calls too, it stays a component.
+ * is copied into a chunk only where its copies are no larger than its calls,
+ * counting the chunk's share of the declaration that goes away once every
+ * chunk copies it. Two copies of the table are larger than its calls.
  */
 const KEPT: Record<Mode, Record<string, readonly string[]>> = {
-  default: {
-    About: ['Card'],
-    Dashboard: ['Card', 'Table'],
-    Settings: ['Card', 'Avatar', 'Table', 'Button'],
-    // The lazy pages call these too, so a copy would not remove them.
-    index: ['Avatar', 'Button'],
-  },
-  vendor: {
-    About: ['Card'],
-    Dashboard: ['Card', 'Table'],
-    Settings: ['Card', 'Avatar', 'Table', 'Button'],
-    index: ['Avatar', 'Button'],
-  },
-  // Two copies of the table would be larger than its two calls.
+  default: { Dashboard: ['Table'], Settings: ['Table'] },
+  vendor: { Dashboard: ['Table'], Settings: ['Table'] },
   single: { index: ['Table'] },
 };
 

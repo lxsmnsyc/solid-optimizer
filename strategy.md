@@ -291,7 +291,9 @@ Two effects make inlining pay off beyond the calls it replaces:
 
 ### Who else uses a component
 
-A component copied from another module stays in its module when other modules use it, so only a component whose importer is its only user counts its declaration. The plugin reads every module the entries reach from disk once per build, and records for each export the modules that use it as a tag, and whether anything uses it otherwise: as a value, through a re-export or a dynamic import, or inside its own module. A use inside a component that was copied into the importer, and leaves its module, counts as a use in the importer.
+A component copied from another module stays in its module while other modules use it. The plugin reads every module the entries reach from disk once per build, and records for each export the modules that use it as a tag, and whether anything uses it otherwise: as a value, through a re-export or a dynamic import, or inside its own module. A use inside a component that was copied into the importer, and leaves its module, counts as a use in the importer.
+
+A copy counts the importer's share of the declaration: all of it when the importer is the only user, and one part in n when n modules use it. Copying a component into every user removes it, so the shares add up to the declaration exactly when that happens. A user the component's module imports back never gets a copy, so it keeps the declaration whole, and so does any other use the index records. When a user declines its copy because its own copies are larger, the others have counted a share that does not go away; this has not grown any of the three apps.
 
 An HTML entry is read for its module scripts, since Vite has not resolved them when the first module is transformed. An inline module script makes every export count as used elsewhere.
 
@@ -299,11 +301,11 @@ An HTML entry is read for its module scripts, since Vite has not resolved them w
 
 | App                                         | Before                 | After                  |
 | ------------------------------------------- | ---------------------- | ---------------------- |
-| solid-ui, Solid 1 (default, vendor, single) | +1.8%, +1.0%, +1.1%    | −0.3%, −0.2%, −1.3%    |
+| solid-ui, Solid 1 (default, vendor, single) | +1.8%, +1.0%, +1.1%    | −0.3%, −0.2%, −1.2%    |
 | Hacker News, Solid 1                        | −0.9%, −1.1%, −0.4%    | −0.9%, −1.1%, −0.4%    |
-| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −22.0%, −21.9%, −23.2% |
+| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −25.2%, −23.2%, −23.2% |
 
-The demo's code-split builds lose about 1 kB. `Card` and `Table` stay in their modules for the lazy pages, so Rolldown keeps them in a shared chunk and the runtime in a chunk of its own. With every copy made, it put the runtime in the entry chunk instead. The estimate cannot see how Rolldown will split.
+The demo keeps `Table` as a component: two copies are larger than its two calls, even with its whole declaration counted.
 
 ### Not covered yet
 
