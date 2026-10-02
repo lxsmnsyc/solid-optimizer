@@ -33,10 +33,11 @@ jobs:
 
       - run: pnpm fmt:check
 
+      # The examples import `solid-optimizer` from its build, so lint and type-check need it first.
+      - run: pnpm build
+
       - run: pnpm lint
 
       - run: pnpm type-check
-
-      - run: pnpm build
 
       - run: pnpm test

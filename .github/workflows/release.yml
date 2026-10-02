@@ -44,12 +44,13 @@ jobs:
 
       - run: pnpm fmt:check
 
+      # Publishing builds again. Building here stops a broken release before the version pull request merges.
+      # The examples also import `solid-optimizer` from its build, so lint and type-check need it first.
+      - run: pnpm build
+
       - run: pnpm lint
 
       - run: pnpm type-check
-
-      # Publishing builds again. Building here stops a broken release before the version pull request merges.
-      - run: pnpm build
 
       - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
