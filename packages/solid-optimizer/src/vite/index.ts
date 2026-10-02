@@ -39,7 +39,6 @@ import {
   MARKER,
   MissingHelperError,
   addMarker,
-  generatedImports,
   linkHelpers,
   readMarkers,
   repairJSXSequences,
@@ -149,13 +148,14 @@ function lower(
   code: string,
   filename: string,
   options: JSXOptions,
+  sourceMaps: boolean,
 ): { code: string; map: string | undefined } {
   const result = compiler.babel.transformSync(code, {
     filename,
     sourceFileName: filename,
     presets: [[compiler.preset, options]],
     ast: false,
-    sourceMaps: true,
+    sourceMaps,
     configFile: false,
     babelrc: false,
     parserOpts: {
@@ -169,13 +169,55 @@ function lower(
   return { code: result.code, map: result.map ? JSON.stringify(result.map) : undefined };
 }
 
+/**
+ * The helpers `babel-preset-solid` imports from `moduleName` to lower `code`.
+ * Only the AST is built, since its code would only be read for its imports.
+ */
+function helpersOf(
+  compiler: Compiler,
+  code: string,
+  filename: string,
+  options: JSXOptions,
+  moduleName: string,
+): string[] {
+  const result = compiler.babel.transformSync(code, {
+    filename,
+    presets: [[compiler.preset, options]],
+    ast: true,
+    code: false,
+    configFile: false,
+    babelrc: false,
+    parserOpts: {
+      plugins: /\.[mc]?tsx$/i.test(filename) ? ['jsx', 'typescript'] : ['jsx'],
+    },
+  });
+  const names: string[] = [];
+  for (const statement of result?.ast?.program.body ?? []) {
+    if (statement.type !== 'ImportDeclaration' || statement.source.value !== moduleName) {
+      continue;
+    }
+    for (const specifier of statement.specifiers) {
+      // Generated imports are named `_$helper`, which the module's own are not.
+      if (specifier.type === 'ImportSpecifier' && specifier.local.name.startsWith('_$')) {
+        const { imported } = specifier;
+        names.push(imported.type === 'StringLiteral' ? imported.value : imported.name);
+      }
+    }
+  }
+  return names;
+}
+
 function stripQuery(id: string): string {
   return id.replace(/\?.*$/, '');
 }
 
-function combineMaps(maps: (string | null | undefined)[]): string | null {
+/**
+ * Chains the maps of each step into one, or `null` when the build writes no
+ * source maps, since chaining the maps of a large chunk takes a while.
+ */
+function combineMaps(wanted: boolean, maps: (string | null | undefined)[]): string | null {
   const present = maps.filter((map): map is string => typeof map === 'string');
-  if (present.length === 0) {
+  if (!wanted || present.length === 0) {
     return null;
   }
   return remapping(present.reverse(), () => null).toString();
@@ -252,6 +294,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   };
 
   const isBuild = (): boolean => config?.command === 'build';
+  /** Whether the output needs source maps: while serving, or when the build writes them. */
+  const wantsMaps = (): boolean => !isBuild() || Boolean(config?.build.sourcemap);
 
   /**
    * The JSX options the official plugin passes for a posture, so the
@@ -402,12 +446,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     const filename = stripQuery(id);
     // The dev server cannot give back the code of a loaded module.
     if (optimizer.fold === false || !isBuild()) {
-      return { ...compileOptions, filename };
+      return { ...compileOptions, filename, sourceMap: wantsMaps() };
     }
     const { imports } = readModuleConstants(code, { filename });
     return {
       ...compileOptions,
       filename,
+      sourceMap: wantsMaps(),
       importedConstants: await importedConstants(context, imports, filename, new Set([filename])),
     };
   }
@@ -851,7 +896,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         result = compile(edit.toString(), {
           ...compileOptionsOfModule,
           filename,
-          sourceMap: true,
+          sourceMap: wantsMaps(),
           importedContexts: Object.fromEntries(
             [...contexts].map(([module, exported]) => [module, [...exported]]),
           ),
@@ -881,9 +926,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         const [module = '', exported = ''] = copy.key.split('\0');
         absorbed.set(module, new Set([...(absorbed.get(module) ?? []), exported]));
       }
-      maps.push(
-        edit.generateMap({ source: filename, hires: true, includeContent: true }).toString(),
-      );
+      if (wantsMaps()) {
+        maps.push(
+          edit.generateMap({ source: filename, hires: true, includeContent: true }).toString(),
+        );
+      }
       if (result.map) {
         maps.push(result.map.toString());
       }
@@ -947,14 +994,19 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         : compile(code, { ...moduleCompileOptions, sourceMap: false });
     const needed = new Set<string>();
     for (const version of new Set([code, inlined?.code ?? code])) {
-      const dryRun = lower(getCompiler(), version, filename, jsxOptions(false));
-      for (const helper of generatedImports(dryRun.code, filename, moduleName)) {
+      for (const helper of helpersOf(
+        getCompiler(),
+        version,
+        filename,
+        jsxOptions(false),
+        moduleName,
+      )) {
         needed.add(helper);
       }
     }
     preserved.add(id);
     if (needed.size === 0) {
-      return code === source ? null : { code, map: combineMaps(maps) };
+      return code === source ? null : { code, map: combineMaps(wantsMaps(), maps) };
     }
     const marked = addMarker(code, filename, {
       moduleName,
@@ -964,11 +1016,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
     });
     if (!marked) {
-      return code === source ? null : { code, map: combineMaps(maps) };
+      return code === source ? null : { code, map: combineMaps(wantsMaps(), maps) };
     }
     return {
       code: marked.code,
-      map: combineMaps([...maps, marked.map]),
+      map: combineMaps(wantsMaps(), [...maps, marked.map]),
     };
   }
 
@@ -1038,7 +1090,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if (code === source) {
         return null;
       }
-      return { code, map: combineMaps(maps) };
+      return { code, map: combineMaps(wantsMaps(), maps) };
     },
   };
 
@@ -1080,10 +1132,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         let optimized: CompileResult | undefined = compile(runtime.code, {
           ...compileOptions,
           filename,
+          sourceMap: wantsMaps(),
           constantVars: true,
           builtInAliases: runtime.builtInAliases,
         });
-        let lowered = lower(getCompiler(), optimized.code, filename, jsxOptions(false));
+        let lowered = lower(
+          getCompiler(),
+          optimized.code,
+          filename,
+          jsxOptions(false),
+          wantsMaps(),
+        );
         let linked: { code: string; map: string };
         try {
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
@@ -1097,12 +1156,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           // so the chunks do not have to match anything else.
           this.warn(`${error.message} ${filename} is not optimized.`);
           optimized = undefined;
-          lowered = lower(getCompiler(), runtime.code, filename, jsxOptions(false));
+          lowered = lower(getCompiler(), runtime.code, filename, jsxOptions(false), wantsMaps());
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
         }
         return {
           code: linked.code,
-          map: combineMaps([
+          map: combineMaps(wantsMaps(), [
             repaired?.map,
             runtime.map,
             optimized?.map?.toString(),

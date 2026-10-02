@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r run build",
+    "bench": "node scripts/bench.ts",
     "cs:add": "changeset add",
     "cs:pub": "changeset publish",
     "cs:ver": "changeset version && pnpm install --lockfile-only",

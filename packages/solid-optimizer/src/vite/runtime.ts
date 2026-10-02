@@ -70,26 +70,6 @@ function exportedName(specifier: ImportSpecifier): string {
   return specifier.imported.type === 'Literal' ? specifier.imported.value : specifier.imported.name;
 }
 
-/**
- * The helpers Solid's JSX transform imported from `source` into its output.
- * The module's own imports, including type imports, are left out.
- */
-export function generatedImports(code: string, filename: string, source: string): string[] {
-  const program = parse(filename, code);
-  const names: string[] = [];
-  for (const statement of program.body) {
-    if (statement.type !== 'ImportDeclaration' || statement.source.value !== source) {
-      continue;
-    }
-    for (const specifier of statement.specifiers) {
-      if (specifier.type === 'ImportSpecifier' && isGeneratedSpecifier(specifier)) {
-        names.push(exportedName(specifier));
-      }
-    }
-  }
-  return names;
-}
-
 export interface MarkerOptions {
   /** The module the helpers come from, usually `solid-js/web`. */
   readonly moduleName: string;
