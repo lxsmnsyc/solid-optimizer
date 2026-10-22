@@ -144,6 +144,28 @@ function App() {
   });
 });
 
+describe('refs', () => {
+  it('sets a ref on an element the same', async () => {
+    await expectSameBehavior(
+      'element-ref',
+      app(
+        `function App() {
+  let el;
+  const [seen, setSeen] = createSignal('none');
+  return (
+    <main>
+      <input id="field" value="a" ref={el} />
+      <button id="read" onClick={() => setSeen(el ? el.tagName : 'none')} />
+      <p>{seen()}</p>
+    </main>
+  );
+}`,
+      ),
+      ['#read'],
+    );
+  });
+});
+
 describe('props.children', () => {
   it('renders children read more than once', async () => {
     const code = await expectSameBehavior(

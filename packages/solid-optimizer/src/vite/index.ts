@@ -33,6 +33,7 @@ import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
 import { exposeLocals, readExportedComponent } from './inject';
 import { nameNamespaceTags } from './namespace';
+import { protectRefs, restoreRefs } from './refs';
 import type { UsageIndex } from './usage';
 import { buildUsageIndex } from './usage';
 import {
@@ -981,6 +982,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       }
     }
 
+    // The bundler has to see that a `ref` writes its variable. See `refs.ts`.
+    const protectedRefs = protectRefs(code, filename);
+    if (protectedRefs) {
+      code = protectedRefs.code;
+      maps.push(protectedRefs.map);
+    }
+
     code = await resolveLazyModuleUrls(context, code, filename);
     preserved.add(id);
     return { code, map: combineMaps(wantsMaps(), maps) };
@@ -1088,6 +1096,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         if (!runtime) {
           return null;
         }
+        const restored = restoreRefs(runtime.code, filename);
+        const chunkCode = restored?.code ?? runtime.code;
         const lowerChunk = (source: string): SolidCompiler.TransformResult =>
           getCompiler().transform(source, {
             ...jsxOptions(false),
@@ -1095,7 +1105,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             filename: `${filename}.jsx`,
             sourceMap: wantsMaps(),
           });
-        let optimized: CompileResult | undefined = compile(runtime.code, {
+        let optimized: CompileResult | undefined = compile(chunkCode, {
           ...compileOptions,
           filename,
           sourceMap: wantsMaps(),
@@ -1117,7 +1127,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           // so the chunks do not have to match anything else.
           this.warn(`${error.message} ${filename} is not optimized.`);
           optimized = undefined;
-          lowered = lowerChunk(runtime.code);
+          lowered = lowerChunk(chunkCode);
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
         }
         return {
@@ -1125,6 +1135,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           map: combineMaps(wantsMaps(), [
             repaired?.map,
             runtime.map,
+            restored?.map,
             optimized?.map?.toString(),
             lowered.map,
             linked.map,
