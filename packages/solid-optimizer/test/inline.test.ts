@@ -370,7 +370,6 @@ export const App = () => <div><Title text="a" /><Other text="b" /></div>;
   it('bails on shapes it cannot keep equivalent', () => {
     const cases = [
       // The props object escapes.
-      `function A(props) { return <div {...props} />; }\nexport const App = () => <A x={1} />;`,
       `function A(props) { use(props); return <div />; }\nexport const App = () => <A x={1} />;`,
       // Destructured props.
       `function A({ x }) { return <div>{x}</div>; }\nexport const App = () => <A x={1} />;`,

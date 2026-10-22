@@ -29,6 +29,8 @@ The option stays after the work is done. It helps explain future size results.
 
 ## Step 1: spread of the props parameter
 
+Status: done.
+
 `<div {...props} />` inside a component is the cheapest fix. It is the same as a spread of a view with one source and no hidden keys, which `resolveViews` already handles.
 
 1. In `analyzeViews`, accept a reference to the props parameter whose parent is a `JSXSpreadAttribute` on a `JSXElement`.

@@ -144,6 +144,31 @@ function App() {
   });
 });
 
+describe('props spread', () => {
+  it('spreads the props onto an element the same once inlined', async () => {
+    const code = await expectSameBehavior(
+      'props-spread',
+      app(
+        `function Box(props) {
+  return <section {...props} />;
+}
+function App() {
+  const [tone, setTone] = createSignal('dark');
+  return (
+    <main>
+      <Box id="box" class={tone()} onClick={() => setTone(tone() === 'dark' ? 'light' : 'dark')}>
+        <p>{tone()}</p>
+      </Box>
+    </main>
+  );
+}`,
+      ),
+      ['#box', '#box'],
+    );
+    expect(code).not.toContain('createComponent(Box');
+  });
+});
+
 describe('constant lists', () => {
   it('renders an unrolled <For> the same, with stateful rows', async () => {
     const code = await expectSameBehavior(

@@ -9,7 +9,8 @@
  *
  * - It is declared once at the top level of the module, with a capitalized
  *   name, as a function declaration or a `const` bound to a function.
- * - It takes no parameter, or one identifier that is only read as `props.name`.
+ * - It takes no parameter, or one identifier that is only read as `props.name`,
+ *   or spread onto an element as `{...props}`.
  * - Its body is statements followed by one final `return` of JSX, or an arrow
  *   function whose body is JSX.
  * - It does not use `this`, `arguments`, `new.target`, or `super`.
@@ -714,8 +715,7 @@ class Inliner {
       }
       const read = this.propRead(fn, reference);
       if (!read) {
-        const parent = this.context.parents.get(reference);
-        this.reason = parent?.type === 'JSXSpreadAttribute' ? 'props-spread' : 'props-use';
+        this.reason = 'props-use';
         return undefined;
       }
       props.push(read);
@@ -869,24 +869,32 @@ class Inliner {
 
     const reads: ViewRead[] = [];
     const spreads: ViewSpread[] = [];
+    // `{...props}` spreads every prop, like a view of the props with nothing hidden.
+    const whole: View = { sources: [{ defaults: undefined, hidden: new Set() }] };
+    for (const reference of param?.references ?? []) {
+      const spread = this.spreadOnElement(reference);
+      if (spread) {
+        args.add(reference);
+        spreads.push({
+          attribute: spread.attribute,
+          element: spread.element,
+          view: whole,
+          repeated: this.isRepeated(fn, spread.attribute),
+        });
+      }
+    }
     for (const [binding, view] of views) {
       for (const reference of binding.references) {
         if (args.has(reference)) {
           continue;
         }
-        const parent = this.context.parents.get(reference);
-        const opening = parent ? this.context.parents.get(parent) : undefined;
-        const element = opening ? this.context.parents.get(opening) : undefined;
-        if (
-          parent?.type === 'JSXSpreadAttribute' &&
-          opening?.type === 'JSXOpeningElement' &&
-          element?.type === 'JSXElement'
-        ) {
+        const spread = this.spreadOnElement(reference);
+        if (spread) {
           spreads.push({
-            attribute: parent,
-            element,
+            attribute: spread.attribute,
+            element: spread.element,
             view,
-            repeated: this.isRepeated(fn, parent),
+            repeated: this.isRepeated(fn, spread.attribute),
           });
           continue;
         }
@@ -898,6 +906,20 @@ class Inliner {
       }
     }
     return { bindings: new Set(views.keys()), arguments: args, declarations, reads, spreads };
+  }
+
+  /** The spread a reference is the whole argument of, and the element it is on. */
+  private spreadOnElement(
+    reference: Node,
+  ): { attribute: JSXSpreadAttribute; element: JSXElement } | undefined {
+    const parent = this.context.parents.get(reference);
+    const opening = parent ? this.context.parents.get(parent) : undefined;
+    const element = opening ? this.context.parents.get(opening) : undefined;
+    return parent?.type === 'JSXSpreadAttribute' &&
+      opening?.type === 'JSXOpeningElement' &&
+      element?.type === 'JSXElement'
+      ? { attribute: parent, element }
+      : undefined;
   }
 
   /**

@@ -31,7 +31,7 @@ export const A = () => <main><Title label="a" /></main>;`),
   it('gives the reason a component is turned down at each call', () => {
     expect(
       reasons(
-        `function Box(props) { return <div {...props} />; }
+        `function Box(props) { use(props); return <div />; }
 function Pair({ a }) { return <b>{a}</b>; }
 async function Later() { return <i />; }
 function Maybe(props) { if (props.x) { return null; } return <i />; }
@@ -43,7 +43,7 @@ export const A = () => <main><Box id="a" /><Pair a="x" /><Later /><Maybe /><Self
     ).toEqual([
       // In source order, so the call inside `Self` comes first.
       'inline:component-recursive:Self',
-      'inline:props-spread:Box',
+      'inline:props-use:Box',
       'inline:component-params:Pair',
       'inline:component-async:Later',
       'inline:component-return:Maybe',
