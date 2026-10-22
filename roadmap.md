@@ -21,7 +21,7 @@ What this changes:
 
 - Item 1 is confirmed. Both apps have a call that only stays because it sits in a built-in's child or callback. The callback given to `render` is a third place that could take statements.
 - Item 2 cannot be measured on Solid 2 yet. Neither app has a spread or a `ref` at a call site. Its value has to come from solid-ui on `solid-1-compiler`, which needs the report ported there first.
-- Item 8 is confirmed in a small way. The router is the only `node_modules` code either app renders.
+- Item 9 is confirmed in a small way. The router is the only `node_modules` code either app renders.
 - No provider in the apps' own code stays, so item 10 and the provider half of item 1 have no measured case yet.
 - The router's `RouteContextObj` and `RouterContextObj` show up as components, not providers. They come from `routing.js`, which has no JSX, so no marker tells the chunk step which binding is `createContext`. Their subtrees call `c.outlet()`, so they would stay anyway.
 
@@ -166,9 +166,25 @@ Plan:
 
 `.map()` over a constant list is left out. Solid code renders lists with `<For>`, since `.map()` makes every row again when the list changes.
 
-## 8. Copying components from chosen packages
+## 8. Constants in hydrating builds
 
-Components from `node_modules` are never copied across modules. Headless libraries like Kobalte are where context inlining would help most.
+Hydrating builds and server builds always run in module mode. Constants exported from a module with JSX do not fold there. `define` and `import.meta.env` do not fold either.
+
+Plan:
+
+1. Constants from a module with JSX. Component copying already loads such modules safely. Chunk mode records which modules each transform waits for, and module mode uses the import graph on disk. Read the constants through the same loader and the same checks.
+2. `define` and `import.meta.env`. Read the values from the resolved Vite config and fold them like imported constants.
+3. Do not fold a value that can differ between the server and the client build, such as `import.meta.env.SSR` or a `define` set per environment. The size estimate could then decide differently in each build, and the hydration keys would not match.
+
+## 9. Copying components from chosen packages
+
+Components from `node_modules` are never copied across modules.
+
+This was item 8. It moved below constants in hydrating builds, since copying adds less than it seemed:
+
+- Copying exists because Rolldown splits chunks before `renderChunk`, and module mode has no chunk step. A copy made in `transform` lets the bundler drop the original and what only it used. Rolldown has no hook between building the module graph and splitting chunks that could do this instead.
+- Library code in the same chunk as its user already inlines in `renderChunk`, without a copy. That is where Hacker News's 2.2% in the `vendor` build comes from.
+- A copy only adds something when the library lands in another chunk than its user, or in module mode. The only measured case is the router's own components, whose subtrees call code that is not visible, so most of them would stay anyway. Headless libraries like Kobalte are where context inlining would help most.
 
 Plan:
 
@@ -178,16 +194,6 @@ Plan:
 4. Treat every export of a package as used elsewhere. A package's exports are its public API, and other packages can import them too.
 5. Add no `__so_local$` exports to package modules. Copy a component only when everything it needs is exported or imported already.
 6. Build solid-ui with `@kobalte/core` listed, and compare with the current numbers.
-
-## 9. Constants in hydrating builds
-
-Hydrating builds and server builds always run in module mode. Constants exported from a module with JSX do not fold there. `define` and `import.meta.env` do not fold either.
-
-Plan:
-
-1. Constants from a module with JSX. Component copying already loads such modules safely. Chunk mode records which modules each transform waits for, and module mode uses the import graph on disk. Read the constants through the same loader and the same checks.
-2. `define` and `import.meta.env`. Read the values from the resolved Vite config and fold them like imported constants.
-3. Do not fold a value that can differ between the server and the client build, such as `import.meta.env.SSR` or a `define` set per environment. The size estimate could then decide differently in each build, and the hydration keys would not match.
 
 ## 10. Class instances as context values
 
