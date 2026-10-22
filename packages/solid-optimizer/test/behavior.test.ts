@@ -144,6 +144,33 @@ function App() {
   });
 });
 
+describe('children helper', () => {
+  it('renders children resolved by the helper the same once it is inlined', async () => {
+    const code = await expectSameBehavior(
+      'children-helper',
+      app(
+        `function Box(props) {
+  const resolved = children(() => props.children);
+  return <section class="box">{resolved()}</section>;
+}
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <Box>
+        <button onClick={() => setCount(count() + 1)}>{count()}</button>
+      </Box>
+    </main>
+  );
+}`,
+        "import { children, createSignal } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('children(');
+  });
+});
+
 describe('dynamic', () => {
   it('renders a known component through <Dynamic> the same as a call', async () => {
     const code = await expectSameBehavior(

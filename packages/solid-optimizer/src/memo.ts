@@ -31,6 +31,19 @@
  *
  * becomes `<p>{3 * 2}</p>`, which the next fold turns into `6`.
  *
+ * Solid's `children` helper is a memo too. It resolves the children once,
+ * caches them, and flattens them in a second memo. When the children are JSX,
+ * nothing they read at the top makes either memo run again, and inserting the
+ * JSX directly resolves it the same way. So a `children(() => <jsx />)` read
+ * once as an element's child becomes that JSX, which joins the template:
+ *
+ * ```jsx
+ * const c = children(() => <b>x</b>);
+ * return <div>{c()}</div>;
+ * ```
+ *
+ * becomes `<div><b>x</b></div>`.
+ *
  * # Accepted differences
  *
  * - The computation first runs when its reader first runs, instead of when
@@ -44,6 +57,7 @@ import type {
   CallExpression,
   Expression,
   Function as FunctionNode,
+  JSXExpressionContainer,
   Node,
   VariableDeclarator,
 } from 'oxc-parser';
@@ -95,6 +109,8 @@ function isFresh(node: Node): boolean {
 /**
  * The expression a compute function returns, when that is all it does.
  */
+type MemoKind = 'createMemo' | 'children';
+
 /**
  * The text of an expression that always gives the same primitive: a literal
  * other than a regular expression, a template literal without expressions,
@@ -141,12 +157,14 @@ class MemoInliner {
   /** Why the last memo was turned down, for the report. Empty for a call that is not a memo. */
   private reason = '';
 
-  private isCreateMemo(callee: Node): boolean {
+  /** Whether a callee is Solid's `createMemo` or `children`. */
+  private memoKind(callee: Node): MemoKind | undefined {
     if (callee.type !== 'Identifier') {
-      return false;
+      return undefined;
     }
     const binding = this.context.scopes.references.get(callee);
-    return binding !== undefined && solidExport(binding, this.context.options) === 'createMemo';
+    const identity = binding ? solidExport(binding, this.context.options) : undefined;
+    return identity === 'createMemo' || identity === 'children' ? identity : undefined;
   }
 
   /**
@@ -155,12 +173,17 @@ class MemoInliner {
    */
   private computation(
     declarator: VariableDeclarator,
-  ): { expression: Expression; alwaysNotifies: boolean } | undefined {
+  ): { expression: Expression; alwaysNotifies: boolean; kind: MemoKind } | undefined {
     const init = declarator.init ? unwrap(declarator.init) : undefined;
-    if (init?.type !== 'CallExpression' || !this.isCreateMemo(init.callee)) {
+    const kind = init?.type === 'CallExpression' ? this.memoKind(init.callee) : undefined;
+    if (init?.type !== 'CallExpression' || kind === undefined) {
       return undefined;
     }
     const args = init.arguments;
+    if (kind === 'children' && args.length > 1) {
+      this.reason = 'memo-options';
+      return undefined;
+    }
     const compute = args.at(0);
     const options = args.at(1);
     if (args.length > 2 || compute === undefined || compute.type === 'SpreadElement') {
@@ -198,7 +221,7 @@ class MemoInliner {
       }
       alwaysNotifies = true;
     }
-    return { expression, alwaysNotifies };
+    return { expression, alwaysNotifies, kind };
   }
 
   /**
@@ -256,6 +279,15 @@ class MemoInliner {
       current = this.context.parents.get(current);
     }
     return current;
+  }
+
+  /** The JSX expression container a call is the whole of. */
+  private containerOf(call: Node): JSXExpressionContainer | undefined {
+    let parent = this.context.parents.get(call);
+    while (parent?.type === 'ParenthesizedExpression') {
+      parent = this.context.parents.get(parent);
+    }
+    return parent?.type === 'JSXExpressionContainer' ? parent : undefined;
   }
 
   /**
@@ -417,14 +449,23 @@ class MemoInliner {
     if (!found) {
       return undefined;
     }
-    const { expression, alwaysNotifies } = found;
-    const constant = constantText(this.context, expression);
-    if (constant !== undefined) {
-      return this.inlineConstant(declarator, binding, constant);
-    }
-    // A memo whose result can equal its last one stops updates, which is what it is for.
-    if (!alwaysNotifies && !isFresh(expression)) {
-      return undefined;
+    const { expression, alwaysNotifies, kind } = found;
+    if (kind === 'children') {
+      // Only JSX is resolved the same by `insert`, and never makes the helper run again.
+      const root = unwrap(expression);
+      if (root.type !== 'JSXElement' && root.type !== 'JSXFragment') {
+        this.reason = 'children-dynamic';
+        return undefined;
+      }
+    } else {
+      const constant = constantText(this.context, expression);
+      if (constant !== undefined) {
+        return this.inlineConstant(declarator, binding, constant);
+      }
+      // A memo whose result can equal its last one stops updates, which is what it is for.
+      if (!alwaysNotifies && !isFresh(expression)) {
+        return undefined;
+      }
     }
     if (binding.references.length !== 1) {
       this.reason = 'memo-reads';
@@ -446,6 +487,16 @@ class MemoInliner {
       this.reason = 'memo-read-place';
       return undefined;
     }
+    // The resolved children are inserted, so the read has to be a child, not an attribute.
+    const container = this.containerOf(call);
+    const owner = container ? this.context.parents.get(container) : undefined;
+    if (
+      kind === 'children' &&
+      (!container || (owner?.type !== 'JSXElement' && owner?.type !== 'JSXFragment'))
+    ) {
+      this.reason = 'memo-read-place';
+      return undefined;
+    }
     if (
       !this.resolvesSameAt(expression, call, binding) ||
       usesFunctionContext(this.context, expression)
@@ -453,8 +504,13 @@ class MemoInliner {
       this.reason = 'memo-scope';
       return undefined;
     }
-    // The read sits in a JSX container, which takes any expression.
-    this.context.s.overwrite(call.start, call.end, textOf(this.context, expression));
+    if (kind === 'children' && container) {
+      // The JSX takes the place of its container, so it joins the template around it.
+      this.context.s.overwrite(container.start, container.end, textOf(this.context, expression));
+    } else {
+      // The read sits in a JSX container, which takes any expression.
+      this.context.s.overwrite(call.start, call.end, textOf(this.context, expression));
+    }
     this.context.s.remove(statement.start, statement.end);
     this.changed = true;
     return true;

@@ -97,6 +97,10 @@ Plan:
 
 ## 5. The `children()` helper read once
 
+Status: done for children that are JSX. Neither app uses the helper, so their sizes do not change.
+
+Solid 2's `children(fn)` is a lazy memo of `fn`, and a second lazy memo that flattens its result. `insert` flattens a child the same way. JSX reads nothing at the top when it is created, since its dynamic parts run in their own effects, so neither memo runs again. Children that are not JSX, like `props.children` left as it is, can be functions or arrays the helper calls inside its memo, so they keep it.
+
 ```jsx
 function Box(props) {
   const c = children(() => props.children);

@@ -172,6 +172,36 @@ describe('memo inlining', () => {
     }
   });
 
+  it('inlines the children helper over JSX read once as a child', () => {
+    const output = memos(
+      component(
+        'const c = children(() => <b>{name()}</b>);',
+        '<div>{c()}</div>',
+        "import { children } from 'solid-js';",
+      ),
+    );
+    expect(output).not.toContain('children(');
+    expect(output).toContain('return <div><b>{name()}</b></div>;');
+  });
+
+  it('keeps the children helper when it does more than resolve JSX once', () => {
+    const imports = "import { children } from 'solid-js';";
+    const cases = [
+      // Children that are not JSX can be functions or arrays the helper resolves in its memo.
+      component('const c = children(() => props.children);', '<div>{c()}</div>', imports),
+      // Read twice, which shares one set of nodes.
+      component('const c = children(() => <b />);', '<div>{c()}{c()}</div>', imports),
+      // Read as an attribute, or through its array.
+      component('const c = children(() => <b />);', '<div title={c()} />', imports),
+      component('const c = children(() => <b />);', '<div>{c.toArray()}</div>', imports),
+      // Read in a component's children, which can read it any number of times.
+      component('const c = children(() => <b />);', '<Box>{c()}</Box>', imports),
+    ];
+    for (const code of cases) {
+      expect(memos(code)).toBe(code);
+    }
+  });
+
   it('keeps a memo outside any function', () => {
     const code =
       "import { createMemo } from 'solid-js';\nconst v = createMemo(() => [a()]);\nexport const view = <i>{v()}</i>;\n";

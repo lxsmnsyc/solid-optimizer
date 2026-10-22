@@ -304,6 +304,15 @@ return <p>{size() * 2}</p>;
 
 becomes `<p>{6}</p>`.
 
+Solid's `children` helper over JSX, read once as an element's child, becomes that JSX. The helper resolves JSX the same way inserting it does, and nothing makes it run again.
+
+```jsx
+const c = children(() => <b>x</b>);
+return <div>{c()}</div>;
+```
+
+becomes `<div><b>x</b></div>`. This is what a component that calls `children(() => props.children)` leaves once it is inlined with JSX children.
+
 ### Constant folding and control flow
 
 This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](https://github.com/solidjs/solid/pull/3231)).
