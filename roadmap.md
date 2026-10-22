@@ -8,14 +8,14 @@ Status: done. `optimizer.report` and the `compile` option `report` list what eac
 
 What the demo and Hacker News report on `solid-2-compiler`, with the default chunking:
 
-| App         | Reason                  | Calls | What it is                                                            |
-| ----------- | ----------------------- | ----- | --------------------------------------------------------------------- |
-| Demo        | `no-host`               | 2     | `Home` in a `fallback`, and `App` in the callback given to `render`.  |
-| Demo        | `copy-size`, `imported` | 3     | `Table` and `Card`, which are larger copied than called.              |
-| Demo        | `lazy`                  | 4     | The lazy pages.                                                       |
-| Hacker News | `copy-no-host`          | 1     | `Comment` in a `<For>` callback. It also renders itself.              |
-| Hacker News | `copy-package`          | 4     | The router's own components, which come from `node_modules`.          |
-| Hacker News | `memo-computation`      | 2     | Memos in the router whose computation is a block, not one expression. |
+| App         | Reason                  | Calls | What it is                                                                               |
+| ----------- | ----------------------- | ----- | ---------------------------------------------------------------------------------------- |
+| Demo        | `no-host`               | 2     | `Home` in a `fallback`, and `App` in the callback given to `render`.                     |
+| Demo        | `copy-size`, `imported` | 3     | `Table` and `Card`, which measured larger copied than called. Both inline since item 11. |
+| Demo        | `lazy`                  | 4     | The lazy pages.                                                                          |
+| Hacker News | `copy-no-host`          | 1     | `Comment` in a `<For>` callback. It also renders itself.                                 |
+| Hacker News | `copy-package`          | 4     | The router's own components, which come from `node_modules`.                             |
+| Hacker News | `memo-computation`      | 2     | Memos in the router whose computation is a block, not one expression.                    |
 
 What this changes:
 
@@ -220,6 +220,20 @@ Plan:
 This is less common than the items above. Do it only if step 0 finds it.
 
 ## 11. Runtime helpers in the size estimate
+
+Status: researched. The local part is done. Whole-program helper tracking is not planned.
+
+What the demo showed, comparing the default build with one that sets `alwaysInline`:
+
+- `alwaysInline` was 762, 695, and 502 B smaller in the three chunkings. On Hacker News it was 70 to 80 B larger, so the estimate is right there.
+- The difference was `Table`. Inlining it into both pages lets its `<For>` over the pages' constant lists unroll, and each row's `Badge` gets a constant `tone`. Its `class` then turns static, and nothing in the app needs `className`, `classListToObject`, or `flattenClassList`. Those helpers and `Table` are about 714 B gzipped.
+
+Two things kept the estimate from seeing it:
+
+1. Local. A copy was measured without the constants its call site passes by name, like `rows={ROWS}`. Done: the code a copy is measured in now holds the module's top-level constants of literals, so the copy folds and unrolls as it will once inlined. This alone made `Table` and `Card` inline, and the demo's default build 762 B smaller, to −32.1%.
+2. Whole-program. The helpers only go because every `Badge` in the app turns static. A credit per component cannot know that, and `Badge.tsx` as written still needs `className`. Knowing it means simulating every module's helper needs inside one module's transform, until nothing changes. That costs build time, is hard to reason about, and has to decide the same way in the server and client builds. Not planned unless an app shows a case the local fix does not catch.
+
+The earlier notes:
 
 The estimate does not count runtime helpers that the bundle drops once their last use is gone. In the demo, inlining `Tab` drops `merge`, `omit`, `spread`, and `useContext`, worth several kilobytes. That only happened because `Tab` was worth inlining for its own sake.
 

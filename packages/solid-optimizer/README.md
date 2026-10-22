@@ -123,8 +123,8 @@ The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 
 ```
 solid-optimizer: what stays as written in client
-  inline   copy-size         3  Table (../components/Table)×2, Card (../components/Card)
-  inline   imported          2  Table (./Table-*.js)×2
+  inline   lazy              4  About, Chart, Dashboard, Settings
+  inline   copy-no-host      1  Home (./pages/Home)
   inline   no-host           1  Home
 ```
 

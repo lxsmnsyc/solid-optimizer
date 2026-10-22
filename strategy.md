@@ -311,9 +311,9 @@ An HTML entry is read for its module scripts, since Vite has not resolved them w
 | solid-ui, Solid 1 (default, vendor, single) | +1.8%, +1.0%, +1.1%    | −0.3%, −0.2%, −1.2%    |
 | Hacker News, Solid 1                        | −0.9%, −1.1%, −0.4%    | −0.9%, −1.1%, −0.4%    |
 | Hacker News, Solid 2                        |                        | −0.2%, −2.2%, −0.1%    |
-| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −28.7%, −25.4%, −25.4% |
+| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −32.1%, −28.5%, −27.6% |
 
-The demo keeps `Table` as a component: two copies are larger than its two calls, even with its whole declaration counted.
+The demo used to keep `Table` as a component, since two copies measured larger than its two calls. Each copy was measured without the constant list its call site passes, `rows={ROWS}`, so the estimate could not see the `<For>` in it unroll, or the `Badge` in each row turn static. A copy is now measured with the top-level constants of literals its module declares, and `Table` inlines into both pages.
 
 ### Not covered yet
 

@@ -437,6 +437,58 @@ function attributesOf(element: JSXElement): Map<string, JSXAttribute> | undefine
 }
 
 /**
+ * Whether a top-level statement declares only constants made of literals,
+ * like `const ROWS = [{ name: 'a' }]`. An export keeps its `export`, since
+ * the fold pass treats an exported list differently.
+ */
+function isDataDeclaration(statement: Node): boolean {
+  const declaration =
+    statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+  return (
+    declaration?.type === 'VariableDeclaration' &&
+    !declaration.declare &&
+    (declaration.kind === 'const' || declaration.kind === 'var') &&
+    declaration.declarations.every(
+      (declarator) =>
+        declarator.id.type === 'Identifier' &&
+        declarator.init !== null &&
+        isDataLiteral(declarator.init),
+    )
+  );
+}
+
+/** Whether an expression is a literal, or an array or object literal of them. */
+function isDataLiteral(node: Expression): boolean {
+  switch (node.type) {
+    case 'Literal':
+      return !('regex' in node);
+    case 'TemplateLiteral':
+      return node.expressions.length === 0;
+    case 'UnaryExpression':
+      return node.operator === '-' && node.argument.type === 'Literal';
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+      return isDataLiteral(node.expression);
+    case 'ArrayExpression':
+      return node.elements.every(
+        (element) => element !== null && element.type !== 'SpreadElement' && isDataLiteral(element),
+      );
+    case 'ObjectExpression':
+      return node.properties.every(
+        (property) =>
+          property.type === 'Property' &&
+          property.kind === 'init' &&
+          !property.method &&
+          !property.computed &&
+          isDataLiteral(property.value),
+      );
+    default:
+      return false;
+  }
+}
+
+/**
  * Why `attributesOf` turns down a call site, for the report.
  */
 function callSiteReason(element: JSXElement): string {
@@ -1925,8 +1977,12 @@ class Inliner {
    */
   private sizeHeader(): string {
     if (this.header === undefined) {
+      // The imports, and the top-level constants made of literals, so a copy
+      // folds with the values its call site passes by name, as it will once inlined.
       const imports = this.context.program.body
-        .filter((statement) => statement.type === 'ImportDeclaration')
+        .filter(
+          (statement) => statement.type === 'ImportDeclaration' || isDataDeclaration(statement),
+        )
         .map((statement) => this.context.code.slice(statement.start, statement.end));
       const aliases = [...this.context.options.builtInAliases.keys()];
       if (aliases.length > 0) {
