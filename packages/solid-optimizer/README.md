@@ -127,7 +127,7 @@ solid-optimizer: what stays as written in client
 
 Each line is a pass, a reason, how many times it happened, and the names it happened to. The reasons for the inline pass:
 
-- `props-spread`, `props-use`, and `view-use` mean the component uses its props in a way other than `props.name`, such as `{...props}`.
+- `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
 - `call-spread`, `call-ref`, and `call-namespace` mean the call site passes a spread, a `ref`, or a namespaced attribute.
 - `no-host` means the component has statements, and the call is not in JSX a component returns, such as a `<For>` callback.
@@ -189,7 +189,7 @@ Solid then creates one template for `<main>` instead of two.
 A component inlines when all of these hold:
 
 - It is declared once at the top level, with a capitalized name.
-- Its parameter is one identifier that is only read as `props.name`, or passed to `mergeProps()` and `splitProps()`. See below.
+- Its parameter is one identifier that is only read as `props.name`, spread onto an element as `{...props}`, or passed to `mergeProps()` and `splitProps()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
 - The call site has no spread attribute, no `ref`, and no namespaced attribute.
