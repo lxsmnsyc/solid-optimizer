@@ -278,6 +278,8 @@ export function copySize(
       parents: collectParents(program),
       scopes: analyzeScopes(program),
       options,
+      // Only the copy is measured, so nothing it skips is reported.
+      skips: undefined,
     });
     if (!changed) {
       break;

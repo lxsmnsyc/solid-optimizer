@@ -27,7 +27,8 @@ function codeSplitting(): NonNullable<
 
 export default defineConfig({
   resolve: { alias: { '~': fileURLToPath(new URL('src', import.meta.url)) } },
-  plugins: [solid({ optimizer: optimized ? {} : false })],
+  // `REPORT=1` prints what the optimizer leaves alone, and why.
+  plugins: [solid({ optimizer: optimized ? { report: process.env.REPORT === '1' } : false })],
   build: {
     outDir: `dist/${chunks}/${optimized ? 'optimized' : 'plain'}`,
     // Unminified output is easier to compare. The report minifies to measure sizes.
