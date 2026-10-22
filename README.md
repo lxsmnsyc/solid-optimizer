@@ -278,6 +278,15 @@ return <p style={style()} />;
 
 becomes `<p style={{ color: color() }} />`. See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy.md) for the exact rules.
 
+A memo whose computation folds to a literal never changes. Every call of it becomes the literal, however many there are, when each call comes after the declaration and nothing else uses the memo.
+
+```jsx
+const size = createMemo(() => 1 + 2);
+return <p>{size() * 2}</p>;
+```
+
+becomes `<p>{6}</p>`.
+
 ### Constant folding and control flow
 
 This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](https://github.com/solidjs/solid/pull/3231)).

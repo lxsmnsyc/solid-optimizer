@@ -178,7 +178,7 @@ In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the 
 
 - Calls that always return a new value, such as `Array.from`, `.map`, or `.filter`. Knowing that needs the receiver's type, so they are not treated as new today. Spreading the result into an array literal, as in `[...list.map(fn)]`, makes it count.
 - A memo read once inside another computation, such as the compute function of `createMemo` or `createEffect`. The same rule applies when the read is that function's whole return value.
-- A memo with no reactive reads at all, whose value never changes. It could become a plain value, but proving that a call reads nothing needs knowledge of every callee.
+- A memo with no reactive reads, other than one whose computation folds to a literal. Proving that a call reads nothing needs knowledge of every callee. A literal reads nothing, so every call of such a memo becomes the literal.
 
 ## Constants from other modules
 

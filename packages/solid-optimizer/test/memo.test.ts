@@ -139,6 +139,39 @@ describe('memo inlining', () => {
     }
   });
 
+  it('replaces every read of a memo whose computation is a literal', () => {
+    const output = memos(
+      component(
+        "const size = createMemo(() => 3);\n  const label = createMemo(() => 'big');\n  const offset = createMemo(() => -1);",
+        '<p title={label()} onClick={() => log(size())}>{size() * 2}{size().toFixed(1)}{offset() ** 2}</p>',
+      ),
+    );
+    expect(output).not.toContain('createMemo(() =>');
+    expect(output).toContain(
+      "return <p title={'big'} onClick={() => log(3)}>{(3) * 2}{(3).toFixed(1)}{(-1) ** 2}</p>;",
+    );
+  });
+
+  it('folds what a constant memo leaves behind', () => {
+    const output = optimize(
+      component('const size = createMemo(() => 1 + 2);', '<p>{size() * 2}</p>'),
+    );
+    expect(output).toContain('return <p>{6}</p>;');
+  });
+
+  it('keeps a constant memo that is not only called after it is declared', () => {
+    const cases = [
+      component('const size = createMemo(() => 3);\n  use(size);', '<p>{size()}</p>'),
+      component(
+        'const read = () => size();\n  const size = createMemo(() => 3);',
+        '<p>{read()}</p>',
+      ),
+    ];
+    for (const code of cases) {
+      expect(memos(code)).toBe(code);
+    }
+  });
+
   it('keeps a memo outside any function', () => {
     const code =
       "import { createMemo } from 'solid-js';\nconst v = createMemo(() => [a()]);\nexport const view = <i>{v()}</i>;\n";

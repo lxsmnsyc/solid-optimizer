@@ -20,6 +20,17 @@
  * to run once each time the function holding the memo runs, so a read in a
  * callback, a loop, or a component's children stays a read of the memo.
  *
+ * A memo whose computation folds to a literal reads no signals, so it never
+ * runs again and its value never changes. Every read of it becomes the
+ * literal, however many there are:
+ *
+ * ```jsx
+ * const size = createMemo(() => 3);
+ * return <p>{size() * 2}</p>;
+ * ```
+ *
+ * becomes `<p>{3 * 2}</p>`, which the next fold turns into `6`.
+ *
  * # Accepted differences
  *
  * - The computation first runs when its reader first runs, instead of when
@@ -30,6 +41,7 @@
  */
 import type {
   ArrowFunctionExpression,
+  CallExpression,
   Expression,
   Function as FunctionNode,
   Node,
@@ -83,6 +95,29 @@ function isFresh(node: Node): boolean {
 /**
  * The expression a compute function returns, when that is all it does.
  */
+/**
+ * The text of an expression that always gives the same primitive: a literal
+ * other than a regular expression, a template literal without expressions,
+ * or a negated number.
+ */
+function constantText(context: PassContext, node: Expression): string | undefined {
+  const expression = unwrap(node);
+  switch (expression.type) {
+    case 'Literal':
+      return 'regex' in expression ? undefined : textOf(context, expression);
+    case 'TemplateLiteral':
+      return expression.expressions.length === 0 ? textOf(context, expression) : undefined;
+    case 'UnaryExpression':
+      return expression.operator === '-' &&
+        expression.argument.type === 'Literal' &&
+        typeof expression.argument.value === 'number'
+        ? textOf(context, expression)
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 function returnedExpression(fn: FunctionNode | ArrowFunctionExpression): Expression | undefined {
   if (fn.async || fn.generator || fn.params.length > 0 || !fn.body) {
     return undefined;
@@ -115,9 +150,12 @@ class MemoInliner {
   }
 
   /**
-   * The computation of a memo whose result is never equal to its last one.
+   * The expression a memo's computation returns, and whether `equals: false`
+   * makes it notify on every run.
    */
-  private unstableComputation(declarator: VariableDeclarator): Expression | undefined {
+  private computation(
+    declarator: VariableDeclarator,
+  ): { expression: Expression; alwaysNotifies: boolean } | undefined {
     const init = declarator.init ? unwrap(declarator.init) : undefined;
     if (init?.type !== 'CallExpression' || !this.isCreateMemo(init.callee)) {
       return undefined;
@@ -160,14 +198,53 @@ class MemoInliner {
       }
       alwaysNotifies = true;
     }
-    if (alwaysNotifies || isFresh(expression)) {
-      return expression;
+    return { expression, alwaysNotifies };
+  }
+
+  /**
+   * Replaces every read of a memo whose computation is a literal with the
+   * literal. Each reference has to be a call after the declaration, since a
+   * call before it would throw.
+   */
+  private inlineConstant(
+    declarator: VariableDeclarator,
+    binding: Binding,
+    text: string,
+  ): true | undefined {
+    const statement = this.context.parents.get(declarator);
+    if (statement?.type !== 'VariableDeclaration' || statement.declarations.length !== 1) {
+      this.reason = 'memo-declaration';
+      return undefined;
     }
-    // A memo whose result can equal its last one stops updates, which is what it is for.
-    if (unwrap(expression).type === 'Literal') {
-      this.reason = 'memo-constant';
+    const calls: CallExpression[] = [];
+    for (const reference of binding.references) {
+      const call = this.context.parents.get(reference);
+      if (
+        call?.type !== 'CallExpression' ||
+        call.callee !== reference ||
+        call.arguments.length > 0 ||
+        call.start < declarator.end
+      ) {
+        this.reason = 'memo-constant';
+        return undefined;
+      }
+      calls.push(call);
     }
-    return undefined;
+    for (const call of calls) {
+      // `3.toFixed()` and `-1 ** 2` do not parse, so a literal under an operator or a member gets parentheses.
+      const parent = this.context.parents.get(call);
+      const bare =
+        parent?.type === 'JSXExpressionContainer' ||
+        parent?.type === 'VariableDeclarator' ||
+        parent?.type === 'ReturnStatement' ||
+        parent?.type === 'ArrayExpression' ||
+        parent?.type === 'Property' ||
+        (parent?.type === 'CallExpression' && parent.callee !== call);
+      this.context.s.overwrite(call.start, call.end, bare ? text : `(${text})`);
+    }
+    this.context.s.remove(statement.start, statement.end);
+    this.changed = true;
+    return true;
   }
 
   /**
@@ -336,8 +413,17 @@ class MemoInliner {
   }
 
   private inline(declarator: VariableDeclarator, binding: Binding): true | undefined {
-    const expression = this.unstableComputation(declarator);
-    if (!expression) {
+    const found = this.computation(declarator);
+    if (!found) {
+      return undefined;
+    }
+    const { expression, alwaysNotifies } = found;
+    const constant = constantText(this.context, expression);
+    if (constant !== undefined) {
+      return this.inlineConstant(declarator, binding, constant);
+    }
+    // A memo whose result can equal its last one stops updates, which is what it is for.
+    if (!alwaysNotifies && !isFresh(expression)) {
       return undefined;
     }
     if (binding.references.length !== 1) {

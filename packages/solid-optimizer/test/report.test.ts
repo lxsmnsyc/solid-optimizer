@@ -107,6 +107,7 @@ export const A = (p) => <main>
     expect(
       reasons(`export function A(p) {
   const constant = createMemo(() => 3);
+  use(constant);
   const twice = createMemo(() => ({ a: p.a }));
   const late = createMemo(() => ({ a: p.a }));
   const block = createMemo(() => { return { a: p.a }; }, { equals: (a, b) => a === b });

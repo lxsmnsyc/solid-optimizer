@@ -69,13 +69,15 @@ See [inline-spread-plan.md](inline-spread-plan.md). In short:
 
 ## 3. Memos whose computation is a constant
 
-`createMemo(() => 1 + 2)` folds to `createMemo(() => 3)` and stays a memo. A computation that folds to a literal reads no signals, so its value never changes.
+Status: done. Neither app has such a memo, so their sizes do not change.
+
+`createMemo(() => 1 + 2)` folded to `createMemo(() => 3)` and stayed a memo. A computation that folds to a literal reads no signals, so its value never changes.
 
 Plan:
 
 1. In `memo.ts`, accept a memo whose computation returns a literal after folding, or a binding that never changes and holds one.
 2. Replace every read `m()` with the literal, however many reads there are. Drop the declaration.
-3. Keep the same rules for what else may reference the memo. A memo passed as a value stays.
+3. Keep the same rules for what else may reference the memo. A memo passed as a value stays. So does one called before its declaration, since that call throws today.
 
 This shifts the hydration keys after the memo, which is already an accepted difference of memo inlining.
 
