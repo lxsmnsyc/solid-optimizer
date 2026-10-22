@@ -83,7 +83,11 @@ This shifts the hydration keys after the memo, which is already an accepted diff
 
 ## 4. `<Dynamic>` with a known component
 
-`<Dynamic component="h1">` already becomes `<h1>`. `<Dynamic component={Title}>` stays, even when `Title` is a top-level component that is never reassigned.
+Status: done. Neither app uses `<Dynamic>`, so their sizes do not change.
+
+Solid 2's `<Dynamic>` is `createComponent(dynamic(() => props.component), omit(props, 'component'))`. For a component that never changes, its memos always hold that component, and it renders it untracked with the other props. That is what `<Card>` does. An import is left out, since it could hold a tag name string or a server component binding.
+
+`<Dynamic component="h1">` already became `<h1>`. `<Dynamic component={Title}>` stayed, even when `Title` was a top-level component that is never reassigned.
 
 Plan:
 

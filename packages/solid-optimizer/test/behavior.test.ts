@@ -144,6 +144,36 @@ function App() {
   });
 });
 
+describe('dynamic', () => {
+  it('renders a known component through <Dynamic> the same as a call', async () => {
+    const code = await expectSameBehavior(
+      'dynamic-component',
+      app(
+        `function Counter(props) {
+  const [count, setCount] = createSignal(props.start);
+  return (
+    <button onClick={() => setCount(count() + 1)}>
+      {props.label} {count()}
+    </button>
+  );
+}
+function App() {
+  const [label, setLabel] = createSignal('a');
+  return (
+    <main>
+      <i id="rename" onClick={() => setLabel('b')} />
+      <Dynamic component={Counter} label={label()} start={1} />
+    </main>
+  );
+}`,
+        "import { createSignal } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';",
+      ),
+      ['button', '#rename', 'button'],
+    );
+    expect(code).not.toContain('Dynamic');
+  });
+});
+
 describe('callback hosts', () => {
   it('keeps each row its own state when a stateful component inlines into <For>', async () => {
     const code = await expectSameBehavior(

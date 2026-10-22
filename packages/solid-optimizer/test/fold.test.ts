@@ -105,6 +105,46 @@ describe('control-flow components', () => {
     );
   });
 
+  it('turns <Dynamic> with a top-level component into a call of it', () => {
+    const declarations = `function Card(props) { return <div>{props.title}</div>; }
+const Badge = (props) => <b>{props.children}</b>;
+const Page = lazy(() => import('./page'));
+`;
+    expect(
+      folded(`import { lazy } from 'solid-js';
+${declarations}export const view = <main>
+  <Dynamic component={Card} title="a" />
+  <Dynamic component={Badge}>x</Dynamic>
+  <Dynamic component={Page} />
+</main>;`),
+    ).toBe(`import { lazy } from 'solid-js';
+${declarations.replace('= lazy(', '= /* @__PURE__ */ lazy(')}export const view = <main>
+  <Card title="a" />
+  <Badge>x</Badge>
+  <Page />
+</main>;`);
+  });
+
+  it('keeps <Dynamic> with a component it cannot be sure of', () => {
+    const cases = [
+      // An import could be a tag name.
+      "import { Card } from './card';\nexport const view = <Dynamic component={Card} />;",
+      // Reassigned.
+      'let Card = () => <i />;\nCard = () => <b />;\nexport const view = <Dynamic component={Card} />;',
+      // Not at the top level.
+      'export function view() { const Card = () => <i />; return <Dynamic component={Card} />; }',
+      // Lowercase, which a tag would read as an element.
+      'const card = () => <i />;\nexport const view = <Dynamic component={card} />;',
+      // A spread could replace the component.
+      'const Card = () => <i />;\nexport const view = <Dynamic component={Card} {...rest} />;',
+      // A value that is not a function.
+      'const Card = pick();\nexport const view = <Dynamic component={Card} />;',
+    ];
+    for (const code of cases) {
+      expect(folded(code)).toBe(code);
+    }
+  });
+
   it('splices a resolved child into the surrounding template', () => {
     expect(folded('const view = <div>a<Show when={true}><b /></Show>c</div>;')).toBe(
       'const view = <div>a<b />c</div>;',

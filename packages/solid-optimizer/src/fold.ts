@@ -19,7 +19,8 @@
  *   `while (false)` loops, and anything after a `return`, `throw`, `break`,
  *   or `continue`.
  * - `<Show when>`, `<For each>`, `<Repeat count>`, `<Switch>`/`<Match when>`,
- *   and `<Dynamic component>` with a static intrinsic tag name.
+ *   and `<Dynamic component>` with a static intrinsic tag name or a
+ *   component declared at the top level that nothing reassigns.
  *
  * # What does not fold
  *
@@ -34,6 +35,7 @@ import type {
   ConditionalExpression,
   Directive,
   Expression,
+  IdentifierReference,
   IfStatement,
   JSXChild,
   JSXElement,
@@ -55,7 +57,7 @@ import {
 } from './ast';
 import type { PassContext } from './context';
 import { ConstantTable } from './constants';
-import { solidExport, textOf } from './context';
+import { isConstantDeclaration, solidExport, textOf } from './context';
 import type { Piece } from './jsx';
 import {
   findAttribute,
@@ -445,6 +447,50 @@ class Folder {
     return identity;
   }
 
+  /**
+   * The name of the component an identifier refers to, when it is a
+   * capitalized top-level binding nothing reassigns, holding a function or a
+   * `lazy` component. A JSX tag with that name calls the same component. An
+   * import could hold anything, such as a tag name string, so it is left out.
+   */
+  private componentName(identifier: IdentifierReference): string | undefined {
+    const binding = this.context.scopes.references.get(identifier);
+    if (
+      !binding ||
+      binding.mutated ||
+      binding.scope.parent !== undefined ||
+      !/^[A-Z]/.test(binding.name)
+    ) {
+      return undefined;
+    }
+    const { declaration } = binding;
+    if (declaration.type === 'FunctionDeclaration') {
+      return declaration.async || declaration.generator ? undefined : binding.name;
+    }
+    if (
+      declaration.type !== 'VariableDeclarator' ||
+      declaration.id !== binding.identifier ||
+      !declaration.init ||
+      !isConstantDeclaration(binding, this.context.options)
+    ) {
+      return undefined;
+    }
+    let init: Expression = declaration.init;
+    while (init.type === 'ParenthesizedExpression') {
+      init = init.expression;
+    }
+    if (init.type === 'ArrowFunctionExpression' || init.type === 'FunctionExpression') {
+      return init.async || init.generator ? undefined : binding.name;
+    }
+    if (init.type === 'CallExpression' && init.callee.type === 'Identifier') {
+      const callee = this.context.scopes.references.get(init.callee);
+      return callee && solidExport(callee, this.context.options) === 'lazy'
+        ? binding.name
+        : undefined;
+    }
+    return undefined;
+  }
+
   private flowTag(element: JSXElement): string | undefined {
     const tag = this.builtInTag(element);
     return tag !== undefined && FOLDABLE_FLOW.has(tag) ? tag : undefined;
@@ -646,6 +692,12 @@ class Folder {
    * `<Dynamic component="div">` is just `<div>`, which the JSX transform can
    * put in a template instead of creating the element at runtime.
    */
+  /**
+   * `<Dynamic component="div">` becomes `<div>`. `<Dynamic component={Card}>`
+   * becomes `<Card>` when `Card` is a component declared at the top level
+   * that nothing reassigns. `<Dynamic>` then only renders `Card` with the
+   * other props, through a memo that never changes.
+   */
   private foldDynamic(element: JSXElement): Fold | undefined {
     const component = findAttribute(element, 'component');
     if (!component?.value) {
@@ -654,17 +706,26 @@ class Folder {
     let tag: string | undefined;
     const { value } = component;
     if (value.type === 'Literal') {
-      tag = value.value;
+      tag = isIntrinsicTag(value.value) ? value.value : undefined;
     } else if (
       value.type === 'JSXExpressionContainer' &&
       value.expression.type !== 'JSXEmptyExpression'
     ) {
-      const result = evaluate(value.expression, this.lookup);
-      if (typeof result?.value === 'string') {
-        tag = result.value;
+      const expression =
+        value.expression.type === 'ParenthesizedExpression'
+          ? value.expression.expression
+          : value.expression;
+      if (expression.type === 'Identifier') {
+        tag = this.componentName(expression);
+      }
+      if (tag === undefined) {
+        const result = evaluate(value.expression, this.lookup);
+        if (typeof result?.value === 'string' && isIntrinsicTag(result.value)) {
+          tag = result.value;
+        }
       }
     }
-    if (tag === undefined || !isIntrinsicTag(tag)) {
+    if (tag === undefined) {
       return undefined;
     }
     const attributes = element.openingElement.attributes
