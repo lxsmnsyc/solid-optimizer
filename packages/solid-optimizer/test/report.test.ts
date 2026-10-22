@@ -60,7 +60,7 @@ function Row(props) { const [on] = createSignal(false); return <li>{on()}{props.
 export const A = (p) => { let el; return <main>
   <Title {...p} />
   <Field ref={el} />
-  <For each={p.items}>{(item) => <Row name={item.name} />}</For>
+  <div onClick={() => <Row name="a" />} />
 </main>; };`),
     ).toEqual(['inline:call-spread:Title', 'inline:call-ref:Field', 'inline:no-host:Row']);
   });

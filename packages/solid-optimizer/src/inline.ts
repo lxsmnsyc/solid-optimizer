@@ -35,10 +35,19 @@
  *
  * Statements, and stored props, have to run where the component would have
  * been created. Solid runs a component untracked, so the statements move into
- * the function whose returned JSX holds the call: a component itself, which
- * also runs untracked. The call has to be in that returned JSX with only
- * intrinsic elements and fragments around it, so it is created exactly once
- * each time that function runs.
+ * the function whose returned JSX holds the call, when that function also
+ * runs untracked:
+ *
+ * - a component;
+ * - the child callback of `<For>` or `<Repeat>`, which runs once per item
+ *   under its own owner;
+ * - the child callback of `<Show>` or `<Match>` that takes the value, which
+ *   runs once each time the condition turns true;
+ * - the callback given to `render`, which runs once under its root.
+ *
+ * The call has to be in that returned JSX with only intrinsic elements and
+ * fragments around it, so it is created exactly once each time that function
+ * runs.
  *
  * A context provider is a component, so statements do not move out of it,
  * and `useContext` still runs under it. The exception is a provider whose
@@ -971,6 +980,68 @@ class Inliner {
   }
 
   /**
+   * Whether a function runs untracked, once each time the JSX it returns is
+   * created, so it can take a component's statements. See "Where a component
+   * body can go" above.
+   */
+  private isHostFunction(fn: Node): boolean {
+    if (this.isComponentFunction(fn)) {
+      return true;
+    }
+    if (
+      (fn.type !== 'FunctionExpression' && fn.type !== 'ArrowFunctionExpression') ||
+      fn.async ||
+      fn.generator
+    ) {
+      return false;
+    }
+    let node: Node = fn;
+    let parent = this.context.parents.get(node);
+    while (parent?.type === 'ParenthesizedExpression') {
+      node = parent;
+      parent = this.context.parents.get(node);
+    }
+    // `render(() => <App />, element)` calls it once under a new root.
+    if (parent?.type === 'CallExpression') {
+      return parent.arguments.at(0) === node && this.solidCallee(parent.callee) === 'render';
+    }
+    // A built-in's only child.
+    const element =
+      parent?.type === 'JSXExpressionContainer' ? this.context.parents.get(parent) : undefined;
+    if (element?.type !== 'JSXElement') {
+      return false;
+    }
+    const significant = element.children.filter((child) => !isInsignificant(child));
+    if (significant.length !== 1 || significant.at(0) !== parent) {
+      return false;
+    }
+    switch (this.solidCallee(element.openingElement.name)) {
+      case 'For':
+      case 'Repeat':
+        return true;
+      // These only call a callback that takes the value. One without a parameter is a child to insert.
+      case 'Show':
+      case 'Match':
+        return fn.params.length > 0;
+      default:
+        return false;
+    }
+  }
+
+  /** The Solid export a callee or tag refers to. */
+  private solidCallee(name: Node): string | undefined {
+    if (name.type !== 'Identifier' && name.type !== 'JSXIdentifier') {
+      return undefined;
+    }
+    const { references } = this.context.scopes;
+    if (!references.has(name)) {
+      return undefined;
+    }
+    const binding = references.get(name);
+    return binding ? solidExport(binding, this.context.options) : undefined;
+  }
+
+  /**
    * Where the statements of a component created at `element` can go: the
    * returned JSX of a component, with only intrinsic elements, fragments,
    * and closed providers between it and the call.
@@ -1004,12 +1075,12 @@ class Inliner {
         while (fn && !isFunctionNode(fn)) {
           fn = this.context.parents.get(fn);
         }
-        if (!fn || !this.isComponentFunction(fn)) {
+        if (!fn || !this.isHostFunction(fn)) {
           return undefined;
         }
         return { fn, host: { kind: 'return', statement: parent } };
       } else if (parent.type === 'ArrowFunctionExpression') {
-        if (parent.body !== node || !this.isComponentFunction(parent)) {
+        if (parent.body !== node || !this.isHostFunction(parent)) {
           return undefined;
         }
         return { fn: parent, host: { kind: 'arrow', body: parent.body } };
@@ -1161,16 +1232,18 @@ class Inliner {
    */
   private assumedHosts: ReadonlySet<JSXElement> | undefined;
 
-  private freshName(base: string): string {
+  private freshName(name: string): string {
     const names = this.scratchNames ?? this.context.scopes.names;
+    // A name a copy gave out before, like `theme$1`, is renamed from `theme` again.
+    const base = name.replace(/\$\d+$/, '');
     let index = 1;
-    let name = `${base}$${String(index)}`;
-    while (names.has(name)) {
+    let fresh = `${base}$${String(index)}`;
+    while (names.has(fresh)) {
       index += 1;
-      name = `${base}$${String(index)}`;
+      fresh = `${base}$${String(index)}`;
     }
-    names.add(name);
-    return name;
+    names.add(fresh);
+    return fresh;
   }
 
   /**

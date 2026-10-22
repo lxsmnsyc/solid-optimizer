@@ -1040,8 +1040,9 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         moduleName,
         helpers: withRelated([...needed]),
         moduleSources,
-        // The passes also recognize these primitives, which a chunk renames too.
-        builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
+        // The passes also recognize these primitives, which a chunk renames
+        // too. `render` takes a callback that statements can move into.
+        builtIns: new Set([...builtIns, 'createContext', 'render', ...CONTEXT_SAFE_PRIMITIVES]),
       });
       if (marked) {
         code = marked.code;

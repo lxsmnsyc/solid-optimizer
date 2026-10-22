@@ -124,7 +124,7 @@ The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 solid-optimizer: what stays as written in client
   inline   copy-size         3  Table (../components/Table)×2, Card (../components/Card)
   inline   imported          2  Table (./Table-*.js)×2
-  inline   no-host           2  App, Home
+  inline   no-host           1  Home
 ```
 
 Each line is a pass, a reason, how many times it happened, and the names it happened to. The reasons for the inline pass:
@@ -132,7 +132,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 - `props-spread`, `props-use`, and `view-use` mean the component uses its props in a way other than `props.name`, such as `{...props}`.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
 - `call-spread`, `call-ref`, and `call-namespace` mean the call site passes a spread, a `ref`, or a namespaced attribute.
-- `no-host` means the component has statements, and the call is not in JSX a component returns, such as a `<For>` callback.
+- `no-host` means the component has statements, and the call is not in JSX that a component or one of Solid's callbacks returns. A `<Show>` child or a `fallback` is one such place.
 - `size` means the copies would be larger than the calls.
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
 - A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, and `copy-size` means the copy was larger.
@@ -184,7 +184,11 @@ Solid then creates one template for `<main>` instead of two.
 - A read of `props.name` becomes the attribute's expression. Solid passes dynamic props as getters, so the expression runs at every read, as before.
 - A static prop that must be evaluated once, like a function read twice, is stored in a `const` first.
 - `{props.children}`, and a prop whose value is JSX, splice their JSX in place so it joins the template.
-- Statements in the component body move into the component whose returned JSX holds the call. The call must sit directly in that JSX, with only intrinsic elements and fragments around it.
+- Statements in the component body move into the function whose returned JSX holds the call. The call must sit directly in that JSX, with only intrinsic elements and fragments around it. The function must run untracked, once each time it creates that JSX:
+  - a component;
+  - the child callback of `<For>` or `<Repeat>`;
+  - the child callback of `<Show>` or `<Match>`, when it takes the value;
+  - the callback given to `render`.
 - Bindings declared in the component get fresh names in every copy.
 - A component nothing else uses is removed.
 

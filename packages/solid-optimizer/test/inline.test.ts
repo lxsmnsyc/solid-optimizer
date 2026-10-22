@@ -177,6 +177,59 @@ export function App() {
     expect(inlined(code)).toBe(code);
   });
 
+  it('moves statements into the callbacks Solid runs once per item or value', () => {
+    const imports =
+      "import { For, Match, Repeat, Show } from 'solid-js';\nimport { render } from '@solidjs/web';\n";
+    const row = `function Row(props) {
+  const [on, setOn] = createSignal(false);
+  return <li onClick={() => setOn(!on())}>{props.name}</li>;
+}
+`;
+    // Five copies of `Row` are larger than five calls, so the size estimate is skipped.
+    const output = optimize(
+      `${imports}${row}export function App(props) {
+  return (
+    <ul>
+      <For each={props.items}>{(item) => <Row name={item.name} />}</For>
+      <Repeat count={3}>{(index) => <Row name={index} />}</Repeat>
+      <Show when={props.user}>{(user) => <Row name={user().name} />}</Show>
+      <Match when={props.user}>{(user) => <Row name={user().name} />}</Match>
+    </ul>
+  );
+}
+render(() => <Row name="root" />, document.body);
+`,
+      { fold: false, alwaysInline: true },
+    );
+    expect(output).not.toContain('<Row');
+    expect(output).toContain(
+      '{(item) => { const [on$1, setOn$1] = createSignal(false); return <li onClick={() => setOn$1(!on$1())}>{item.name}</li>; }}',
+    );
+    expect(output).toContain(
+      'render(() => { const [on$5, setOn$5] = createSignal(false); return <li onClick={() => setOn$5(!on$5())}>{"root"}</li>; }, document.body);',
+    );
+  });
+
+  it('keeps statements out of callbacks that are not run once per creation', () => {
+    const imports = "import { Show } from 'solid-js';\n";
+    const code = `${imports}function Item(props) {
+  const label = format(props.value);
+  return <li>{label}</li>;
+}
+export function App() {
+  return (
+    <ul>
+      <Show when={ready()}>{() => <Item value={1} />}</Show>
+      <Show when={ready()} fallback={<Item value={2} />}>{(value) => <b>{value()}</b>}</Show>
+      {list.map((value) => <Item value={value} />)}
+      <Other>{(value) => <Item value={value} />}</Other>
+    </ul>
+  );
+}
+`;
+    expect(inlined(code)).toBe(code);
+  });
+
   it('stores a static prop that is read more than once', () => {
     const code = `
 function Button(props) {

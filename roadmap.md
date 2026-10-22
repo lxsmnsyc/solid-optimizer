@@ -8,14 +8,14 @@ Status: done. `optimizer.report` and the `compile` option `report` list what eac
 
 What the demo and Hacker News report on `solid-2-compiler`, with the default chunking:
 
-| App         | Reason                  | Calls | What it is                                                                |
-| ----------- | ----------------------- | ----- | ------------------------------------------------------------------------- |
-| Demo        | `no-host`               | 2     | `Home` in a `<Match>` child, and `App` in the callback given to `render`. |
-| Demo        | `copy-size`, `imported` | 3     | `Table` and `Card`, which are larger copied than called.                  |
-| Demo        | `lazy`                  | 4     | The lazy pages.                                                           |
-| Hacker News | `copy-no-host`          | 1     | `Comment` in a `<For>` callback. It also renders itself.                  |
-| Hacker News | `copy-package`          | 4     | The router's own components, which come from `node_modules`.              |
-| Hacker News | `memo-computation`      | 2     | Memos in the router whose computation is a block, not one expression.     |
+| App         | Reason                  | Calls | What it is                                                            |
+| ----------- | ----------------------- | ----- | --------------------------------------------------------------------- |
+| Demo        | `no-host`               | 2     | `Home` in a `fallback`, and `App` in the callback given to `render`.  |
+| Demo        | `copy-size`, `imported` | 3     | `Table` and `Card`, which are larger copied than called.              |
+| Demo        | `lazy`                  | 4     | The lazy pages.                                                       |
+| Hacker News | `copy-no-host`          | 1     | `Comment` in a `<For>` callback. It also renders itself.              |
+| Hacker News | `copy-package`          | 4     | The router's own components, which come from `node_modules`.          |
+| Hacker News | `memo-computation`      | 2     | Memos in the router whose computation is a block, not one expression. |
 
 What this changes:
 
@@ -27,7 +27,9 @@ What this changes:
 
 ## 1. Components with statements inside `<For>` and `<Show>`
 
-A component with statements does not inline inside a `<For>` callback or a `<Show>` child. A component whose body is only JSX does.
+Status: steps 1, 2, and 4 are done. Step 3 is open.
+
+A component with statements did not inline inside a `<For>` callback or a `<Show>` child. A component whose body is only JSX did.
 
 ```jsx
 function Row(props) {
@@ -35,24 +37,27 @@ function Row(props) {
   return <li onClick={() => setOn(!on())}>{props.name}</li>;
 }
 
-<For each={items()}>{(item) => <Row name={item.name} />}</For>; // not inlined
+<For each={items()}>{(item) => <Row name={item.name} />}</For>; // now inlined
 ```
 
-Statements only move into a component, since a component runs untracked. List rows and conditional panels have this shape, so this is likely the most common case in real apps.
+Statements only moved into a component, since a component runs untracked.
+
+What Solid 2.0.0-rc.16 does, from its source:
+
+- `<For>` calls `mapArray`. Each item's callback runs in `runWithOwner(createOwner(), ...)`, which turns tracking off, once per item while the item stays. `keyed={false}` does the same once per index.
+- `<Repeat>` calls `repeat`, which runs each index's callback the same way.
+- `<Show>` and `<Match>` call a child callback with `untrack` only when it takes a parameter. A callback without one is inserted as a child, which tracks it.
+- `<Show>` children and `fallback` that are not callbacks are read inside the condition's memo. A component there is made by `createComponent`, which is `untrack(() => Comp(props))`.
+- `render` calls its callback once inside `createRoot`, which also turns tracking off.
 
 Plan:
 
-1. Read Solid 2's `mapArray` and `repeat`. Confirm that a `<For>` or `<Repeat>` callback runs once per item, untracked, under its own owner.
-2. If it does, treat such a callback as a host. Move the statements into its body. Turn an expression body into a block with a `return`.
-3. For a `<Show>` or `<Match>` child, the call is already the root of its own template, so nothing merges. Check whether `untrack(() => { ...statements; return <jsx />; })` is smaller than the component call. Only do this part if the estimate says it is.
-4. Fix the context case at the same time. A provider in a `<For>` callback can store its value in a `const` in the callback once the callback is a host. It is blocked today even when the value is already stored in the callback.
+1. Done. The reading above confirms it.
+2. Done. The callbacks of `<For>` and `<Repeat>`, the callbacks of `<Show>` and `<Match>` that take a parameter, and the callback given to `render` take statements. `hydrate` is left out, since the server build renders with `renderToString` and would not inline the same way.
+3. Open. A `<Show>` child or a `fallback` has no function to hold statements. `untrack(() => { ...statements; return <jsx />; })` keeps what `createComponent` does. The call is already the root of its own template there, so this only saves the component call. Only do it if the estimate says it is smaller. The demo's `Home` in a `fallback` is the case to measure.
+4. Done for storing the value. A provider in a `<For>` callback stores its value in a `const` in the callback, and its readers inline. The provider itself still stays when its value reads the callback's item, since the item could hold a function that a child calls. That rule is not changed.
 
-Tests:
-
-- A row with a signal inside `<For>`, `<For keyed={false}>`, and `<Repeat>`.
-- A row that reads the item or the index accessor in its statements.
-- A provider in a `<For>` callback whose value is stored.
-- Runtime equivalence in `behavior.test.ts` when items are added, removed, and moved.
+Results: the demo's `App` now inlines into the callback given to `render`, and the default build is 12 B smaller. Hacker News does not change, since `Comment` renders itself.
 
 ## 2. Spreads and `ref` in component inlining
 

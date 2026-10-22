@@ -57,7 +57,7 @@ function App() {
     );
     // The consumer outside the provider reads the default. The one inside
     // moves out with the provider's value, and the provider is removed.
-    expect(code).toContain('const theme$1 = useContext(Theme);');
+    expect(code).toMatch(/const theme\$\d+ = useContext\(Theme\);/);
     expect(code).not.toContain('createComponent(Label');
     expect(code).not.toContain('createComponent(Theme');
   });
@@ -141,6 +141,39 @@ function App() {
     );
     // The signal getter is the value, so the read calls it directly.
     expect(code).not.toContain('createComponent(Count');
+  });
+});
+
+describe('callback hosts', () => {
+  it('keeps each row its own state when a stateful component inlines into <For>', async () => {
+    const code = await expectSameBehavior(
+      'for-row-state',
+      app(
+        `function Row(props) {
+  const [on, setOn] = createSignal(false);
+  return (
+    <li class={on() ? 'on' : 'off'} onClick={() => setOn(!on())}>
+      {props.name}
+    </li>
+  );
+}
+function App() {
+  const [items, setItems] = createSignal(['a', 'b']);
+  return (
+    <main>
+      <button id="add" onClick={() => setItems([...items(), 'c'])} />
+      <button id="drop" onClick={() => setItems(items().slice(1))} />
+      <ul>
+        <For each={items()}>{(item) => <Row name={item} />}</For>
+      </ul>
+    </main>
+  );
+}`,
+        "import { createSignal, For } from 'solid-js';",
+      ),
+      ['li:nth-child(2)', '#add', 'li:nth-child(3)', '#drop', 'li:nth-child(1)'],
+    );
+    expect(code).not.toContain('createComponent(Row');
   });
 });
 
@@ -236,9 +269,10 @@ function App() {
       ),
     );
     // A function read twice is stored once, so both calls share it.
-    expect(code).toMatch(/const children\$1 = \(side\) =>/);
-    expect(code).toContain('children$1("left")');
-    expect(code).toContain('children$1("right")');
+    const stored = /const (children\$\d+) = \(side\$\d+\) =>/.exec(code)?.[1];
+    expect(stored).toBeDefined();
+    expect(code).toContain(`${stored ?? ''}("left")`);
+    expect(code).toContain(`${stored ?? ''}("right")`);
   });
 
   it('passes children through control flow', async () => {
