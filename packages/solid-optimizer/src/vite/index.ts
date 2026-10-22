@@ -33,6 +33,7 @@ import type { ImportedConstants } from '../constants';
 import type { Primitive } from '../value';
 import { exposeLocals, readExportedComponent } from './inject';
 import { nameNamespaceTags } from './namespace';
+import { protectRefs, restoreRefs } from './refs';
 import type { UsageIndex } from './usage';
 import { buildUsageIndex } from './usage';
 import {
@@ -952,6 +953,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         needed.add(helper);
       }
     }
+    // The bundler has to see that a `ref` writes its variable. See `refs.ts`.
+    const protectedRefs = protectRefs(code, filename);
+    if (protectedRefs) {
+      code = protectedRefs.code;
+      maps.push(protectedRefs.map);
+    }
     preserved.add(id);
     if (needed.size === 0) {
       return code === source ? null : { code, map: combineMaps(maps) };
@@ -1077,7 +1084,9 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         if (!runtime) {
           return null;
         }
-        let optimized: CompileResult | undefined = compile(runtime.code, {
+        const restored = restoreRefs(runtime.code, filename);
+        const chunkCode = restored?.code ?? runtime.code;
+        let optimized: CompileResult | undefined = compile(chunkCode, {
           ...compileOptions,
           filename,
           constantVars: true,
@@ -1097,7 +1106,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           // so the chunks do not have to match anything else.
           this.warn(`${error.message} ${filename} is not optimized.`);
           optimized = undefined;
-          lowered = lower(getCompiler(), runtime.code, filename, jsxOptions(false));
+          lowered = lower(getCompiler(), chunkCode, filename, jsxOptions(false));
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
         }
         return {
@@ -1105,6 +1114,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           map: combineMaps([
             repaired?.map,
             runtime.map,
+            restored?.map,
             optimized?.map?.toString(),
             lowered.map,
             linked.map,
