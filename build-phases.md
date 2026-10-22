@@ -101,7 +101,7 @@ A component inlines only where its copies are estimated to be no larger, once lo
 - **Look-ahead.** A component with statements needs an element around its call to hoist them to. When a component's children hold such calls, the estimate measures them as if the component were inlined, and credits what they would save.
 - **Escape hatch.** `alwaysInline` skips the estimate and inlines everything that can be.
 
-The estimate cannot see runtime helpers that the bundle drops once their last use is gone, or how the copies change Rolldown's chunk split. On the three test apps every build is smaller than plain: the demo by 23–25%, solid-ui by 0.2–1.2%, and Hacker News by 0.4–1.1%.
+The estimate cannot see runtime helpers that the bundle drops once their last use is gone, or how the copies change Rolldown's chunk split. On Solid 2, every build of the demo is 25–29% smaller than plain, and every build of Hacker News 0.1–2.2% smaller. On Solid 1, solid-ui shrinks by 0.2–1.2%.
 
 ## Consistency and limits
 

@@ -8,7 +8,7 @@ Every item below guesses at how often a case shows up in real apps. Measure befo
 
 1. Add a debug option that records why each pass left something alone. Give each reason a short code, such as `call-spread`, `call-ref`, `param-spread`, `no-host`, `size`, `provider-open`, or `memo-shape`.
 2. Report the counts per reason from the Vite plugin when the option is set.
-3. Run it on the demo, solid-ui, and Hacker News.
+3. Run it on the demo and Hacker News. solid-ui only builds on `solid-1-compiler`, since its libraries are not on Solid 2 yet. Run the Solid 1 version of the option there as a rough check for the library wrapper items.
 4. Reorder the items below if the counts disagree with this order.
 
 The option stays after the work is done. It helps explain future size results.
@@ -23,22 +23,22 @@ function Row(props) {
   return <li onClick={() => setOn(!on())}>{props.name}</li>;
 }
 
-<For each={items()}>{(item) => <Row name={item().name} />}</For>; // not inlined
+<For each={items()}>{(item) => <Row name={item.name} />}</For>; // not inlined
 ```
 
 Statements only move into a component, since a component runs untracked. List rows and conditional panels have this shape, so this is likely the most common case in real apps.
 
 Plan:
 
-1. Read Solid 2's `mapArray` and `repeat`. Confirm that a `<For>`, `<Index>`, or `<Repeat>` callback runs once per item, untracked, under its own owner.
+1. Read Solid 2's `mapArray` and `repeat`. Confirm that a `<For>` or `<Repeat>` callback runs once per item, untracked, under its own owner.
 2. If it does, treat such a callback as a host. Move the statements into its body. Turn an expression body into a block with a `return`.
 3. For a `<Show>` or `<Match>` child, the call is already the root of its own template, so nothing merges. Check whether `untrack(() => { ...statements; return <jsx />; })` is smaller than the component call. Only do this part if the estimate says it is.
 4. Fix the context case at the same time. A provider in a `<For>` callback can store its value in a `const` in the callback once the callback is a host. It is blocked today even when the value is already stored in the callback.
 
 Tests:
 
-- A row with a signal inside `<For>`, `<Index>`, and `<Repeat>`.
-- A row that reads the item accessor in its statements.
+- A row with a signal inside `<For>`, `<For keyed={false}>`, and `<Repeat>`.
+- A row that reads the item or the index accessor in its statements.
 - A provider in a `<For>` callback whose value is stored.
 - Runtime equivalence in `behavior.test.ts` when items are added, removed, and moved.
 
@@ -118,14 +118,14 @@ const LINKS = [
   { href: '/docs', label: 'Docs' },
 ];
 
-<For each={LINKS}>{(link) => <a href={link().href}>{link().label}</a>}</For>;
+<For each={LINKS}>{(link) => <a href={link.href}>{link.label}</a>}</For>;
 ```
 
 Navigation bars, footers, and feature lists on static pages look like this.
 
 Plan:
 
-1. Unroll `<For>` and `<Index>` when `each` folds to an array literal whose items fold to constants, and the callback body is only JSX. Each copy replaces `item()` with the item and `index()` with its number.
+1. Unroll `<For>` when `each` folds to an array literal whose items fold to constants, and the callback body is only JSX. Each copy replaces the item with its value and `index()` with its number. With `keyed={false}`, the item is an accessor and the index a number, so `item()` becomes the value instead.
 2. Unroll `{LIST.map((item, index) => <jsx />)}` the same way. The receiver is a known array literal, so `.map` is known to be the array method.
 3. Use the size estimate. Unrolling a long list can be larger than the loop.
 4. List the accepted difference. `<For>` gives each item its own owner, so unrolling shifts the hydration keys.

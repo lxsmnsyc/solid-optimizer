@@ -216,6 +216,37 @@ importers:
         specifier: ^8.3.1
         version: 8.3.1(@types/node@26.6.3)(yaml@2.9.1)
 
+  examples/hackernews:
+    dependencies:
+      '@solidjs/router':
+        specifier: 2.0.0-next.41
+        version: 2.0.0-next.41(@solidjs/web@2.0.0-rc.16(solid-js@2.0.0-rc.16))(solid-js@2.0.0-rc.16)
+      '@solidjs/web':
+        specifier: 2.0.0-rc.16
+        version: 2.0.0-rc.16(solid-js@2.0.0-rc.16)
+      solid-js:
+        specifier: 2.0.0-rc.16
+        version: 2.0.0-rc.16
+    devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.50
+        version: 3.0.0-next.50(@solidjs/web@2.0.0-rc.16(solid-js@2.0.0-rc.16))(solid-js@2.0.0-rc.16)(vite@8.3.1(@types/node@26.6.3)(yaml@2.9.1))
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
+      happy-dom:
+        specifier: ^20.14.5
+        version: 20.14.5
+      solid-optimizer:
+        specifier: workspace:*
+        version: link:../../packages/solid-optimizer
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(yaml@2.9.1)
+
   examples/showcase:
     dependencies:
       '@solidjs/compiler':
@@ -1043,6 +1074,16 @@ packages:
 
   '@solidjs/compiler@2.0.0-rc.16':
     resolution: {integrity: sha512-WRnqxb3LHvR8XiQuETxI++BVdLZOPougnN50kZhwiHLODIc4orUFFlx6hC0Jt2aurO5LZCjSxStGEHVHeo7maQ==}
+
+  '@solidjs/router@2.0.0-next.41':
+    resolution: {integrity: sha512-wCnhq37p4dpTYuy2Zz8nlf9Si/t4cMXUiMY0r7MxzHSH2c4jUiSrA8LkSdif6swwAIT/dOP7Pbv4hM1qY5ZOuA==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.15
+      filesystem-routing: '>=0.4.0'
+      solid-js: ^2.0.0-rc.15
+    peerDependenciesMeta:
+      filesystem-routing:
+        optional: true
 
   '@solidjs/signals@2.0.0-rc.16':
     resolution: {integrity: sha512-WPMb8FuAVKyzF6sIgZn/c89V69VS3R4DtCnOoaS1ZXy5Uos9K/8yrclyQkG6kqkN3ubtPiPnaPfdjt/jfsi4qQ==}
@@ -2566,6 +2607,11 @@ snapshots:
       '@solidjs/compiler-linux-x64-gnu': 2.0.0-rc.16
       '@solidjs/compiler-wasm32-wasi': 2.0.0-rc.16
       '@solidjs/compiler-win32-x64-msvc': 2.0.0-rc.16
+
+  '@solidjs/router@2.0.0-next.41(@solidjs/web@2.0.0-rc.16(solid-js@2.0.0-rc.16))(solid-js@2.0.0-rc.16)':
+    dependencies:
+      '@solidjs/web': 2.0.0-rc.16(solid-js@2.0.0-rc.16)
+      solid-js: 2.0.0-rc.16
 
   '@solidjs/signals@2.0.0-rc.16': {}
 
