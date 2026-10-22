@@ -304,6 +304,20 @@ This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](
 - Branches that a constant condition never takes are removed. So are statements after a `return`, `throw`, `break`, or `continue`.
 - `<Show when>` becomes its children or its `fallback`.
 - `<For each>` becomes its `fallback` when `each` is an empty array literal or a falsy constant.
+- `<For>` over a constant list becomes one copy of its row per item, when the copies are estimated to be no larger than the loop. The list is an array literal, or a `const` of one that only `<For>` reads and that is not exported. Each item is a primitive literal, or an object literal of them. The row has to be an arrow function whose body is JSX without a `ref` or a spread, and read the item as `item.key`, or as itself when it is a primitive.
+
+  ```jsx
+  const LINKS = [
+    { href: '/', label: 'Home' },
+    { href: '/docs', label: 'Docs' },
+  ];
+  <nav>
+    <For each={LINKS}>{(link) => <a href={link.href}>{link.label}</a>}</For>
+  </nav>;
+  ```
+
+  becomes `<nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a></nav>`, which lowers to one template. Each row had its own owner, so this shifts the hydration keys after it.
+
 - `<Repeat count>` becomes its `fallback` when `count` is below one.
 - `<Switch>` drops each `<Match>` that is always false, and becomes the first `<Match>` that is always true.
 - `<Dynamic component="div">` becomes `<div>`. `<Dynamic component={Card}>` becomes `<Card>` when `Card` is a capitalized component declared at the top level, as a function or with `lazy`, that nothing reassigns. An imported component stays, since an import could hold a tag name.

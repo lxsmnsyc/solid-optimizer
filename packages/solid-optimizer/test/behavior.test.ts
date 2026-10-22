@@ -144,6 +144,45 @@ function App() {
   });
 });
 
+describe('constant lists', () => {
+  it('renders an unrolled <For> the same, with stateful rows', async () => {
+    const code = await expectSameBehavior(
+      'for-constant-list',
+      app(
+        `const LINKS = [
+  { href: '/', label: 'Home' },
+  { href: '/docs', label: 'Docs' },
+];
+function App() {
+  const [active, setActive] = createSignal('/');
+  return (
+    <nav>
+      <For each={LINKS}>
+        {(link, index) => (
+          <a
+            href={link.href}
+            data-index={index()}
+            class={active() === link.href ? 'active' : ''}
+            onClick={(event) => {
+              event.preventDefault();
+              setActive(link.href);
+            }}
+          >
+            {link.label}
+          </a>
+        )}
+      </For>
+    </nav>
+  );
+}`,
+        "import { createSignal, For } from 'solid-js';",
+      ),
+      ['a[data-index="1"]', 'a[data-index="0"]'],
+    );
+    expect(code).not.toContain('mapArray');
+  });
+});
+
 describe('children helper', () => {
   it('renders children resolved by the helper the same once it is inlined', async () => {
     const code = await expectSameBehavior(

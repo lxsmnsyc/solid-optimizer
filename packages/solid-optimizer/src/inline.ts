@@ -108,7 +108,8 @@ import {
 import { keptPiece, replacedPiece, writePieces } from './jsx';
 import type { Binding, Scope } from './scope';
 import { isWithinScope, lookup, scopeAt } from './scope';
-import { SizeEstimator, copySize } from './size';
+import { copySize } from './copy-size';
+import { SizeEstimator } from './size';
 import { evaluate, literalText } from './value';
 
 type ComponentFunction = FunctionNode | ArrowFunctionExpression;

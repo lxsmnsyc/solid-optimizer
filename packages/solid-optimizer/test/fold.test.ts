@@ -181,6 +181,61 @@ ${declarations.replace('= lazy(', '= /* @__PURE__ */ lazy(')}export const view =
     }
   });
 
+  it('unrolls <For> over a constant list into one row per item', () => {
+    const imports = "import { For } from 'solid-js';\n";
+    expect(
+      folded(`${imports}const LINKS = [{ href: '/', label: 'Home' }, { href: '/docs', label: 'Docs' }];
+export const nav = <nav><For each={LINKS}>{(link) => <a href={link.href}>{link.label}</a>}</For></nav>;`),
+    )
+      .toBe(`${imports}const LINKS = [{ href: '/', label: 'Home' }, { href: '/docs', label: 'Docs' }];
+export const nav = <nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a></nav>;`);
+    expect(
+      folded(
+        `${imports}export const list = <ul><For each={['a', 'b']}>{(x, i) => <li data-i={i()}>{x}</li>}</For></ul>;`,
+      ),
+    ).toBe(
+      `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
+    );
+    // With `keyed={false}`, the item is an accessor and the index a number.
+    expect(
+      folded(
+        `${imports}export const list = <ul><For each={['a', 'b']} keyed={false}>{(x, i) => <li data-i={i}>{x()}</li>}</For></ul>;`,
+      ),
+    ).toBe(
+      `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
+    );
+    expect(
+      templateCountOf(
+        `${imports}export const list = <ul><For each={[1, 2, 3]}>{(x) => <li>{x}</li>}</For></ul>;`,
+      ),
+    ).toBe(1);
+  });
+
+  it('keeps <For> over a list it cannot unroll the same', () => {
+    const imports = "import { For } from 'solid-js';\n";
+    const cases = [
+      // The list can change.
+      'const LINKS = [{ href: "/" }];\nLINKS.push({ href: "/x" });\nexport const nav = <nav><For each={LINKS}>{(link) => <a href={link.href} />}</For></nav>;',
+      'export const LINKS = [{ href: "/" }];\nexport const nav = <nav><For each={LINKS}>{(link) => <a href={link.href} />}</For></nav>;',
+      // An item that is not a constant, or a key it does not have.
+      'export const list = <ul><For each={[name()]}>{(x) => <li>{x}</li>}</For></ul>;',
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={link.title} />}</For></nav>;',
+      // A key read through a variable.
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={link[field]} />}</For></nav>;',
+      // The item used as a whole object, or a method call on it.
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={describe(link)} />}</For></nav>;',
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={link.href()} />}</For></nav>;',
+      // A row with a ref, or a key function.
+      'export const list = <ul><For each={[1, 2]}>{(x) => <li ref={x} />}</For></ul>;',
+      'export const list = <ul><For each={[1, 2]} keyed={(x) => x}>{(x) => <li>{x}</li>}</For></ul>;',
+      // Larger unrolled than looped.
+      `export const list = <ul><For each={[${Array.from({ length: 30 }, (_, index) => index).join(', ')}]}>{(x) => <li class="a long class name repeated for every row">{x}</li>}</For></ul>;`,
+    ];
+    for (const code of cases) {
+      expect(folded(imports + code)).toBe(imports + code);
+    }
+  });
+
   it('splices a resolved child into the surrounding template', () => {
     expect(folded('const view = <div>a<Show when={true}><b /></Show>c</div>;')).toBe(
       'const view = <div>a<b />c</div>;',

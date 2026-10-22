@@ -141,6 +141,10 @@ Plan:
 
 ## 7. `<For>` over a constant list
 
+Status: done. The demo's `About` and `Chart` pages unroll their `FEATURES` and `POINTS` lists, which saves about 118 B gzipped. Hacker News has no constant list.
+
+The size estimate also counted a literal child like `{'a'}` as an insert. Solid's JSX transform writes it into the template as text, so the estimate now does too. On its own that change made the demo 11 B larger, from one inlining decision it now makes differently. With unrolling, the default build is 107 B smaller than before.
+
 `<For each={[]}>` already folds to its fallback. A constant list with items does not fold:
 
 ```jsx
