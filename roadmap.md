@@ -139,7 +139,7 @@ Plan:
 2. This keeps the same updates. Every use of a parameter sits in a JSX expression, which the JSX transform wraps in its own effect. So the outer call never tracks anything the body reads.
 3. Leave the call alone when the body has statements, or a parameter is used in a way that is not a plain read.
 
-## 7. `<For>` and `.map()` over a constant list
+## 7. `<For>` over a constant list
 
 `<For each={[]}>` already folds to its fallback. A constant list with items does not fold:
 
@@ -157,9 +157,10 @@ Navigation bars, footers, and feature lists on static pages look like this.
 Plan:
 
 1. Unroll `<For>` when `each` folds to an array literal whose items fold to constants, and the callback body is only JSX. Each copy replaces the item with its value and `index()` with its number. With `keyed={false}`, the item is an accessor and the index a number, so `item()` becomes the value instead.
-2. Unroll `{LIST.map((item, index) => <jsx />)}` the same way. The receiver is a known array literal, so `.map` is known to be the array method.
-3. Use the size estimate. Unrolling a long list can be larger than the loop.
-4. List the accepted difference. `<For>` gives each item its own owner, so unrolling shifts the hydration keys.
+2. Use the size estimate. Unrolling a long list can be larger than the loop.
+3. List the accepted difference. `<For>` gives each item its own owner, so unrolling shifts the hydration keys.
+
+`.map()` over a constant list is left out. Solid code renders lists with `<For>`, since `.map()` makes every row again when the list changes.
 
 ## 8. Copying components from chosen packages
 
