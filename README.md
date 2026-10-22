@@ -307,6 +307,7 @@ This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](
 - `<Repeat count>` becomes its `fallback` when `count` is below one.
 - `<Switch>` drops each `<Match>` that is always false, and becomes the first `<Match>` that is always true.
 - `<Dynamic component="div">` becomes `<div>`. `<Dynamic component={Card}>` becomes `<Card>` when `Card` is a capitalized component declared at the top level, as a function or with `lazy`, that nothing reassigns. An imported component stays, since an import could hold a tag name.
+- A call of an arrow function whose body is JSX, such as a render prop left by inlining, becomes the JSX when it is an element's child and each argument is a constant or a binding nothing reassigns. `{((n) => <li>{n}</li>)(1)}` becomes `<li>{1}</li>`. A `ref` or a spread in the JSX keeps the call, since both run while the JSX is made.
 
 A built-in only folds when the tag resolves to Solid's component. The tag must bind to nothing, or be imported from one of `moduleSources`. A tag with a spread attribute or a function child never folds. `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` never fold.
 

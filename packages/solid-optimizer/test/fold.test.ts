@@ -4,7 +4,7 @@
  * the JSX this package emits and on what Solid's JSX transform makes of it.
  */
 import { describe, expect, it } from 'vitest';
-import { lower, optimize } from './utils';
+import { lower, optimize, templateCount } from './utils';
 
 function folded(code: string): string {
   return optimize(code, { inline: false });
@@ -12,6 +12,10 @@ function folded(code: string): string {
 
 function lowered(code: string): string {
   return lower(folded(code));
+}
+
+function templateCountOf(code: string): number {
+  return templateCount(folded(code));
 }
 
 describe('control-flow components', () => {
@@ -139,6 +143,38 @@ ${declarations.replace('= lazy(', '= /* @__PURE__ */ lazy(')}export const view =
       'const Card = () => <i />;\nexport const view = <Dynamic component={Card} {...rest} />;',
       // A value that is not a function.
       'const Card = pick();\nexport const view = <Dynamic component={Card} />;',
+    ];
+    for (const code of cases) {
+      expect(folded(code)).toBe(code);
+    }
+  });
+
+  it('turns a call of a JSX arrow with constant arguments into its JSX', () => {
+    expect(
+      folded(
+        'const LABEL = name;\nexport const view = <ul>{((n, label) => <li title={label} data-n={n}>{n}</li>)(1, LABEL)}{((x) => <b>{x}</b>)(-2)}</ul>;',
+      ),
+    ).toBe(
+      'const LABEL = name;\nexport const view = <ul><li title={LABEL} data-n={1}>{1}</li><b>{(-2)}</b></ul>;',
+    );
+    expect(templateCountOf('export const view = <ul>{((n) => <li>{n}</li>)(1)}</ul>;')).toBe(1);
+  });
+
+  it('keeps a call of a JSX arrow that could behave differently inline', () => {
+    const cases = [
+      // An argument that is not a constant could change, or run code.
+      'export const view = <ul>{((n) => <li>{n}</li>)(count())}</ul>;',
+      'let n = 1;\nn = 2;\nexport const view = <ul>{((x) => <li>{x}</li>)(n)}</ul>;',
+      // A ref and a spread run while the JSX is made.
+      'export const view = <ul>{((n) => <li ref={n} />)(1)}</ul>;',
+      'export const view = <ul>{((n) => <li {...n} />)(1)}</ul>;',
+      // A body that is not JSX, or a parameter that is written.
+      'export const view = <ul>{((n) => n)(1)}</ul>;',
+      'export const view = <ul>{((n) => <li onClick={() => n++} />)(1)}</ul>;',
+      // A component's child is a prop.
+      'export const view = <List>{((n) => <li>{n}</li>)(1)}</List>;',
+      // An argument whose name means something else in the body.
+      'const a = make();\nexport const view = <ul>{((n) => <li>{[1].map((a) => n + a)}</li>)(a)}</ul>;',
     ];
     for (const code of cases) {
       expect(folded(code)).toBe(code);

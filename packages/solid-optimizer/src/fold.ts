@@ -18,6 +18,9 @@
  * - Statements a constant condition makes unreachable: `if`/`else` branches,
  *   `while (false)` loops, and anything after a `return`, `throw`, `break`,
  *   or `continue`.
+ * - A call of an arrow function whose body is JSX, with constant arguments,
+ *   as an element's child. The call becomes the JSX with the arguments in
+ *   place of the parameters, so it joins the template around it.
  * - `<Show when>`, `<For each>`, `<Repeat count>`, `<Switch>`/`<Match when>`,
  *   and `<Dynamic component>` with a static intrinsic tag name or a
  *   component declared at the top level that nothing reassigns.
@@ -39,12 +42,14 @@ import type {
   IfStatement,
   JSXChild,
   JSXElement,
+  JSXEmptyExpression,
   JSXFragment,
   LogicalExpression,
   Node,
   Statement,
   WhileStatement,
 } from 'oxc-parser';
+import MagicString from 'magic-string';
 import type { Parents } from './ast';
 import {
   forEachChild,
@@ -69,6 +74,7 @@ import {
   splicePiece,
   writePieces,
 } from './jsx';
+import { lookup, scopeAt } from './scope';
 import type { ConstantLookup } from './value';
 import {
   arrayLiteralLength,
@@ -197,6 +203,40 @@ function containsHoistedDeclaration(statement: Node): boolean {
  */
 function continuesPreviousStatement(text: string): boolean {
   return /^[([`+\-/]/.test(text);
+}
+
+/** Whether a child of `parent` is inserted into its template, not passed as a prop. */
+function joinsTemplate(parent: JSXElement | JSXFragment): boolean {
+  if (parent.type === 'JSXFragment') {
+    return true;
+  }
+  const { name } = parent.openingElement;
+  return name.type === 'JSXIdentifier' && isIntrinsicTag(name.name);
+}
+
+/**
+ * Whether JSX holds a `ref` or a spread, which run while the JSX is made.
+ */
+function hasRefOrSpread(root: Node): boolean {
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) {
+      return;
+    }
+    if (
+      node.type === 'JSXSpreadAttribute' ||
+      node.type === 'JSXSpreadChild' ||
+      (node.type === 'JSXAttribute' &&
+        node.name.type === 'JSXIdentifier' &&
+        node.name.name === 'ref')
+    ) {
+      found = true;
+      return;
+    }
+    forEachChild(node, visit);
+  };
+  visit(root);
+  return found;
 }
 
 class Folder {
@@ -793,6 +833,15 @@ class Folder {
         pieces.push(splicePiece(this.context.s, child, child.children));
         continue;
       }
+      const reduced =
+        child.type === 'JSXExpressionContainer' && joinsTemplate(parent)
+          ? this.reducedCall(child.expression)
+          : undefined;
+      if (reduced !== undefined) {
+        folded = true;
+        pieces.push(replacedPiece(child, reduced));
+        continue;
+      }
       const resolved = child.type === 'JSXElement' ? this.foldFlow(child) : undefined;
       if (!resolved) {
         pieces.push(keptPiece(child));
@@ -816,6 +865,105 @@ class Folder {
     }
     if (folded && writePieces(this.context.s, pieces)) {
       this.changed = true;
+    }
+  }
+
+  /**
+   * The JSX a call like `((n) => <li>{n}</li>)(1)` makes, with each
+   * argument in place of its parameter, or `undefined` when that could
+   * behave differently.
+   *
+   * The child is inserted by an effect that makes the JSX. The JSX
+   * transform wraps every dynamic part of JSX in an effect of its own, so
+   * making it reads nothing the outer effect tracks, and the outer effect
+   * runs once. A `ref` runs while the JSX is made, and a spread reads its
+   * object there, so either one keeps the call. Each argument has to be a
+   * constant or a binding nothing reassigns, so reading it again where the
+   * parameter was gives the same value.
+   */
+  private reducedCall(expression: Expression | JSXEmptyExpression): string | undefined {
+    if (expression.type !== 'CallExpression' || expression.optional) {
+      return undefined;
+    }
+    let callee: Expression = expression.callee;
+    while (callee.type === 'ParenthesizedExpression') {
+      callee = callee.expression;
+    }
+    if (callee.type !== 'ArrowFunctionExpression' || callee.async || !callee.expression) {
+      return undefined;
+    }
+    let body: Node = callee.body;
+    while (body.type === 'ParenthesizedExpression') {
+      body = body.expression;
+    }
+    if (body.type !== 'JSXElement' && body.type !== 'JSXFragment') {
+      return undefined;
+    }
+    const { params } = callee;
+    const args = expression.arguments;
+    if (params.length !== args.length || hasRefOrSpread(body)) {
+      return undefined;
+    }
+    // A fold inside the body in this pass would be lost, so it waits for the next pass.
+    if (
+      this.context.s.slice(body.start, body.end) !== this.context.code.slice(body.start, body.end)
+    ) {
+      return undefined;
+    }
+    const scope = this.context.scopes.scopes.get(callee);
+    if (!scope) {
+      return undefined;
+    }
+    const copy = new MagicString(this.context.code);
+    for (const [index, param] of params.entries()) {
+      const arg = args.at(index);
+      if (param.type !== 'Identifier' || !arg || arg.type === 'SpreadElement') {
+        return undefined;
+      }
+      const binding = scope.bindings.get(param.name);
+      const text = this.argumentText(arg);
+      if (!binding || binding.mutated || text === undefined) {
+        return undefined;
+      }
+      for (const reference of binding.references) {
+        // A binding argument has to mean the same where the parameter was read.
+        if (
+          arg.type === 'Identifier' &&
+          lookup(scopeAt(this.context.scopes, this.context.parents, reference), arg.name) !==
+            this.context.scopes.references.get(arg)
+        ) {
+          return undefined;
+        }
+        const parent = this.context.parents.get(reference);
+        const shorthand =
+          parent?.type === 'Property' && parent.shorthand && parent.value === reference;
+        copy.overwrite(reference.start, reference.end, shorthand ? `${param.name}: ${text}` : text);
+      }
+    }
+    return copy.slice(body.start, body.end);
+  }
+
+  /** The text of an argument that reads the same wherever it is copied. */
+  private argumentText(arg: Expression): string | undefined {
+    let node: Expression = arg;
+    while (node.type === 'ParenthesizedExpression') {
+      node = node.expression;
+    }
+    switch (node.type) {
+      case 'Literal':
+        return 'regex' in node ? undefined : textOf(this.context, node);
+      case 'TemplateLiteral':
+        return node.expressions.length === 0 ? textOf(this.context, node) : undefined;
+      case 'UnaryExpression':
+        return node.operator === '-' && node.argument.type === 'Literal'
+          ? `(${textOf(this.context, node)})`
+          : undefined;
+      case 'Identifier': {
+        const binding = this.context.scopes.references.get(node);
+        return binding && !binding.mutated ? node.name : undefined;
+      }
+      default:
+        return undefined;
     }
   }
 

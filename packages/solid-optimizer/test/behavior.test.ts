@@ -330,6 +330,8 @@ function App() {
     expect(stored).toBeDefined();
     expect(code).toContain(`${stored ?? ''}("left")`);
     expect(code).toContain(`${stored ?? ''}("right")`);
+    // A function called once with a constant becomes its JSX, which joins the template.
+    expect(code).not.toContain('(42)');
   });
 
   it('passes children through control flow', async () => {

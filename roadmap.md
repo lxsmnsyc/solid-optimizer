@@ -119,6 +119,10 @@ Plan:
 
 ## 6. A render prop called with constant arguments
 
+Status: done, in the fold pass. Neither app calls a render prop with constants, so their sizes do not change.
+
+A `ref` or a spread in the JSX also keeps the call. A `ref` runs while the JSX is made, inside the effect that inserts it, so it could track what it reads. A spread reads its object there too.
+
 ```jsx
 function List(props) {
   return <ul>{props.children(1)}</ul>;
