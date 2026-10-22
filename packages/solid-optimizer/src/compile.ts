@@ -6,7 +6,7 @@ import type { Parents } from './ast';
 import { collectParents, parse } from './ast';
 import type { ImportedConstants } from './constants';
 import { constantExports, namedImportSources, resolveImportedConstants } from './constants';
-import type { PassContext, ResolvedOptions } from './context';
+import type { PassContext, ResolvedOptions, Skip } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
@@ -119,12 +119,24 @@ export interface CompileOptions {
    * @default true
    */
   sourceMap?: boolean;
+  /**
+   * Record what the inline, provider, and memo passes leave alone, and why.
+   * The result lists them in `skipped`.
+   *
+   * @default false
+   */
+  report?: boolean;
 }
 
 export interface CompileResult {
   code: string;
   /** The map from the output back to the input, or `null` when nothing changed or maps are off. */
   map: SourceMap | null;
+  /**
+   * What the last round left alone, and why, when `report` is set. The last
+   * round changes nothing, unless `maxPasses` stopped the rounds first.
+   */
+  skipped?: Skip[];
 }
 
 const DEFAULT_BUILT_INS = [
@@ -186,6 +198,7 @@ function runPass(
   options: ResolvedOptions,
   sourceMap: boolean,
   pass: Pass,
+  skips: Skip[] | undefined,
 ): PassResult | undefined {
   const { code } = parsed;
   const context: PassContext = {
@@ -197,6 +210,7 @@ function runPass(
     // A pass adds the names it gives out, so each pass starts from the parse's own.
     scopes: { ...parsed.scopes, names: new Set(parsed.scopes.names) },
     options,
+    skips,
   };
   if (!pass(context)) {
     return undefined;
@@ -250,10 +264,13 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     return parsed;
   };
   const maxPasses = options.maxPasses ?? 10;
+  let skipped: Skip[] | undefined;
   for (let round = 0; round < maxPasses; round += 1) {
     let changed = false;
+    // Only the last round's skips are kept. An earlier round can skip what a later one takes.
+    skipped = options.report === true ? [] : undefined;
     for (const pass of passes) {
-      const result = runPass(parsedCurrent(), filename, resolved, sourceMap, pass);
+      const result = runPass(parsedCurrent(), filename, resolved, sourceMap, pass, skipped);
       if (result) {
         changed = true;
         current = result.code;
@@ -267,11 +284,12 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     }
   }
 
+  const report = skipped ? { skipped } : {};
   if (maps.length === 0) {
-    return { code: current, map: null };
+    return { code: current, map: null, ...report };
   }
   // Each map points at the output of the pass before it, so they chain from the last one.
-  return { code: current, map: remapping(maps.reverse(), () => null) };
+  return { code: current, map: remapping(maps.reverse(), () => null), ...report };
 }
 
 export interface ModuleConstants {

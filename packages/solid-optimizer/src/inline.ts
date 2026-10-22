@@ -85,7 +85,7 @@ import {
   unwrap,
 } from './ast';
 import type { PassContext, ResolvedOptions } from './context';
-import { isConstantDeclaration, textOf } from './context';
+import { isConstantDeclaration, recordSkip, solidExport, textOf } from './context';
 import type { Piece } from './jsx';
 import type { ClosedOptions, Provider } from './provider';
 import {
@@ -426,6 +426,29 @@ function attributesOf(element: JSXElement): Map<string, JSXAttribute> | undefine
   return attributes;
 }
 
+/**
+ * Why `attributesOf` turns down a call site, for the report.
+ */
+function callSiteReason(element: JSXElement): string {
+  const names = new Set<string>();
+  for (const attribute of element.openingElement.attributes) {
+    if (attribute.type !== 'JSXAttribute') {
+      return 'call-spread';
+    }
+    if (attribute.name.type !== 'JSXIdentifier') {
+      return 'call-namespace';
+    }
+    if (attribute.name.name === 'ref') {
+      return 'call-ref';
+    }
+    if (names.has(attribute.name.name)) {
+      break;
+    }
+    names.add(attribute.name.name);
+  }
+  return 'call-duplicate';
+}
+
 function isAssignmentTarget(context: PassContext, node: Node): boolean {
   const parent = context.parents.get(node);
   if (!parent) {
@@ -470,6 +493,44 @@ class Inliner {
 
   constructor(private readonly context: PassContext) {}
 
+  /** Why the last component or call site was turned down, for the report. */
+  private reason = '';
+
+  /**
+   * Whether a binding holds a component made by Solid's `lazy`, for the
+   * report. In a chunk, `lazy` can be a local declaration under another
+   * name, so a call given a function with a dynamic import counts too.
+   */
+  private isLazy(binding: Binding): boolean {
+    const { declaration } = binding;
+    const init =
+      declaration.type === 'VariableDeclarator' && declaration.init
+        ? unwrap(declaration.init)
+        : undefined;
+    if (init?.type !== 'CallExpression' || init.callee.type !== 'Identifier') {
+      return false;
+    }
+    const callee = this.context.scopes.references.get(init.callee);
+    if (callee && solidExport(callee, this.context.options) === 'lazy') {
+      return true;
+    }
+    const loader = init.arguments.at(0);
+    if (!loader || !isFunctionNode(loader)) {
+      return false;
+    }
+    let imports = false;
+    const visit = (node: Node): void => {
+      if (node.type === 'ImportExpression') {
+        imports = true;
+      }
+      if (!imports) {
+        forEachChild(node, visit);
+      }
+    };
+    visit(loader);
+    return imports;
+  }
+
   // ---------------------------------------------------------------------------
   // Components
   // ---------------------------------------------------------------------------
@@ -499,15 +560,29 @@ class Inliner {
   }
 
   private analyzeComponent(binding: Binding): Component | undefined {
-    if (!isCapitalized(binding.name) || binding.mutated) {
+    if (!isCapitalized(binding.name)) {
+      return undefined;
+    }
+    if (binding.mutated) {
+      this.reason = 'component-mutated';
       return undefined;
     }
     const fn = functionOf(binding, this.context.options);
-    if (!fn || fn.async || fn.generator || !fn.body || fn.params.length > 1) {
+    if (!fn?.body) {
+      this.reason = this.isLazy(binding) ? 'lazy' : 'not-a-function';
+      return undefined;
+    }
+    if (fn.async || fn.generator) {
+      this.reason = 'component-async';
+      return undefined;
+    }
+    if (fn.params.length > 1) {
+      this.reason = 'component-params';
       return undefined;
     }
     const scope = this.scopeOf(fn);
     if (!scope) {
+      this.reason = 'not-a-function';
       return undefined;
     }
 
@@ -518,6 +593,7 @@ class Inliner {
       const body = fn.body.body;
       const last = body.at(-1);
       if (last?.type !== 'ReturnStatement' || !last.argument) {
+        this.reason = 'component-body';
         return undefined;
       }
       const rest: Statement[] = [];
@@ -526,7 +602,12 @@ class Inliner {
         // TypeScript's AST gives every expression statement a `directive`
         // key, which is `null` unless the statement is a directive.
         const directive = 'directive' in statement ? statement.directive : null;
-        if (typeof directive === 'string' || containsReturn(statement)) {
+        if (typeof directive === 'string') {
+          this.reason = 'component-directive';
+          return undefined;
+        }
+        if (containsReturn(statement)) {
+          this.reason = 'component-return';
           return undefined;
         }
         rest.push(statement);
@@ -537,9 +618,11 @@ class Inliner {
       root = unwrap(fn.body);
     }
     if (root.type !== 'JSXElement' && root.type !== 'JSXFragment') {
+      this.reason = 'component-body';
       return undefined;
     }
     if (usesFunctionContext(this.context, fn.body)) {
+      this.reason = 'component-this';
       return undefined;
     }
 
@@ -548,15 +631,18 @@ class Inliner {
     let paramBinding: Binding | undefined;
     if (param) {
       if (param.type !== 'Identifier') {
+        this.reason = 'component-params';
         return undefined;
       }
       paramBinding = scope.bindings.get(param.name);
       if (!paramBinding || paramBinding.mutated) {
+        this.reason = 'props-use';
         return undefined;
       }
     }
     const views = this.analyzeViews(fn, scope, statements, paramBinding);
     if (!views) {
+      this.reason = 'view-use';
       return undefined;
     }
     const props: PropRead[] = [];
@@ -566,6 +652,8 @@ class Inliner {
       }
       const read = this.propRead(fn, reference);
       if (!read) {
+        const parent = this.context.parents.get(reference);
+        this.reason = parent?.type === 'JSXSpreadAttribute' ? 'props-spread' : 'props-use';
         return undefined;
       }
       props.push(read);
@@ -594,6 +682,7 @@ class Inliner {
       }
       // A component that renders itself cannot be inlined into itself.
       if (target === binding) {
+        this.reason = 'component-recursive';
         return undefined;
       }
       if (target && isWithinScope(target.scope, scope)) {
@@ -1091,19 +1180,23 @@ class Inliner {
   private prepare(component: Component, element: JSXElement): PreparedSite | undefined {
     const attributes = attributesOf(element);
     if (!attributes) {
+      this.reason = callSiteReason(element);
       return undefined;
     }
     const hasChildren = element.children.some((child) => !isInsignificant(child));
     if (hasChildren && attributes.has('children')) {
+      this.reason = 'call-children';
       return undefined;
     }
     for (const attribute of attributes.values()) {
       if (attribute.value && usesFunctionContext(this.context, attribute.value)) {
+        this.reason = 'call-this';
         return undefined;
       }
     }
     for (const child of element.children) {
       if (usesFunctionContext(this.context, child)) {
+        this.reason = 'call-this';
         return undefined;
       }
     }
@@ -1111,6 +1204,7 @@ class Inliner {
     // What each view read and spread resolves to at this call site.
     const views = this.resolveViews(component, attributes, hasChildren);
     if (!views) {
+      this.reason = 'view-conflict';
       return undefined;
     }
 
@@ -1142,6 +1236,7 @@ class Inliner {
         value = this.propValue(attributes.get(name), reads, fresh, snapshots);
       }
       if (!value) {
+        this.reason = 'prop-value';
         return undefined;
       }
       values.set(name, value);
@@ -1151,6 +1246,7 @@ class Inliner {
     const scope = scopeAt(this.context.scopes, this.context.parents, element);
     for (const reference of component.outer) {
       if (lookup(scope, reference.name) !== reference.binding) {
+        this.reason = 'shadowed';
         return undefined;
       }
     }
@@ -1158,11 +1254,13 @@ class Inliner {
     const hoisted = component.statements.length > 0 || snapshots.length > 0;
     const host = hoisted ? this.hostOf(element) : undefined;
     if (hoisted && !host) {
+      this.reason = 'no-host';
       return undefined;
     }
 
     const contextTexts = this.contextTexts(component, element);
     if (!contextTexts) {
+      this.reason = 'context-value';
       return undefined;
     }
 
@@ -1767,13 +1865,20 @@ class Inliner {
 
   run(): void {
     const components: Component[] = [];
+    const rejected = new Map<Binding, string>();
     for (const binding of this.context.scopes.root.bindings.values()) {
+      this.reason = 'not-a-function';
       const component = this.analyzeComponent(binding);
       if (component) {
         components.push(component);
+      } else {
+        rejected.set(binding, this.reason);
       }
     }
+    // Why each call site that stays a call was not inlined, for the report.
+    const siteReasons = new Map<JSXElement, string>();
     if (components.length === 0) {
+      this.report(rejected, siteReasons);
       return;
     }
 
@@ -1820,6 +1925,9 @@ class Inliner {
         inlined.set(site.component, elements);
       } else {
         otherUses.set(site.component, (otherUses.get(site.component) ?? 0) + 1);
+        if (this.context.skips && !postponed) {
+          siteReasons.set(site.element, this.siteReason(site, worthwhile));
+        }
       }
       // A component holding a call that was inlined now, or postponed to the
       // next pass, waits too. A copy made now would copy the call as it is.
@@ -1833,6 +1941,7 @@ class Inliner {
     }
 
     this.writeHosts();
+    this.report(rejected, siteReasons);
 
     // A component nothing uses anymore is removed. A copy made in this pass
     // comes from the original code, so a component used inside a copied
@@ -1849,6 +1958,83 @@ class Inliner {
         this.context.s.remove(component.declaration.start, component.declaration.end);
       }
     }
+  }
+
+  /**
+   * Why a call site of a component was not inlined. A component that is
+   * not worth inlining is only turned down for its size when the call site
+   * could be inlined.
+   */
+  private siteReason(site: CallSite, worthwhile: ReadonlySet<Component>): string {
+    if (worthwhile.has(site.component)) {
+      return this.reason;
+    }
+    this.scratchNames = new Set(this.context.scopes.names);
+    try {
+      return this.prepare(site.component, site.element) ? 'size' : this.reason;
+    } finally {
+      this.scratchNames = undefined;
+    }
+  }
+
+  /**
+   * Records each component call that stays a call, and why. Solid's
+   * built-ins and context providers are left out. The provider pass
+   * reports providers.
+   */
+  private report(
+    rejected: ReadonlyMap<Binding, string>,
+    siteReasons: ReadonlyMap<JSXElement, string>,
+  ): void {
+    if (!this.context.skips) {
+      return;
+    }
+    const visit = (node: Node): void => {
+      if (node.type === 'JSXElement') {
+        const reason = this.callReason(node, rejected, siteReasons);
+        if (reason) {
+          recordSkip(this.context, 'inline', reason.reason, reason.name);
+        }
+      }
+      forEachChild(node, visit);
+    };
+    visit(this.context.program);
+  }
+
+  private callReason(
+    element: JSXElement,
+    rejected: ReadonlyMap<Binding, string>,
+    siteReasons: ReadonlyMap<JSXElement, string>,
+  ): { reason: string; name: string } | undefined {
+    const tag = element.openingElement.name;
+    if (tag.type === 'JSXMemberExpression') {
+      return { reason: 'member-tag', name: textOf(this.context, tag) };
+    }
+    if (tag.type !== 'JSXIdentifier' || !isCapitalized(tag.name)) {
+      return undefined;
+    }
+    const { name } = tag;
+    const binding = this.context.scopes.references.get(tag);
+    const identity = binding ? solidExport(binding, this.context.options) : name;
+    if (
+      (identity !== undefined && this.context.options.builtIns.has(identity)) ||
+      contextBinding(this.context, tag)
+    ) {
+      return undefined;
+    }
+    if (!binding) {
+      return { reason: 'global', name };
+    }
+    if (binding.kind === 'import') {
+      // A chunk imports other chunks through placeholders the bundler fills in later.
+      const source = (binding.source ?? '').replaceAll(/!~\{\w+\}~/g, '*');
+      return { reason: 'imported', name: `${name} (${source})` };
+    }
+    if (binding.scope.parent !== undefined) {
+      return { reason: 'nested', name };
+    }
+    const reason = rejected.get(binding) ?? siteReasons.get(element);
+    return reason === undefined ? undefined : { reason, name };
   }
 
   /**

@@ -37,7 +37,7 @@ import type {
 } from 'oxc-parser';
 import { isFunctionNode, isIntrinsicTag, unwrap } from './ast';
 import type { PassContext } from './context';
-import { solidExport, textOf } from './context';
+import { recordSkip, solidExport, textOf } from './context';
 import { usesFunctionContext } from './inline';
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
@@ -103,6 +103,9 @@ class MemoInliner {
 
   constructor(private readonly context: PassContext) {}
 
+  /** Why the last memo was turned down, for the report. Empty for a call that is not a memo. */
+  private reason = '';
+
   private isCreateMemo(callee: Node): boolean {
     if (callee.type !== 'Identifier') {
       return false;
@@ -123,20 +126,24 @@ class MemoInliner {
     const compute = args.at(0);
     const options = args.at(1);
     if (args.length > 2 || compute === undefined || compute.type === 'SpreadElement') {
+      this.reason = 'memo-computation';
       return undefined;
     }
     const fn = unwrap(compute);
     if (fn.type !== 'ArrowFunctionExpression' && fn.type !== 'FunctionExpression') {
+      this.reason = 'memo-computation';
       return undefined;
     }
     const expression = returnedExpression(fn);
     if (!expression) {
+      this.reason = 'memo-computation';
       return undefined;
     }
     let alwaysNotifies = false;
     if (options !== undefined) {
       // Only `equals: false` is understood. Any other option changes what the memo does.
       if (options.type !== 'ObjectExpression' || options.properties.length !== 1) {
+        this.reason = 'memo-options';
         return undefined;
       }
       const property = options.properties.at(0);
@@ -148,11 +155,19 @@ class MemoInliner {
         property.value.type !== 'Literal' ||
         property.value.value !== false
       ) {
+        this.reason = 'memo-options';
         return undefined;
       }
       alwaysNotifies = true;
     }
-    return alwaysNotifies || isFresh(expression) ? expression : undefined;
+    if (alwaysNotifies || isFresh(expression)) {
+      return expression;
+    }
+    // A memo whose result can equal its last one stops updates, which is what it is for.
+    if (unwrap(expression).type === 'Literal') {
+      this.reason = 'memo-constant';
+    }
+    return undefined;
   }
 
   /**
@@ -314,31 +329,49 @@ class MemoInliner {
   }
 
   private tryInline(declarator: VariableDeclarator, binding: Binding): void {
+    this.reason = '';
+    if (this.inline(declarator, binding) === undefined && this.reason !== '') {
+      recordSkip(this.context, 'memos', this.reason, binding.name);
+    }
+  }
+
+  private inline(declarator: VariableDeclarator, binding: Binding): true | undefined {
     const expression = this.unstableComputation(declarator);
-    if (!expression || binding.references.length !== 1) {
-      return;
+    if (!expression) {
+      return undefined;
+    }
+    if (binding.references.length !== 1) {
+      this.reason = 'memo-reads';
+      return undefined;
     }
     const statement = this.context.parents.get(declarator);
     const fn = this.functionOf(declarator);
     if (statement?.type !== 'VariableDeclaration' || statement.declarations.length !== 1 || !fn) {
-      return;
+      this.reason = 'memo-declaration';
+      return undefined;
     }
     const reference = binding.references.at(0);
     const call = reference ? this.context.parents.get(reference) : undefined;
+    if (call?.type !== 'CallExpression' || call.callee !== reference || call.arguments.length > 0) {
+      this.reason = 'memo-read';
+      return undefined;
+    }
+    if (!this.isSingleTrackedRead(call, fn)) {
+      this.reason = 'memo-read-place';
+      return undefined;
+    }
     if (
-      call?.type !== 'CallExpression' ||
-      call.callee !== reference ||
-      call.arguments.length > 0 ||
-      !this.isSingleTrackedRead(call, fn) ||
       !this.resolvesSameAt(expression, call, binding) ||
       usesFunctionContext(this.context, expression)
     ) {
-      return;
+      this.reason = 'memo-scope';
+      return undefined;
     }
     // The read sits in a JSX container, which takes any expression.
     this.context.s.overwrite(call.start, call.end, textOf(this.context, expression));
     this.context.s.remove(statement.start, statement.end);
     this.changed = true;
+    return true;
   }
 
   run(): void {

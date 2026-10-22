@@ -4,14 +4,26 @@ This lists what the optimizer does not do yet, whether it is worth doing, and th
 
 ## Step 0: measure first
 
-Every item below guesses at how often a case shows up in real apps. Measure before building.
+Status: done. `optimizer.report` and the `compile` option `report` list what each pass leaves alone, with a reason code. Set `REPORT=1` when building the demo or Hacker News to print it. See [Report](packages/solid-optimizer/README.md#report) for the codes.
 
-1. Add a debug option that records why each pass left something alone. Give each reason a short code, such as `call-spread`, `call-ref`, `param-spread`, `no-host`, `size`, `provider-open`, or `memo-shape`.
-2. Report the counts per reason from the Vite plugin when the option is set.
-3. Run it on the demo and Hacker News. solid-ui only builds on `solid-1-compiler`, since its libraries are not on Solid 2 yet. Run the Solid 1 version of the option there as a rough check for the library wrapper items.
-4. Reorder the items below if the counts disagree with this order.
+What the demo and Hacker News report on `solid-2-compiler`, with the default chunking:
 
-The option stays after the work is done. It helps explain future size results.
+| App         | Reason                  | Calls | What it is                                                                |
+| ----------- | ----------------------- | ----- | ------------------------------------------------------------------------- |
+| Demo        | `no-host`               | 2     | `Home` in a `<Match>` child, and `App` in the callback given to `render`. |
+| Demo        | `copy-size`, `imported` | 3     | `Table` and `Card`, which are larger copied than called.                  |
+| Demo        | `lazy`                  | 4     | The lazy pages.                                                           |
+| Hacker News | `copy-no-host`          | 1     | `Comment` in a `<For>` callback. It also renders itself.                  |
+| Hacker News | `copy-package`          | 4     | The router's own components, which come from `node_modules`.              |
+| Hacker News | `memo-computation`      | 2     | Memos in the router whose computation is a block, not one expression.     |
+
+What this changes:
+
+- Item 1 is confirmed. Both apps have a call that only stays because it sits in a built-in's child or callback. The callback given to `render` is a third place that could take statements.
+- Item 2 cannot be measured on Solid 2 yet. Neither app has a spread or a `ref` at a call site. Its value has to come from solid-ui on `solid-1-compiler`, which needs the report ported there first.
+- Item 8 is confirmed in a small way. The router is the only `node_modules` code either app renders.
+- No provider in the apps' own code stays, so item 10 and the provider half of item 1 have no measured case yet.
+- The router's `RouteContextObj` and `RouterContextObj` show up as components, not providers. They come from `routing.js`, which has no JSX, so no marker tells the chunk step which binding is `createContext`. Their subtrees call `c.outlet()`, so they would stay anyway.
 
 ## 1. Components with statements inside `<For>` and `<Show>`
 

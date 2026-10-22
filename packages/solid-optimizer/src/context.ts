@@ -62,6 +62,21 @@ export function solidExport(binding: Binding, options: ResolvedOptions): string 
   return undefined;
 }
 
+/** The passes that record what they leave alone. */
+export type SkipPass = 'inline' | 'contexts' | 'memos';
+
+/**
+ * Something a pass left alone, and why. The `compile` option `report`
+ * collects them.
+ */
+export interface Skip {
+  readonly pass: SkipPass;
+  /** A short code for the reason, like `call-spread`. */
+  readonly reason: string;
+  /** The component, context, or memo it is about. */
+  readonly name: string;
+}
+
 /**
  * Everything a pass needs: the parsed code and the string it edits.
  *
@@ -77,6 +92,20 @@ export interface PassContext {
   readonly parents: Parents;
   readonly scopes: ScopeAnalysis;
   readonly options: ResolvedOptions;
+  /** Where a pass records what it leaves alone, when the caller asked for a report. */
+  readonly skips: Skip[] | undefined;
+}
+
+/**
+ * Records that a pass left something alone, when the caller asked for a report.
+ */
+export function recordSkip(
+  context: PassContext,
+  pass: SkipPass,
+  reason: string,
+  name: string,
+): void {
+  context.skips?.push({ pass, reason, name });
 }
 
 /**

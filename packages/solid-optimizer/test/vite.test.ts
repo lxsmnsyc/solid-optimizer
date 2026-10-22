@@ -7,7 +7,7 @@ import { Browser, Window } from 'happy-dom';
 import type { Plugin, Rollup } from 'vite';
 import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
-import type { Options } from '../src/vite';
+import type { OptimizerReport, Options } from '../src/vite';
 import solid from '../src/vite';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -318,6 +318,25 @@ describe('solid-optimizer/vite', () => {
     expect(text(await load('cross-module'))).toBe(
       text(await load('cross-module', { optimizer: false })),
     );
+  });
+
+  it('reports what stays as written, in chunk mode and module mode', async () => {
+    for (const mode of ['auto', 'module'] as const) {
+      const reports: OptimizerReport[] = [];
+      // oxlint-disable-next-line no-await-in-loop
+      await bundle('cross-module', {
+        optimizer: {
+          mode,
+          report: (report) => {
+            reports.push(report);
+          },
+        },
+      });
+      // `Badge` is copied into both modules, so only the lazy page stays a call.
+      expect(reports).toEqual([
+        { environment: 'client', skips: [{ pass: 'inline', reason: 'lazy', name: 'Page' }] },
+      ]);
+    }
   });
 
   it('copies a component into the only module that renders it, read from the HTML entry', async () => {

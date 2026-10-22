@@ -33,6 +33,8 @@ This builds the app with and without the optimizer, in three chunking modes, int
 
 `pnpm --filter hackernews dev` runs the app against the live API.
 
+Set `REPORT=1` to print what the optimizer leaves alone in each build, and why. See [Report](../../packages/solid-optimizer/README.md#report).
+
 ## What to look for
 
 - `Story` and `Nav` are inlined, including across modules, so no chunk calls them.

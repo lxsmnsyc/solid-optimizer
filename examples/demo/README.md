@@ -21,6 +21,8 @@ This builds the app with and without the optimizer, in three chunking modes, int
 
 `pnpm --filter demo verify` loads every build in a browser, opens each page, and checks that the optimized app renders the same DOM as the plain one.
 
+Set `REPORT=1` to print what the optimizer leaves alone in each build, and why. See [Report](../../packages/solid-optimizer/README.md#report).
+
 ## What to look for
 
 - Every component is inlined before bundling, including into the lazy pages, so no chunk calls `Card`, `Table`, `Avatar`, or `Button` anymore. The `Table` chunk is gone, and in `default` mode the runtime moves into the entry chunk.
