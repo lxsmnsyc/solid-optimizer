@@ -194,11 +194,12 @@ Folded, with the same output:
 - A plugin whose `load` hook replaces a real file, and a plugin that rewrites the module in `transform`. Reading from disk gave the wrong value in both cases.
 - JSON imports, `export *` barrels, `export default`, namespace imports, and imports that form a cycle.
 - A constant exported from a module with JSX. See below.
+- `define` entries and `import.meta.env` values, read from the resolved config. Rolldown replaces them after transform, so the loaded code still holds the identifier. Only a value every build environment shares folds, and `import.meta.env.SSR` never does. A server build and its client build that folded different values could inline differently, and their hydration keys would not match.
+- A name declared with `declare const`, which TypeScript strips, so it stays a global.
 
 Correct, but only folded in `renderChunk`:
 
-- `define` and `import.meta.env`. Rolldown replaces them after transform, so the loaded code still holds the identifier.
-- A constant of a module with JSX that imports the importer back. See below.
+- A constant of a module with JSX that imports the importer back, in chunk mode. Module mode never folds it. See below.
 
 Never folded:
 

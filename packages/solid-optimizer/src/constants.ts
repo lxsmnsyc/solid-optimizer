@@ -60,14 +60,54 @@ export class ConstantTable {
   ) {
     this.lookup = (reference) => {
       if (reference.type === 'MemberExpression') {
-        return this.namespaceMember(scopes, reference);
+        return this.namespaceMember(scopes, reference) ?? this.globalMember(scopes, reference);
       }
       if (!scopes.references.has(reference) || reference.type !== 'Identifier') {
         return undefined;
       }
       const binding = scopes.references.get(reference);
-      return binding ? this.constantOf(binding) : globalValue(reference.name);
+      if (binding) {
+        return this.constantOf(binding);
+      }
+      return this.globalConstant(reference.name) ?? globalValue(reference.name);
     };
+  }
+
+  private globalConstant(path: string): Const | undefined {
+    const { globalConstants } = this.options;
+    return globalConstants.has(path) ? { value: globalConstants.get(path) } : undefined;
+  }
+
+  /**
+   * The value of a path like `import.meta.env.MODE` or `process.env.X` that
+   * `globalConstants` holds. The path starts at `import.meta` or at a name
+   * nothing declares, and goes through plain property reads.
+   */
+  private globalMember(scopes: ScopeAnalysis, node: MemberExpression): Const | undefined {
+    if (this.options.globalConstants.size === 0) {
+      return undefined;
+    }
+    const names: string[] = [];
+    let current: Node = node;
+    while (current.type === 'MemberExpression') {
+      if (current.computed || current.optional || current.property.type !== 'Identifier') {
+        return undefined;
+      }
+      names.unshift(current.property.name);
+      current = current.object;
+    }
+    if (current.type === 'MetaProperty') {
+      names.unshift(`${current.meta.name}.${current.property.name}`);
+    } else if (
+      current.type === 'Identifier' &&
+      scopes.references.has(current) &&
+      scopes.references.get(current) === undefined
+    ) {
+      names.unshift(current.name);
+    } else {
+      return undefined;
+    }
+    return this.globalConstant(names.join('.'));
   }
 
   /**

@@ -227,6 +227,28 @@ describe('solid-optimizer/vite', () => {
     }
   });
 
+  it('folds define entries before bundling, in module mode too', async () => {
+    const define = { __DEBUG__: 'false' };
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const result = await build({
+        root: path.join(fixtures, 'define-constants'),
+        configFile: false,
+        logLevel: 'silent',
+        define,
+        plugins: [solid({ optimizer: { mode } })],
+        build: { write: false, minify: false, modulePreload: false },
+      });
+      const outputs = Array.isArray(result) ? result : [result];
+      const chunks = outputs.flatMap((output) =>
+        'output' in output ? output.output.filter((item) => item.type === 'chunk') : [],
+      );
+      // The branch folds away before bundling, and takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('<h1>production');
+    }
+  });
+
   it('reads imported constants after other plugins transform them', async () => {
     // A plugin that rewrites the flag makes the value on disk wrong.
     const enableAdmin: Plugin = {

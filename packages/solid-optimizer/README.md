@@ -51,6 +51,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
+- `globalConstants` holds values of global names and paths, such as `{ __DEV__: false, 'import.meta.env.MODE': 'production' }`. A path starts at `import.meta` or at a name the module does not declare, and folds like a constant.
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
 - `sourceMap` turns the source map on or off. Defaults to `true`.
 - `report` records what the inline, provider, and memo passes leave alone, and why. The result lists them in `skipped`, each with its pass, a reason code, and a name. Defaults to `false`.
@@ -101,7 +102,7 @@ Both modes fold constants imported from other modules in the project.
 
 - Each import is resolved and loaded by the bundler, so aliases, virtual modules, and plugins that rewrite the module are respected.
 - A module with JSX is read from this plugin's own output for it. It is skipped when it imports the importer, directly or through other modules of the project, since the two transforms would wait for each other.
-- `define` and `import.meta.env` values only fold in chunk mode.
+- `define` entries and `import.meta.env` values fold in both modes, when every build environment gives them the same primitive value. `import.meta.env.SSR` never folds, since the server and client builds differ on it.
 - Dependencies are not read, and nothing is read while serving.
 
 The optimizer is off while serving. Set `optimizer.dev` to run module mode in dev too.

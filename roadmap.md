@@ -168,15 +168,15 @@ Plan:
 
 ## 8. Constants in hydrating builds
 
-Status: step 1 is done. Steps 2 and 3 are open.
+Status: done.
 
-Hydrating builds and server builds always run in module mode. Constants exported from a module with JSX did not fold there. `define` and `import.meta.env` do not fold either.
+Hydrating builds and server builds always run in module mode. Constants exported from a module with JSX did not fold there. `define` and `import.meta.env` did not fold either.
 
 Plan:
 
 1. Done. Constants from a module with JSX are read through the loaders that copying uses, in both modes. Two changes were needed. The module mode check now follows imports through modules without JSX too, since a constant can be read through one. And a constant read in progress is no longer shared between reads, which made two reads wait for each other.
-2. `define` and `import.meta.env`. Read the values from the resolved Vite config and fold them like imported constants.
-3. Do not fold a value that can differ between the server and the client build, such as `import.meta.env.SSR` or a `define` set per environment. The size estimate could then decide differently in each build, and the hydration keys would not match.
+2. Done. `define` and `import.meta.env` values are read from the resolved Vite config and passed to `compile` as `globalConstants`. A `declare const` used to bind its name, which stopped a global from folding. It no longer does.
+3. Done. A `define` entry only folds when every environment in the config gives it the same primitive, and `import.meta.env.SSR` never folds. Two separate `vite build` runs with different `define` options are not detected, since each sees only its own config.
 
 ## 9. Copying components from chosen packages
 

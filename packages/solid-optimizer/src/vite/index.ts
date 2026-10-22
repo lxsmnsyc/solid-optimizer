@@ -31,6 +31,8 @@ import { collectParents, parse } from '../ast';
 import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
+import type { Primitive } from '../value';
+import { sharedGlobals } from './globals';
 import type { Skip } from '../context';
 import type { OptimizerReport } from './report';
 import { formatReport } from './report';
@@ -229,6 +231,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   };
 
   let config: ResolvedConfig | undefined;
+  /** The `define` entries and `import.meta.env` values every environment shares. */
+  let globals: Record<string, Primitive> = {};
   let compiler: Compiler | undefined;
   let filter: ((id: string) => boolean) | undefined;
   const getCompiler = (): Compiler => {
@@ -408,7 +412,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       // Loaded code is JavaScript, whatever the module was written in, and keeps its JSX.
       const filename = `${stripQuery(id)}.${target.jsx ? 'jsx' : 'js'}`;
       try {
-        const own = readModuleConstants(code, { filename });
+        const own = readModuleConstants(code, { filename, globalConstants: globals });
         if (own.imports.length === 0) {
           return { constants: own, partial: false };
         }
@@ -420,7 +424,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           transform,
         );
         return {
-          constants: readModuleConstants(code, { filename, importedConstants: imported.constants }),
+          constants: readModuleConstants(code, {
+            filename,
+            importedConstants: imported.constants,
+            globalConstants: globals,
+          }),
           partial: imported.partial,
         };
       } catch (error) {
@@ -457,6 +465,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       filename,
       sourceMap: wantsMaps(),
       importedConstants: imported.constants,
+      globalConstants: globals,
     };
   }
 
@@ -1136,6 +1145,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     enforce: 'pre',
     configResolved(resolved) {
       config = resolved;
+      globals = sharedGlobals(resolved);
     },
     buildStart() {
       moduleConstants.clear();

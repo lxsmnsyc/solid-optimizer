@@ -3,6 +3,7 @@ import type { Node, Program } from 'oxc-parser';
 import type { Parents } from './ast';
 import type { ResolvedImportedConstants } from './constants';
 import type { Binding, ScopeAnalysis } from './scope';
+import type { Primitive } from './value';
 
 export interface ResolvedOptions {
   /** The control-flow components a tag may resolve to. */
@@ -15,6 +16,8 @@ export interface ResolvedOptions {
   readonly constantVars: boolean;
   /** The constants imported modules export, by import specifier and export name. */
   readonly importedConstants: ResolvedImportedConstants;
+  /** Values of global names and paths, like `__DEV__` or `import.meta.env.MODE`. */
+  readonly globalConstants: ReadonlyMap<string, Primitive>;
   /** The exports of imported modules that are contexts, by import specifier. */
   readonly importedContexts: ReadonlyMap<string, ReadonlySet<string>>;
   /** Components other modules use too, by the number of modules that use them. */

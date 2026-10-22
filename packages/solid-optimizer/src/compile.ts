@@ -84,6 +84,12 @@ export interface CompileOptions {
    */
   importedConstants?: ImportedConstants;
   /**
+   * Values of global names and paths that fold like constants, such as the
+   * `define` entries of a bundler: `{ __DEV__: false, 'import.meta.env.MODE': 'production' }`.
+   * A path starts at `import.meta` or at a name the module does not declare.
+   */
+  globalConstants?: Readonly<Record<string, Primitive>>;
+  /**
    * The exports of imported modules that are contexts made by Solid's
    * `createContext`, keyed by the import specifier as the code writes it.
    * A provider of an imported context can be removed like a local one.
@@ -161,6 +167,7 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
     builtInAliases: new Map(Object.entries(options.builtInAliases ?? {})),
     constantVars: options.constantVars ?? false,
     importedConstants: resolveImportedConstants(options.importedConstants),
+    globalConstants: new Map(Object.entries(options.globalConstants ?? {})),
     importedContexts: new Map(
       Object.entries(options.importedContexts ?? {}).map(([source, names]) => [
         source,
@@ -310,11 +317,11 @@ export interface ModuleConstants {
  * Reads what a module imports and the constants it exports, so that
  * `compile` can fold them in the modules that import it.
  *
- * Only `filename` and `importedConstants` of the options are used.
+ * Only `filename`, `importedConstants`, and `globalConstants` of the options are used.
  */
 export function readModuleConstants(
   code: string,
-  options: Pick<CompileOptions, 'filename' | 'importedConstants'> = {},
+  options: Pick<CompileOptions, 'filename' | 'importedConstants' | 'globalConstants'> = {},
 ): ModuleConstants {
   const program = parse(options.filename ?? 'input.jsx', code);
   return {

@@ -172,3 +172,42 @@ describe('module shapes', () => {
     expect(optimize(code, { importedConstants: { './config': { SHOW: false } } })).toBe(code);
   });
 });
+
+describe('global constants', () => {
+  const globalConstants = {
+    __DEV__: false,
+    'import.meta.env.MODE': 'production',
+    'process.env.API': 'https://example.com',
+  };
+
+  it('folds global names and paths', () => {
+    const output = optimize(
+      `export const view = <main>
+  {__DEV__ ? <i>debug</i> : null}
+  <p>{import.meta.env.MODE}</p>
+  <a href={process.env.API} />
+</main>;`,
+      { globalConstants },
+    );
+    expect(output).toBe(`export const view = <main>
+  {null}
+  <p>{"production"}</p>
+  <a href={"https://example.com"} />
+</main>;`);
+  });
+
+  it('treats a name declared with declare as global', () => {
+    const output = optimize(
+      'declare const __DEV__: boolean;\nexport const view = <p>{__DEV__ ? "a" : "b"}</p>;',
+      { filename: 'input.tsx', globalConstants },
+    );
+    expect(output).toContain('<p>{"b"}</p>');
+  });
+
+  it('leaves a name the module declares, and paths it does not hold', () => {
+    const code = `const __DEV__ = check();
+const process = load();
+export const view = <p>{__DEV__ ? 'a' : 'b'}{process.env.API}{import.meta.env.SSR}{import.meta.env['MODE']}</p>;`;
+    expect(optimize(code, { globalConstants })).toBe(code);
+  });
+});
