@@ -68,6 +68,8 @@ Tests cover each form, a forwarded ref through `omit()`, and a rejected read.
 
 ## Step 3: spread of an unknown object at the call site
 
+Status: not planned. No app has a case that would inline. See item 2 in [roadmap.md](roadmap.md).
+
 `<Title {...p} label="x" />` lowers to `createComponent(Title, mergeProps(p, { label: "x" }))`. The copy can do the same without the component call.
 
 1. Allow a `JSXSpreadAttribute` in `attributesOf`. Return the attributes and spreads in source order.

@@ -61,13 +61,16 @@ Results: the demo's `App` now inlines into the callback given to `render`, and t
 
 ## 2. Spreads and `ref` in component inlining
 
-Status: steps 1 and 2 are done. Step 3 is open.
+Status: steps 1 and 2 are done. Step 3 is not planned. See below.
 
 See [inline-spread-plan.md](inline-spread-plan.md). In short:
 
 - Done. `<div {...props} />` inside a component blocked the component everywhere. It now becomes the attributes and children the call site passes, like a spread of a view.
 - Done. `ref` at a call site blocked it. It now moves to the element when the component only forwards `props.ref`.
-- A spread of an unknown object at a call site blocks it. Store `merge(...)` in the host and keep the views as real calls.
+- Not planned. A spread of an unknown object at a call site blocks it. No app has a case worth the work:
+  - The demo and Hacker News have no spread at a call site.
+  - solid-ui has 94 spreads onto a component. 78 are `<Icon {...props}>` in icon wrappers, which spread their own props and inline already. Most of the rest are Kobalte primitives, which are member tags from a package.
+  - The copy would need Solid's `mergeProps` helper. In chunk mode the passes do not know its name in the chunk.
 
 ## 3. Memos whose computation is a constant
 
@@ -259,3 +262,4 @@ These are known gaps that are not worth doing now.
 - **`const enum`, the `babel` option, and `.tsrx` modules.** These depend on other tools.
 - **Destructured props and early returns that read props.** Both break reactivity in Solid, so idiomatic code does not use them. Early returns on a constant already fold away.
 - **Namespaced attributes on a component call, such as `on:click`.** Rare on components.
+- **A spread of an unknown object at a component call.** No app has a case. See item 2.
