@@ -206,6 +206,27 @@ describe('solid-optimizer/vite', () => {
     expect(await bundle('imported-constants', { optimizer: false })).toHaveLength(2);
   });
 
+  it('folds constants exported from a module with JSX', async () => {
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('jsx-constants', { optimizer: { mode } });
+      // `BETA` folds before bundling, so its branch takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).not.toContain('beta tools');
+    }
+    expect(await bundle('jsx-constants', { optimizer: false })).toHaveLength(2);
+  });
+
+  it('reads constants of modules with JSX that import each other through other modules', async () => {
+    // Each transform would wait for the other through a module without JSX.
+    for (const mode of ['auto', 'module'] as const) {
+      const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+      // oxlint-disable-next-line no-await-in-loop
+      const optimized = text(await load('constant-cycle', { optimizer: { mode } }));
+      expect(optimized).toBe('<main><p class="a">b off</p><p class="b">a on</p></main>');
+    }
+  });
+
   it('reads imported constants after other plugins transform them', async () => {
     // A plugin that rewrites the flag makes the value on disk wrong.
     const enableAdmin: Plugin = {

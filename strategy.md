@@ -193,18 +193,24 @@ Folded, with the same output:
 - A virtual module, with or without the `\0` prefix.
 - A plugin whose `load` hook replaces a real file, and a plugin that rewrites the module in `transform`. Reading from disk gave the wrong value in both cases.
 - JSON imports, `export *` barrels, `export default`, namespace imports, and imports that form a cycle.
+- A constant exported from a module with JSX. See below.
 
 Correct, but only folded in `renderChunk`:
 
 - `define` and `import.meta.env`. Rolldown replaces them after transform, so the loaded code still holds the identifier.
-- A constant exported from a module with JSX. See below.
+- A constant of a module with JSX that imports the importer back. See below.
 
 Never folded:
 
 - A `let` the module writes to, a `const enum`, and dependencies in `node_modules`.
 - Any import while serving. The dev server does not return the code of a loaded module.
 
-A module with JSX is never loaded. This plugin's transform can be waiting for that module while that module waits for this one. Two JSX modules that import each other then never finish. The probe that loaded them hung.
+A module with JSX is read from this plugin's own output for it: the code chunk mode keeps through bundling, or the module step's output in module mode. Loading it waits for its transform, so two modules that import each other would wait for each other forever. The first probe that loaded them hung. The same checks that guard copying components guard this:
+
+- Chunk mode records which modules each transform waits for, and skips a load that would wait for itself. The wait is recorded for the transform that reads the constants, not the module without JSX it reads them through.
+- Module mode skips a module that imports the importer, directly or through other modules of the project, read from the files on disk. Modules without JSX count, since reading their constants can load a module with JSX. Both builds read the same files, so they fold the same constants.
+
+A read in progress is never shared between reads. It can wait for a module with JSX, and a read that waited for it would wait for that module too, without the checks knowing. Two reads of modules that import each other in one transform hung that way. A finished read is kept, unless it skipped a module to avoid a cycle, since another transform may be able to load it.
 
 ### Comma expressions in JSX
 
@@ -248,7 +254,7 @@ Builds that hydrate, and server builds, lower JSX in `transform`, so `this.load`
 
 Hydration needs the server and client builds to inline the same components, so no decision can depend on the order modules are transformed in. Two rules keep it that way:
 
-- A module is not copied from when it imports the importer, directly or through other modules with JSX. The imports come from the files on disk, which both builds read alike. This also means no transform waits for one that waits for it.
+- A module is not copied from when it imports the importer, directly or through other modules of the project. The imports come from the files on disk, which both builds read alike. This also means no transform waits for one that waits for it.
 - Every module gets the extra exports, entries included. The two builds have different entries, and a module that is an entry in only one of them would otherwise be copied in only the other.
 
 ### Cycles

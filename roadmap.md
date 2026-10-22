@@ -168,11 +168,13 @@ Plan:
 
 ## 8. Constants in hydrating builds
 
-Hydrating builds and server builds always run in module mode. Constants exported from a module with JSX do not fold there. `define` and `import.meta.env` do not fold either.
+Status: step 1 is done. Steps 2 and 3 are open.
+
+Hydrating builds and server builds always run in module mode. Constants exported from a module with JSX did not fold there. `define` and `import.meta.env` do not fold either.
 
 Plan:
 
-1. Constants from a module with JSX. Component copying already loads such modules safely. Chunk mode records which modules each transform waits for, and module mode uses the import graph on disk. Read the constants through the same loader and the same checks.
+1. Done. Constants from a module with JSX are read through the loaders that copying uses, in both modes. Two changes were needed. The module mode check now follows imports through modules without JSX too, since a constant can be read through one. And a constant read in progress is no longer shared between reads, which made two reads wait for each other.
 2. `define` and `import.meta.env`. Read the values from the resolved Vite config and fold them like imported constants.
 3. Do not fold a value that can differ between the server and the client build, such as `import.meta.env.SSR` or a `define` set per environment. The size estimate could then decide differently in each build, and the hydration keys would not match.
 

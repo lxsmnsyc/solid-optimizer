@@ -98,7 +98,7 @@ The plugin optimizes in one of two modes.
 Both modes fold constants imported from other modules in the project.
 
 - Each import is resolved and loaded by the bundler, so aliases, virtual modules, and plugins that rewrite the module are respected.
-- A module with JSX is not loaded, since its transform could be waiting for the importer. Its constants still fold in chunk mode.
+- A module with JSX is read from this plugin's own output for it. It is skipped when it imports the importer, directly or through other modules of the project, since the two transforms would wait for each other.
 - `define` and `import.meta.env` values only fold in chunk mode.
 - Dependencies are not read, and nothing is read while serving.
 

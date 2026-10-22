@@ -42,7 +42,7 @@ Chunk mode keeps JSX through bundling, so each chunk is optimized as one scope a
 
 This replaces the official plugin's transform.
 
-1. Read the constants of imported modules that have no JSX, through `this.load`, so another plugin's output is what folds.
+1. Read the constants of imported modules through `this.load`, so another plugin's output is what folds. A module with JSX is read from this plugin's output for it, unless it could be waiting for this transform.
 2. Compile without inlining: fold, remove providers, inline memos. A branch that folds away takes its imports and `lazy()` chunks out of the module graph, which only this phase can do.
 3. Rewrite `<Ns.Member>` tags of a namespace import to named imports, so Rolldown does not build a namespace object.
 4. Copy components imported from other modules in, and inline them. See [Components from other modules](#components-from-other-modules).

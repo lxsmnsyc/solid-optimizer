@@ -292,103 +292,149 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   /** Modules that keep their JSX, which the bundler must parse as JSX. */
   const preserved = new Set<string>();
 
-  /** What each module imports and the constants it exports, by module id. */
-  const moduleConstants = new Map<string, Promise<ModuleConstants | undefined>>();
+  /**
+   * What each module imports and the constants it exports, by module id,
+   * once read in full. A module whose constants needed a module with JSX
+   * that could not be loaded, to avoid a cycle, is not kept, since another
+   * transform may load it.
+   *
+   * A read in progress is never shared. It can wait for a module with JSX,
+   * and a read that waited for it would wait for that module too, without
+   * the cycle checks knowing. Two reads of modules that import each other
+   * would also wait for each other.
+   */
+  const moduleConstants = new Map<string, ConstantsResult>();
+
+  interface ConstantsResult {
+    readonly constants: ModuleConstants | undefined;
+    /** Whether a module with JSX was left out to avoid a cycle. */
+    readonly partial: boolean;
+  }
 
   /**
-   * The module an import resolves to, when its constants can be read.
-   *
-   * A module with JSX is skipped. This plugin's transform may be waiting for
-   * it, and it may be waiting for this one, so loading it could deadlock.
-   * Dependencies are skipped to keep the build fast.
+   * The module an import resolves to, when its constants can be read, and
+   * whether it has JSX. Dependencies are skipped to keep the build fast.
    */
   async function resolveConstantModule(
     context: Rollup.PluginContext,
     specifier: string,
     importer: string,
-  ): Promise<string | undefined> {
+  ): Promise<{ id: string; jsx: boolean } | undefined> {
     if (moduleSources.includes(specifier)) {
       return undefined;
     }
     const resolved = await context.resolve(specifier, importer);
-    if (
-      !resolved ||
-      resolved.external ||
-      resolved.id.includes('/node_modules/') ||
-      isJSXModule(resolved.id)
-    ) {
+    if (!resolved || resolved.external || resolved.id.includes('/node_modules/')) {
       return undefined;
     }
-    return resolved.id;
+    return { id: resolved.id, jsx: isJSXModule(resolved.id) };
+  }
+
+  /**
+   * The code of a module with JSX to read constants from, as this plugin's
+   * transform returns it. `transform` is the module whose transform waits for
+   * it, which the cycle checks are about. `undefined` when that could wait
+   * for itself.
+   */
+  async function loadJSXModule(
+    context: Rollup.PluginContext,
+    transform: string,
+    target: string,
+  ): Promise<string | undefined> {
+    return chunkMode() && isClient(context)
+      ? loadModule(context, transform, target)
+      : loadRecorded(context, transform, target);
   }
 
   /**
    * The constants of the modules `code` imports, keyed by import specifier.
    *
    * Each module is read as the bundler loads it, after every plugin has
-   * transformed it, so a plugin that replaces or rewrites a module is seen.
-   * A module that imports constants itself resolves them first, and a cycle
-   * leaves the modules in it without them.
+   * transformed it. A module with JSX is read from this plugin's own output
+   * for it, unless its transform could be waiting for `transform`.
    */
   async function importedConstants(
     context: Rollup.PluginContext,
     imports: readonly string[],
     importer: string,
     visiting: ReadonlySet<string>,
-  ): Promise<ImportedConstants> {
+    transform: string,
+  ): Promise<{ constants: ImportedConstants; partial: boolean }> {
+    let partial = false;
     const entries = await Promise.all(
       imports.map(async (specifier) => {
-        const id = await resolveConstantModule(context, specifier, importer);
-        if (id === undefined || visiting.has(id)) {
+        const target = await resolveConstantModule(context, specifier, importer);
+        if (target === undefined || visiting.has(target.id)) {
           return undefined;
         }
-        const constants = await constantsOf(context, id, visiting);
-        if (!constants || Object.keys(constants.exports).length === 0) {
+        const result = await constantsOf(context, target, visiting, transform);
+        partial ||= result.partial;
+        if (!result.constants || Object.keys(result.constants.exports).length === 0) {
           return undefined;
         }
-        return [specifier, constants.exports] as const;
+        return [specifier, result.constants.exports] as const;
       }),
     );
-    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+    return {
+      constants: Object.fromEntries(entries.filter((entry) => entry !== undefined)),
+      partial,
+    };
   }
 
   async function constantsOf(
     context: Rollup.PluginContext,
-    id: string,
+    target: { id: string; jsx: boolean },
     visiting: ReadonlySet<string>,
-  ): Promise<ModuleConstants | undefined> {
-    let pending = moduleConstants.get(id);
-    if (!pending) {
-      pending = (async () => {
-        const { code } = await context.load({ id });
-        if (code === null) {
-          return undefined;
-        }
-        // Loaded code is JavaScript, whatever the module was written in.
-        const filename = `${stripQuery(id)}.js`;
-        try {
-          const own = readModuleConstants(code, { filename });
-          if (own.imports.length === 0) {
-            return own;
-          }
-          const imported = await importedConstants(
-            context,
-            own.imports,
-            id,
-            new Set([...visiting, id]),
-          );
-          return readModuleConstants(code, { filename, importedConstants: imported });
-        } catch (error) {
-          // A module the parser rejects fails its own transform, with a better error.
-          if (error instanceof SyntaxError) {
-            return undefined;
-          }
-          throw error;
-        }
-      })();
-      moduleConstants.set(id, pending);
+    transform: string,
+  ): Promise<ConstantsResult> {
+    const { id } = target;
+    const known = moduleConstants.get(id);
+    if (known) {
+      return known;
     }
-    return pending;
+    const result = await (async (): Promise<ConstantsResult> => {
+      let code: string | null | undefined;
+      if (target.jsx) {
+        code = await loadJSXModule(context, transform, id);
+        if (code === undefined) {
+          return { constants: undefined, partial: true };
+        }
+      } else {
+        ({ code } = await context.load({ id }));
+      }
+      if (code === null) {
+        return { constants: undefined, partial: false };
+      }
+      // Loaded code is JavaScript, whatever the module was written in, and keeps its JSX.
+      const filename = `${stripQuery(id)}.${target.jsx ? 'jsx' : 'js'}`;
+      try {
+        const own = readModuleConstants(code, { filename });
+        if (own.imports.length === 0) {
+          return { constants: own, partial: false };
+        }
+        const imported = await importedConstants(
+          context,
+          own.imports,
+          id,
+          new Set([...visiting, id]),
+          transform,
+        );
+        return {
+          constants: readModuleConstants(code, { filename, importedConstants: imported.constants }),
+          partial: imported.partial,
+        };
+      } catch (error) {
+        // A module the parser rejects fails its own transform, with a better error.
+        if (error instanceof SyntaxError) {
+          return { constants: undefined, partial: false };
+        }
+        throw error;
+      }
+    })();
+    if (!result.partial) {
+      moduleConstants.set(id, result);
+    }
+    return result;
   }
 
   /**
@@ -405,11 +451,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       return { ...compileOptions, filename, sourceMap: wantsMaps() };
     }
     const { imports } = readModuleConstants(code, { filename });
+    const imported = await importedConstants(context, imports, filename, new Set([filename]), id);
     return {
       ...compileOptions,
       filename,
       sourceMap: wantsMaps(),
-      importedConstants: await importedConstants(context, imports, filename, new Set([filename])),
+      importedConstants: imported.constants,
     };
   }
 
@@ -488,15 +535,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    */
   const recorded = new Map<string, string>();
 
-  /** The modules with JSX each module imports, read from its file. */
-  const jsxImports = new Map<string, Promise<string[]>>();
+  /** The modules of the project each module imports, read from its file. */
+  const localImports = new Map<string, Promise<string[]>>();
 
   /**
-   * The modules with JSX a module imports. They come from the file on disk,
-   * so they do not depend on the order modules are transformed in.
+   * The modules of the project a module imports, leaving out dependencies.
+   * They come from the file on disk, so they do not depend on the order
+   * modules are transformed in. Modules without JSX count too, since reading
+   * their constants can load a module with JSX.
    */
-  async function jsxImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
-    let pending = jsxImports.get(id);
+  async function localImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
+    let pending = localImports.get(id);
     if (!pending) {
       pending = (async () => {
         let code: string;
@@ -530,15 +579,15 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           [...sources].map(async (source) => context.resolve(source, id)),
         );
         return resolved
-          .filter((target) => target && !target.external && isJSXModule(target.id))
+          .filter((target) => target && !target.external && !target.id.includes('/node_modules/'))
           .map((target) => target?.id ?? '');
       })();
-      jsxImports.set(id, pending);
+      localImports.set(id, pending);
     }
     return pending;
   }
 
-  /** Whether `from` imports `to`, directly or through other modules with JSX. */
+  /** Whether `from` imports `to`, directly or through other modules of the project. */
   async function reaches(
     context: Rollup.PluginContext,
     from: string,
@@ -554,7 +603,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         seen.add(id);
       }
       // oxlint-disable-next-line no-await-in-loop
-      const next = await Promise.all(frontier.map(async (id) => jsxImportsOf(context, id)));
+      const next = await Promise.all(frontier.map(async (id) => localImportsOf(context, id)));
       frontier = [...new Set(next.flat())].filter((id) => !seen.has(id));
     }
     return false;
@@ -1090,13 +1139,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     },
     buildStart() {
       moduleConstants.clear();
-      jsxImports.clear();
+      localImports.clear();
       usageIndexes.clear();
       skips.delete(this.environment.name);
     },
     watchChange() {
       moduleConstants.clear();
-      jsxImports.clear();
+      localImports.clear();
       usageIndexes.clear();
     },
     async transform(source, id) {
