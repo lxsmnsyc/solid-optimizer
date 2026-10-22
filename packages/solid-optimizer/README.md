@@ -132,7 +132,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 
 - `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
-- `call-spread`, `call-ref`, and `call-namespace` mean the call site passes a spread, a `ref`, or a namespaced attribute.
+- `call-spread` and `call-namespace` mean the call site passes a spread or a namespaced attribute. `call-ref` means its `ref` is an expression other than a name or a function, and `ref-use` means the component uses `props.ref` other than as a `ref`.
 - `no-host` means the component has statements, and the call is not in JSX that a component or one of Solid's callbacks returns. A `<Show>` child or a `fallback` is one such place.
 - `size` means the copies would be larger than the calls.
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
@@ -199,7 +199,8 @@ A component inlines when all of these hold:
 - Its parameter is one identifier that is only read as `props.name`, spread onto an element as `{...props}`, or passed to `merge()` and `omit()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
-- The call site has no spread attribute, no `ref`, and no namespaced attribute.
+- The call site has no spread attribute and no namespaced attribute.
+- A `ref` at the call site moves to the element the component gives `props.ref` to, when its value is a name, a function, or an array of them, and the component only uses `props.ref` as the `ref` of an element, of another component, or in a spread. Both run while the element is made, untracked, so the element gets the same ref.
 
 The props can go through `merge()` and `omit()` first, declared as a `const` in the component:
 

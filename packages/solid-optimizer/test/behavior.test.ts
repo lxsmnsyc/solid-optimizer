@@ -169,6 +169,54 @@ function App() {
   });
 });
 
+describe('refs', () => {
+  it('sets a ref on an element the same', async () => {
+    await expectSameBehavior(
+      'element-ref',
+      app(
+        `function App() {
+  let el;
+  const [seen, setSeen] = createSignal('none');
+  return (
+    <main>
+      <input id="field" value="a" ref={el} />
+      <button id="read" onClick={() => setSeen(el ? el.tagName : 'none')} />
+      <p>{seen()}</p>
+    </main>
+  );
+}`,
+      ),
+      ['#read'],
+    );
+  });
+
+  it('sets a ref forwarded through a component the same once inlined', async () => {
+    const code = await expectSameBehavior(
+      'forwarded-ref',
+      app(
+        `function Field(props) {
+  return <input id="field" value="a" ref={props.ref} />;
+}
+function App() {
+  let el;
+  const [seen, setSeen] = createSignal('none');
+  const [called, setCalled] = createSignal('no');
+  return (
+    <main>
+      <Field ref={el} />
+      <Field ref={(node) => setCalled(node.tagName)} />
+      <button id="read" onClick={() => setSeen(el ? el.tagName + ':' + el.value : 'none')} />
+      <p>{seen()} {called()}</p>
+    </main>
+  );
+}`,
+      ),
+      ['#read'],
+    );
+    expect(code).not.toContain('createComponent(Field');
+  });
+});
+
 describe('constant lists', () => {
   it('renders an unrolled <For> the same, with stateful rows', async () => {
     const code = await expectSameBehavior(
@@ -295,28 +343,6 @@ function App() {
       ['li:nth-child(2)', '#add', 'li:nth-child(3)', '#drop', 'li:nth-child(1)'],
     );
     expect(code).not.toContain('createComponent(Row');
-  });
-});
-
-describe('refs', () => {
-  it('sets a ref on an element the same', async () => {
-    await expectSameBehavior(
-      'element-ref',
-      app(
-        `function App() {
-  let el;
-  const [seen, setSeen] = createSignal('none');
-  return (
-    <main>
-      <input id="field" value="a" ref={el} />
-      <button id="read" onClick={() => setSeen(el ? el.tagName : 'none')} />
-      <p>{seen()}</p>
-    </main>
-  );
-}`,
-      ),
-      ['#read'],
-    );
   });
 });
 

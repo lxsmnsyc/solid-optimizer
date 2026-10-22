@@ -61,12 +61,12 @@ Results: the demo's `App` now inlines into the callback given to `render`, and t
 
 ## 2. Spreads and `ref` in component inlining
 
-Status: step 1 is done. Steps 2 and 3 are open.
+Status: steps 1 and 2 are done. Step 3 is open.
 
 See [inline-spread-plan.md](inline-spread-plan.md). In short:
 
 - Done. `<div {...props} />` inside a component blocked the component everywhere. It now becomes the attributes and children the call site passes, like a spread of a view.
-- `ref` at a call site blocks it. Allow it when the component only forwards `props.ref` to an element.
+- Done. `ref` at a call site blocked it. It now moves to the element when the component only forwards `props.ref`.
 - A spread of an unknown object at a call site blocks it. Store `merge(...)` in the host and keep the views as real calls.
 
 ## 3. Memos whose computation is a constant

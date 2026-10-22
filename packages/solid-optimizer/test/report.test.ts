@@ -59,7 +59,7 @@ function Field(props) { return <input ref={props.ref} />; }
 function Row(props) { const [on] = createSignal(false); return <li>{on()}{props.name}</li>; }
 export const A = (p) => { let el; return <main>
   <Title {...p} />
-  <Field ref={el} />
+  <Field ref={make()} />
   <div onClick={() => <Row name="a" />} />
 </main>; };`),
     ).toEqual(['inline:call-spread:Title', 'inline:call-ref:Field', 'inline:no-host:Row']);

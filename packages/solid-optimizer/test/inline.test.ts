@@ -230,6 +230,27 @@ export function App() {
     expect(inlined(code)).toBe(code);
   });
 
+  it('forwards a ref from the call site to the element the component gives it to', () => {
+    const output = inlined(`function Field(props) {
+  return <label><input ref={props.ref} /><b ref={props.ref} /></label>;
+}
+function Plain() {
+  return <i />;
+}
+export function App() {
+  let el;
+  return <main><Field ref={el} /><Field ref={[(e) => use(e), el]} /><Plain ref={el} /></main>;
+}
+`);
+    // A ref read twice stays the name, so each element sets it, as the component's ref did.
+    expect(output).toContain('<label><input ref={el} /><b ref={el} /></label>');
+    expect(output).toContain(
+      '<label><input ref={[(e) => use(e), el]} /><b ref={[(e) => use(e), el]} /></label>',
+    );
+    // A component that never applies the ref drops it.
+    expect(output).toContain('<i />');
+  });
+
   it('stores a static prop that is read more than once', () => {
     const code = `
 function Button(props) {
@@ -375,9 +396,10 @@ export const App = () => <div><Title text="a" /><Other text="b" /></div>;
       `function A({ x }) { return <div>{x}</div>; }\nexport const App = () => <A x={1} />;`,
       // A prop is written.
       `function A(props) { props.x = 2; return <div />; }\nexport const App = () => <A x={1} />;`,
-      // The call site spreads props or passes a ref.
+      // The call site spreads props, or passes a ref the component does more with than forward.
       `function A(props) { return <div>{props.x}</div>; }\nexport const App = () => <A {...rest} />;`,
-      `function A(props) { return <div ref={props.ref} />; }\nexport const App = () => <A ref={el} />;`,
+      `function A(props) { return <div ref={props.ref} />; }\nexport const App = () => <A ref={make()} />;`,
+      `function A(props) { return <div ref={(e) => props.ref(e)} />; }\nexport const App = () => <A ref={el} />;`,
       // More than one return.
       `function A(props) { if (props.x) return <b />; return <i />; }\nexport const App = () => <A x={1} />;`,
       // The component renders itself.

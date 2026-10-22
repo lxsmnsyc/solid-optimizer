@@ -15,8 +15,9 @@
  *   function whose body is JSX.
  * - It does not use `this`, `arguments`, `new.target`, or `super`.
  *
- * A call site inlines when it passes plain attributes: no spread, no `ref`,
- * and no namespaced attribute.
+ * A call site inlines when it passes plain attributes: no spread and no
+ * namespaced attribute. A `ref` moves to the element the component forwards
+ * `props.ref` to. See `refValue`.
  *
  * # How props keep their meaning
  *
@@ -422,12 +423,12 @@ function functionOf(binding: Binding, options: ResolvedOptions): ComponentFuncti
 function attributesOf(element: JSXElement): Map<string, JSXAttribute> | undefined {
   const attributes = new Map<string, JSXAttribute>();
   for (const attribute of element.openingElement.attributes) {
-    // A spread can supply any prop, and a namespaced attribute or `ref` is
-    // something the JSX transform handles on its own.
+    // A spread can supply any prop, and a namespaced attribute is something
+    // the JSX transform handles on its own.
     if (
       attribute.type !== 'JSXAttribute' ||
       attribute.name.type !== 'JSXIdentifier' ||
-      attribute.name.name === 'ref' ||
+      (attribute.name.name === 'ref' && !isForwardableRef(attribute)) ||
       attributes.has(attribute.name.name)
     ) {
       return undefined;
@@ -487,6 +488,38 @@ function isDataLiteral(node: Expression): boolean {
     default:
       return false;
   }
+}
+
+function isMemberRead(read: ReadCount): read is PropRead {
+  return 'member' in read;
+}
+
+/**
+ * Whether a `ref` at a call site can move to the element the component
+ * forwards it to: a name, a function, or an array of them. A name is
+ * assigned the element, so it has to stay the name itself. Anything else
+ * would be evaluated when the element is made, outside the `untrack` the
+ * component's `ref` runs it in.
+ */
+function isForwardableRef(attribute: JSXAttribute): boolean {
+  const { value } = attribute;
+  if (value?.type !== 'JSXExpressionContainer' || value.expression.type === 'JSXEmptyExpression') {
+    return false;
+  }
+  const isTarget = (node: Expression): boolean => {
+    const inner = unwrap(node);
+    if (inner.type === 'ArrayExpression') {
+      return inner.elements.every(
+        (element) => element !== null && element.type !== 'SpreadElement' && isTarget(element),
+      );
+    }
+    return (
+      inner.type === 'Identifier' ||
+      inner.type === 'ArrowFunctionExpression' ||
+      inner.type === 'FunctionExpression'
+    );
+  };
+  return isTarget(value.expression);
 }
 
 /**
@@ -1204,6 +1237,43 @@ class Inliner {
   }
 
   /**
+   * How a `ref` from the call site reads in a copy. Solid passes a `ref` to
+   * a component as a function that sets the call site's ref to the element
+   * it is given. The component applies it with its own `ref`, which runs
+   * while the element is made, so the call site's `ref` can move to that
+   * element. Every read has to be the whole `ref` of an element or of
+   * another component, or a key of a spread, which becomes one.
+   */
+  private refValue(
+    attribute: JSXAttribute | undefined,
+    reads: readonly ReadCount[],
+  ): PropValue | undefined {
+    const value = attribute?.value;
+    if (
+      value?.type !== 'JSXExpressionContainer' ||
+      value.expression.type === 'JSXEmptyExpression'
+    ) {
+      return undefined;
+    }
+    for (const read of reads) {
+      if (!isMemberRead(read)) {
+        continue;
+      }
+      const container = this.context.parents.get(read.member);
+      const owner = container ? this.context.parents.get(container) : undefined;
+      if (
+        container?.type !== 'JSXExpressionContainer' ||
+        owner?.type !== 'JSXAttribute' ||
+        owner.name.type !== 'JSXIdentifier' ||
+        owner.name.name !== 'ref'
+      ) {
+        return undefined;
+      }
+    }
+    return { kind: 'expression', text: textOf(this.context, value.expression), primary: true };
+  }
+
+  /**
    * How a prop reads in a copy of the component, and the `const` that stores
    * it first when the value has to be evaluated once.
    */
@@ -1380,11 +1450,14 @@ class Inliner {
       let value: PropValue | undefined;
       if (name === 'children' && !attributes.has('children')) {
         value = this.childrenValue(element, reads, fresh, snapshots);
+      } else if (name === 'ref' && attributes.has('ref')) {
+        value = this.refValue(attributes.get('ref'), reads);
       } else {
         value = this.propValue(attributes.get(name), reads, fresh, snapshots);
       }
       if (!value) {
-        this.reason = 'prop-value';
+        // A `ref` is turned down when the component uses it other than as a `ref`.
+        this.reason = name === 'ref' && attributes.has('ref') ? 'ref-use' : 'prop-value';
         return undefined;
       }
       values.set(name, value);

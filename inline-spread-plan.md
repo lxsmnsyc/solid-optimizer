@@ -47,6 +47,8 @@ Tests:
 
 ## Step 2: `ref` at the call site
 
+Status: done. Both forms run during element creation, untracked and with no owner, so the timing matches. Doing this exposed a separate bug: in chunk mode the bundler folded a `let` that only a `ref` writes to `undefined`. That is fixed too.
+
 Solid lowers `ref` on a component into a `ref(r$)` prop function. On an element it lowers `ref` into a call to `ref()`. The inlined copy can pass the call site's expression straight to the element when the component only forwards it.
 
 1. In `attributesOf`, allow `ref` when it is a plain `JSXAttribute`.
