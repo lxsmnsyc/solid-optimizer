@@ -1,5 +1,19 @@
 # solid-optimizer
 
+## 0.4.0
+
+### Minor Changes
+
+- 71b8ffb: Inline a component that spreads its props onto an element, like `<div {...props} />`. The spread becomes the attributes and children each call site passes.
+- f133c07: Add `optimizer.report`, which lists each component call, provider, and memo the optimizer left alone, and why. `compile` takes `report` and returns the list in `skipped`.
+
+### Patch Changes
+
+- dd12517: Fix a `ref` that names a variable, like `let el; <input ref={el} />`, in client builds that keep JSX through bundling. The bundler only saw `el` read, so it folded later reads of `el` to `undefined`.
+- 9820693: Stop copying a component into another module when it only returns a call of a component from its own module, like an icon that wraps `<Icon>`. The copy saved nothing at the call site, and moving its markup out of its module made both compress worse.
+- 92b5d6f: Build faster. The parser hands over its AST through shared memory, a pass that changes nothing no longer makes the next one parse again, source maps are only made when the build writes them, and the helpers a module needs are read without printing its lowered code. The solid-ui example builds in about 3.6 s instead of 8 to 24 s.
+- bd74b0b: Keep optimizing a client chunk when a component inlined there turns a spread into attributes, like `class`, that no module in the chunk used. The chunk was lowered without optimizing it.
+
 ## 0.3.0
 
 ### Minor Changes
