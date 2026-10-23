@@ -127,13 +127,13 @@ solid-optimizer: what stays as written in client
 
 Each line is a pass, a reason, how many times it happened, and the names it happened to. The reasons for the inline pass:
 
-- `props-spread`, `props-use`, and `view-use` mean the component uses its props in a way other than `props.name`, such as `{...props}`.
+- `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
 - `call-spread`, `call-ref`, and `call-namespace` mean the call site passes a spread, a `ref`, or a namespaced attribute.
 - `no-host` means the component has statements, and the call is not in JSX a component returns, such as a `<For>` callback.
 - `size` means the copies would be larger than the calls.
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
-- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, and `copy-size` means the copy was larger.
+- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
 
 The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps.
 
@@ -189,7 +189,7 @@ Solid then creates one template for `<main>` instead of two.
 A component inlines when all of these hold:
 
 - It is declared once at the top level, with a capitalized name.
-- Its parameter is one identifier that is only read as `props.name`, or passed to `mergeProps()` and `splitProps()`. See below.
+- Its parameter is one identifier that is only read as `props.name`, spread onto an element as `{...props}`, or passed to `mergeProps()` and `splitProps()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
 - The call site has no spread attribute, no `ref`, and no namespaced attribute.

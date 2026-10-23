@@ -27,7 +27,7 @@ import type { Options as SolidPluginOptions } from 'vite-plugin-solid';
 import solidPlugin from 'vite-plugin-solid';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
-import { collectParents, parse } from '../ast';
+import { collectParents, forEachChild, isIntrinsicTag, parse } from '../ast';
 import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
@@ -141,6 +141,43 @@ function withRelated(helpers: readonly string[]): Set<string> {
     }
   }
   return result;
+}
+
+/**
+ * The common kinds of attribute: a class, any other attribute, events, and
+ * children. Inlining a component turns a spread onto an element into
+ * attributes like these, in a module that may not use their helpers itself.
+ * A rarer kind, like `style`, can still need a helper no module imports.
+ * The chunk is then lowered without optimizing it.
+ */
+const ATTRIBUTE_SAMPLE = `const a = () => 0;
+export const Sample = () => (
+  <div class={a()} id={a()} onClick={a()} onScroll={a()}>{a()}</div>
+);`;
+
+/** Whether the code spreads anything onto an intrinsic element. */
+function spreadsOntoElement(code: string, filename: string): boolean {
+  if (!code.includes('...')) {
+    return false;
+  }
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) {
+      return;
+    }
+    if (
+      node.type === 'JSXOpeningElement' &&
+      node.name.type === 'JSXIdentifier' &&
+      isIntrinsicTag(node.name.name) &&
+      node.attributes.some((attribute) => attribute.type === 'JSXSpreadAttribute')
+    ) {
+      found = true;
+      return;
+    }
+    forEachChild(node, visit);
+  };
+  visit(parse(filename, code));
+  return found;
 }
 
 function loadCompiler(): Compiler {
@@ -305,6 +342,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       posture = { generate: isSsr ? 'ssr' : 'dom', hydratable: true };
     }
     return { ...posture, ...solidOptions.solid };
+  };
+
+  let sampleHelpers: string[] | undefined;
+  /** The helpers the JSX transform uses for attributes in chunk mode. */
+  const attributeHelpers = (): string[] => {
+    sampleHelpers ??= generatedImports(
+      lower(getCompiler(), ATTRIBUTE_SAMPLE, 'sample.jsx', jsxOptions(false)).code,
+      'sample.jsx',
+      moduleName,
+    );
+    return sampleHelpers;
   };
 
   /**
@@ -765,6 +813,14 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       skip('copy-shape');
       return undefined;
     }
+    // Its copy would still call a component of that module, so the call
+    // site gains nothing. Moving its template out of its module makes both
+    // compress worse.
+    if (component.wrapsLocal) {
+      state.excluded.add(key);
+      skip('copy-wrapper');
+      return undefined;
+    }
     // Each import of the module resolves from it, so the copy imports the same module.
     const targets = new Map<string, string>();
     for (const dependency of component.dependencies.values()) {
@@ -1031,6 +1087,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     for (const version of new Set([code, inlined?.code ?? code])) {
       const dryRun = lower(getCompiler(), version, filename, jsxOptions(false));
       for (const helper of generatedImports(dryRun.code, filename, moduleName)) {
+        needed.add(helper);
+      }
+    }
+    // A component inlined into another module of the chunk can turn its
+    // spread into any attribute.
+    if (moduleCompileOptions.inline !== false && spreadsOntoElement(code, filename)) {
+      for (const helper of attributeHelpers()) {
         needed.add(helper);
       }
     }
