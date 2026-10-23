@@ -14,7 +14,7 @@
  * adds when the module is transformed.
  */
 import MagicString from 'magic-string';
-import type { Node, Program } from 'oxc-parser';
+import type { Expression, Node, Program } from 'oxc-parser';
 import { forEachChild, parse, unwrap } from '../ast';
 import type { Binding, ScopeAnalysis } from '../scope';
 import { analyzeScopes } from '../scope';
@@ -213,6 +213,55 @@ export interface ExportedComponent {
    * as `rename` gives it.
    */
   readonly copy: (name: string, rename: ReadonlyMap<string, string>) => string;
+  /**
+   * Whether the component only returns a call of another component of its
+   * module, like `(props) => <Icon {...props}><path /></Icon>`.
+   */
+  readonly wrapsLocal: boolean;
+}
+
+/**
+ * Whether a function returns JSX whose root calls a component declared at
+ * the top of its own module. A context's provider does not count, since the
+ * provider pass can remove it from a copy.
+ */
+function returnsLocalCall(
+  fn: TopLevelFunction['fn'],
+  scopes: ScopeAnalysis,
+  moduleSources: readonly string[],
+): boolean {
+  if (
+    fn.type !== 'FunctionDeclaration' &&
+    fn.type !== 'FunctionExpression' &&
+    fn.type !== 'ArrowFunctionExpression'
+  ) {
+    return false;
+  }
+  const { body } = fn;
+  if (!body) {
+    return false;
+  }
+  let root: Expression | null | undefined;
+  if (body.type === 'BlockStatement') {
+    const last = body.body.at(-1);
+    root = last?.type === 'ReturnStatement' ? last.argument : undefined;
+  } else {
+    root = body;
+  }
+  if (!root) {
+    return false;
+  }
+  const inner = unwrap(root);
+  if (inner.type !== 'JSXElement' || inner.openingElement.name.type !== 'JSXIdentifier') {
+    return false;
+  }
+  const binding = scopes.references.get(inner.openingElement.name);
+  return (
+    binding !== undefined &&
+    binding.scope === scopes.root &&
+    binding.kind !== 'import' &&
+    !isContext(binding, scopes, moduleSources)
+  );
 }
 
 /**
@@ -307,5 +356,5 @@ export function readExportedComponent(
     }
     return `const ${name} = ${s.slice(component.fn.start, component.fn.end)};`;
   };
-  return { dependencies, copy };
+  return { dependencies, copy, wrapsLocal: returnsLocalCall(component.fn, scopes, moduleSources) };
 }

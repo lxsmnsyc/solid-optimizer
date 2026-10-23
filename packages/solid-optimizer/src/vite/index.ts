@@ -856,6 +856,14 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       skip('copy-shape');
       return undefined;
     }
+    // Its copy would still call a component of that module, so the call
+    // site gains nothing. Moving its template out of its module makes both
+    // compress worse.
+    if (component.wrapsLocal) {
+      state.excluded.add(key);
+      skip('copy-wrapper');
+      return undefined;
+    }
     // Each import of the module resolves from it, so the copy imports the same module.
     const targets = new Map<string, string>();
     for (const dependency of component.dependencies.values()) {
