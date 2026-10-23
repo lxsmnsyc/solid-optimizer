@@ -4,7 +4,7 @@
  * the JSX this package emits and on what Solid's JSX transform makes of it.
  */
 import { describe, expect, it } from 'vitest';
-import { lower, optimize } from './utils';
+import { lower, optimize, templateCount } from './utils';
 
 function folded(code: string): string {
   return optimize(code, { inline: false });
@@ -12,6 +12,10 @@ function folded(code: string): string {
 
 function lowered(code: string): string {
   return lower(folded(code));
+}
+
+function templateCountOf(code: string): number {
+  return templateCount(folded(code));
 }
 
 describe('control-flow components', () => {
@@ -103,6 +107,133 @@ describe('control-flow components', () => {
     expect(lowered('const view = <Dynamic component={Widget} id="main" />;')).toContain(
       'createComponent',
     );
+  });
+
+  it('turns <Dynamic> with a top-level component into a call of it', () => {
+    const declarations = `function Card(props) { return <div>{props.title}</div>; }
+const Badge = (props) => <b>{props.children}</b>;
+const Page = lazy(() => import('./page'));
+`;
+    expect(
+      folded(`import { lazy } from 'solid-js';
+${declarations}export const view = <main>
+  <Dynamic component={Card} title="a" />
+  <Dynamic component={Badge}>x</Dynamic>
+  <Dynamic component={Page} />
+</main>;`),
+    ).toBe(`import { lazy } from 'solid-js';
+${declarations.replace('= lazy(', '= /* @__PURE__ */ lazy(')}export const view = <main>
+  <Card title="a" />
+  <Badge>x</Badge>
+  <Page />
+</main>;`);
+  });
+
+  it('keeps <Dynamic> with a component it cannot be sure of', () => {
+    const cases = [
+      // An import could be a tag name.
+      "import { Card } from './card';\nexport const view = <Dynamic component={Card} />;",
+      // Reassigned.
+      'let Card = () => <i />;\nCard = () => <b />;\nexport const view = <Dynamic component={Card} />;',
+      // Not at the top level.
+      'export function view() { const Card = () => <i />; return <Dynamic component={Card} />; }',
+      // Lowercase, which a tag would read as an element.
+      'const card = () => <i />;\nexport const view = <Dynamic component={card} />;',
+      // A spread could replace the component.
+      'const Card = () => <i />;\nexport const view = <Dynamic component={Card} {...rest} />;',
+      // A value that is not a function.
+      'const Card = pick();\nexport const view = <Dynamic component={Card} />;',
+    ];
+    for (const code of cases) {
+      expect(folded(code)).toBe(code);
+    }
+  });
+
+  it('turns a call of a JSX arrow with constant arguments into its JSX', () => {
+    expect(
+      folded(
+        'const LABEL = name;\nexport const view = <ul>{((n, label) => <li title={label} data-n={n}>{n}</li>)(1, LABEL)}{((x) => <b>{x}</b>)(-2)}</ul>;',
+      ),
+    ).toBe(
+      'const LABEL = name;\nexport const view = <ul><li title={LABEL} data-n={1}>{1}</li><b>{(-2)}</b></ul>;',
+    );
+    expect(templateCountOf('export const view = <ul>{((n) => <li>{n}</li>)(1)}</ul>;')).toBe(1);
+  });
+
+  it('keeps a call of a JSX arrow that could behave differently inline', () => {
+    const cases = [
+      // An argument that is not a constant could change, or run code.
+      'export const view = <ul>{((n) => <li>{n}</li>)(count())}</ul>;',
+      'let n = 1;\nn = 2;\nexport const view = <ul>{((x) => <li>{x}</li>)(n)}</ul>;',
+      // A ref and a spread run while the JSX is made.
+      'export const view = <ul>{((n) => <li ref={n} />)(1)}</ul>;',
+      'export const view = <ul>{((n) => <li {...n} />)(1)}</ul>;',
+      // A body that is not JSX, or a parameter that is written.
+      'export const view = <ul>{((n) => n)(1)}</ul>;',
+      'export const view = <ul>{((n) => <li onClick={() => n++} />)(1)}</ul>;',
+      // A component's child is a prop.
+      'export const view = <List>{((n) => <li>{n}</li>)(1)}</List>;',
+      // An argument whose name means something else in the body.
+      'const a = make();\nexport const view = <ul>{((n) => <li>{[1].map((a) => n + a)}</li>)(a)}</ul>;',
+    ];
+    for (const code of cases) {
+      expect(folded(code)).toBe(code);
+    }
+  });
+
+  it('unrolls <For> over a constant list into one row per item', () => {
+    const imports = "import { For } from 'solid-js';\n";
+    expect(
+      folded(`${imports}const LINKS = [{ href: '/', label: 'Home' }, { href: '/docs', label: 'Docs' }];
+export const nav = <nav><For each={LINKS}>{(link) => <a href={link.href}>{link.label}</a>}</For></nav>;`),
+    )
+      .toBe(`${imports}const LINKS = [{ href: '/', label: 'Home' }, { href: '/docs', label: 'Docs' }];
+export const nav = <nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a></nav>;`);
+    expect(
+      folded(
+        `${imports}export const list = <ul><For each={['a', 'b']}>{(x, i) => <li data-i={i()}>{x}</li>}</For></ul>;`,
+      ),
+    ).toBe(
+      `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
+    );
+    // With `keyed={false}`, the item is an accessor and the index a number.
+    expect(
+      folded(
+        `${imports}export const list = <ul><For each={['a', 'b']} keyed={false}>{(x, i) => <li data-i={i}>{x()}</li>}</For></ul>;`,
+      ),
+    ).toBe(
+      `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
+    );
+    expect(
+      templateCountOf(
+        `${imports}export const list = <ul><For each={[1, 2, 3]}>{(x) => <li>{x}</li>}</For></ul>;`,
+      ),
+    ).toBe(1);
+  });
+
+  it('keeps <For> over a list it cannot unroll the same', () => {
+    const imports = "import { For } from 'solid-js';\n";
+    const cases = [
+      // The list can change.
+      'const LINKS = [{ href: "/" }];\nLINKS.push({ href: "/x" });\nexport const nav = <nav><For each={LINKS}>{(link) => <a href={link.href} />}</For></nav>;',
+      'export const LINKS = [{ href: "/" }];\nexport const nav = <nav><For each={LINKS}>{(link) => <a href={link.href} />}</For></nav>;',
+      // An item that is not a constant, or a key it does not have.
+      'export const list = <ul><For each={[name()]}>{(x) => <li>{x}</li>}</For></ul>;',
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={link.title} />}</For></nav>;',
+      // A key read through a variable.
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={link[field]} />}</For></nav>;',
+      // The item used as a whole object, or a method call on it.
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={describe(link)} />}</For></nav>;',
+      'export const nav = <nav><For each={[{ href: "/" }]}>{(link) => <a title={link.href()} />}</For></nav>;',
+      // A row with a ref, or a key function.
+      'export const list = <ul><For each={[1, 2]}>{(x) => <li ref={x} />}</For></ul>;',
+      'export const list = <ul><For each={[1, 2]} keyed={(x) => x}>{(x) => <li>{x}</li>}</For></ul>;',
+      // Larger unrolled than looped.
+      `export const list = <ul><For each={[${Array.from({ length: 30 }, (_, index) => index).join(', ')}]}>{(x) => <li class="a long class name repeated for every row">{x}</li>}</For></ul>;`,
+    ];
+    for (const code of cases) {
+      expect(folded(imports + code)).toBe(imports + code);
+    }
   });
 
   it('splices a resolved child into the surrounding template', () => {

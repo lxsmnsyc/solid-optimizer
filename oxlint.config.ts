@@ -10,6 +10,8 @@ export default defineConfig({
     '**/test/fixtures/**',
     // The showcase source is untyped JSX, so it reads short in the comparison image.
     'examples/showcase/App.jsx',
+    // The Hacker News app is untyped JavaScript from another repository, kept as it was written.
+    'examples/hackernews/src/**',
   ],
   rules: {
     // Modules use named exports, even when they have one export.

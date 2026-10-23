@@ -27,10 +27,15 @@ import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { createFilter, transformWithOxc } from 'vite';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
-import { collectParents, parse } from '../ast';
+import { collectParents, forEachChild, isIntrinsicTag, parse } from '../ast';
 import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
+import type { Primitive } from '../value';
+import { sharedGlobals } from './globals';
+import type { Skip } from '../context';
+import type { OptimizerReport } from './report';
+import { formatReport } from './report';
 import { exposeLocals, readExportedComponent } from './inject';
 import { nameNamespaceTags } from './namespace';
 import { protectRefs, restoreRefs } from './refs';
@@ -65,7 +70,18 @@ export interface OptimizerOptions extends Pick<
    * @default false
    */
   dev?: boolean;
+  /**
+   * Report what the optimizer leaves alone in each build, and why: each
+   * component call that stays a call, each provider that stays, and each
+   * memo that stays. `true` prints the report. A function receives it
+   * instead, once per build environment.
+   *
+   * @default false
+   */
+  report?: boolean | ((report: OptimizerReport) => void);
 }
+
+export type { OptimizerReport } from './report';
 
 export interface Options extends Partial<SolidPluginOptions> {
   /** Set to `false` to use `@solidjs/vite-plugin` as it is. */
@@ -101,6 +117,43 @@ function withRelated(helpers: readonly string[]): Set<string> {
 }
 
 const LAZY_PLACEHOLDER = /"__SOLID_LAZY_MODULE__:([^"]+)"/g;
+
+/**
+ * The common kinds of attribute: a class, any other attribute, events, and
+ * children. Inlining a component turns a spread onto an element into
+ * attributes like these, in a module that may not use their helpers itself.
+ * A rarer kind, like `style`, can still need a helper no module imports.
+ * The chunk is then lowered without optimizing it.
+ */
+const ATTRIBUTE_SAMPLE = `const a = () => 0;
+export const Sample = () => (
+  <div class={a()} id={a()} onClick={a()} onScroll={a()}>{a()}</div>
+);`;
+
+/** Whether the code spreads anything onto an intrinsic element. */
+function spreadsOntoElement(code: string, filename: string): boolean {
+  if (!code.includes('...')) {
+    return false;
+  }
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) {
+      return;
+    }
+    if (
+      node.type === 'JSXOpeningElement' &&
+      node.name.type === 'JSXIdentifier' &&
+      isIntrinsicTag(node.name.name) &&
+      node.attributes.some((attribute) => attribute.type === 'JSXSpreadAttribute')
+    ) {
+      found = true;
+      return;
+    }
+    forEachChild(node, visit);
+  };
+  visit(parse(filename, code));
+  return found;
+}
 
 function loadCompiler(): Compiler {
   // Use the compiler `@solidjs/vite-plugin` uses, so both lower JSX the same way.
@@ -199,9 +252,24 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     maxPasses: optimizer.maxPasses,
     builtIns: [...builtIns],
     moduleSources,
+    report: optimizer.report !== undefined && optimizer.report !== false,
+  };
+
+  /** What the final compile of each chunk or module left alone, by environment. */
+  const skips = new Map<string, Skip[]>();
+  const addSkips = (context: { environment?: { name: string } }, list?: readonly Skip[]): void => {
+    if (!list) {
+      return;
+    }
+    const environment = context.environment?.name ?? 'client';
+    const entries = skips.get(environment) ?? [];
+    entries.push(...list);
+    skips.set(environment, entries);
   };
 
   let config: ResolvedConfig | undefined;
+  /** The `define` entries and `import.meta.env` values every environment shares. */
+  let globals: Record<string, Primitive> = {};
   let compiler: Compiler | undefined;
   let filter: ((id: string) => boolean) | undefined;
   const getCompiler = (): Compiler => {
@@ -240,6 +308,18 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return { ...posture, dev, sourceNames: resolvedNames, ...rest };
   };
 
+  let sampleHelpers: string[] | undefined;
+  /** The helpers the JSX transform uses for attributes in chunk mode. */
+  const attributeHelpers = (): string[] => {
+    sampleHelpers ??= generatedImports(
+      getCompiler().transform(ATTRIBUTE_SAMPLE, { ...jsxOptions(false), filename: 'sample.jsx' })
+        .code,
+      'sample.jsx',
+      moduleName,
+    );
+    return sampleHelpers;
+  };
+
   /**
    * Whether client builds keep JSX until chunks are rendered.
    */
@@ -265,103 +345,153 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   /** Modules that keep their JSX, which the bundler must parse as JSX. */
   const preserved = new Set<string>();
 
-  /** What each module imports and the constants it exports, by module id. */
-  const moduleConstants = new Map<string, Promise<ModuleConstants | undefined>>();
+  /**
+   * What each module imports and the constants it exports, by module id,
+   * once read in full. A module whose constants needed a module with JSX
+   * that could not be loaded, to avoid a cycle, is not kept, since another
+   * transform may load it.
+   *
+   * A read in progress is never shared. It can wait for a module with JSX,
+   * and a read that waited for it would wait for that module too, without
+   * the cycle checks knowing. Two reads of modules that import each other
+   * would also wait for each other.
+   */
+  const moduleConstants = new Map<string, ConstantsResult>();
+
+  interface ConstantsResult {
+    readonly constants: ModuleConstants | undefined;
+    /** Whether a module with JSX was left out to avoid a cycle. */
+    readonly partial: boolean;
+  }
 
   /**
-   * The module an import resolves to, when its constants can be read.
-   *
-   * A module with JSX is skipped. This plugin's transform may be waiting for
-   * it, and it may be waiting for this one, so loading it could deadlock.
-   * Dependencies are skipped to keep the build fast.
+   * The module an import resolves to, when its constants can be read, and
+   * whether it has JSX. Dependencies are skipped to keep the build fast.
    */
   async function resolveConstantModule(
     context: Rollup.PluginContext,
     specifier: string,
     importer: string,
-  ): Promise<string | undefined> {
+  ): Promise<{ id: string; jsx: boolean } | undefined> {
     if (moduleSources.includes(specifier)) {
       return undefined;
     }
     const resolved = await context.resolve(specifier, importer);
-    if (
-      !resolved ||
-      resolved.external ||
-      resolved.id.includes('/node_modules/') ||
-      isJSXModule(resolved.id)
-    ) {
+    if (!resolved || resolved.external || resolved.id.includes('/node_modules/')) {
       return undefined;
     }
-    return resolved.id;
+    return { id: resolved.id, jsx: isJSXModule(resolved.id) };
+  }
+
+  /**
+   * The code of a module with JSX to read constants from, as this plugin's
+   * transform returns it. `transform` is the module whose transform waits for
+   * it, which the cycle checks are about. `undefined` when that could wait
+   * for itself.
+   */
+  async function loadJSXModule(
+    context: Rollup.PluginContext,
+    transform: string,
+    target: string,
+  ): Promise<string | undefined> {
+    return chunkMode() && isClient(context)
+      ? loadModule(context, transform, target)
+      : loadRecorded(context, transform, target);
   }
 
   /**
    * The constants of the modules `code` imports, keyed by import specifier.
    *
    * Each module is read as the bundler loads it, after every plugin has
-   * transformed it, so a plugin that replaces or rewrites a module is seen.
-   * A module that imports constants itself resolves them first, and a cycle
-   * leaves the modules in it without them.
+   * transformed it. A module with JSX is read from this plugin's own output
+   * for it, unless its transform could be waiting for `transform`.
    */
   async function importedConstants(
     context: Rollup.PluginContext,
     imports: readonly string[],
     importer: string,
     visiting: ReadonlySet<string>,
-  ): Promise<ImportedConstants> {
+    transform: string,
+  ): Promise<{ constants: ImportedConstants; partial: boolean }> {
+    let partial = false;
     const entries = await Promise.all(
       imports.map(async (specifier) => {
-        const id = await resolveConstantModule(context, specifier, importer);
-        if (id === undefined || visiting.has(id)) {
+        const target = await resolveConstantModule(context, specifier, importer);
+        if (target === undefined || visiting.has(target.id)) {
           return undefined;
         }
-        const constants = await constantsOf(context, id, visiting);
-        if (!constants || Object.keys(constants.exports).length === 0) {
+        const result = await constantsOf(context, target, visiting, transform);
+        partial ||= result.partial;
+        if (!result.constants || Object.keys(result.constants.exports).length === 0) {
           return undefined;
         }
-        return [specifier, constants.exports] as const;
+        return [specifier, result.constants.exports] as const;
       }),
     );
-    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+    return {
+      constants: Object.fromEntries(entries.filter((entry) => entry !== undefined)),
+      partial,
+    };
   }
 
   async function constantsOf(
     context: Rollup.PluginContext,
-    id: string,
+    target: { id: string; jsx: boolean },
     visiting: ReadonlySet<string>,
-  ): Promise<ModuleConstants | undefined> {
-    let pending = moduleConstants.get(id);
-    if (!pending) {
-      pending = (async () => {
-        const { code } = await context.load({ id });
-        if (code === null) {
-          return undefined;
-        }
-        // Loaded code is JavaScript, whatever the module was written in.
-        const filename = `${stripQuery(id)}.js`;
-        try {
-          const own = readModuleConstants(code, { filename });
-          if (own.imports.length === 0) {
-            return own;
-          }
-          const imported = await importedConstants(
-            context,
-            own.imports,
-            id,
-            new Set([...visiting, id]),
-          );
-          return readModuleConstants(code, { filename, importedConstants: imported });
-        } catch (error) {
-          // A module the parser rejects fails its own transform, with a better error.
-          if (error instanceof SyntaxError) {
-            return undefined;
-          }
-          throw error;
-        }
-      })();
-      moduleConstants.set(id, pending);
+    transform: string,
+  ): Promise<ConstantsResult> {
+    const { id } = target;
+    const known = moduleConstants.get(id);
+    if (known) {
+      return known;
     }
-    return pending;
+    const result = await (async (): Promise<ConstantsResult> => {
+      let code: string | null | undefined;
+      if (target.jsx) {
+        code = await loadJSXModule(context, transform, id);
+        if (code === undefined) {
+          return { constants: undefined, partial: true };
+        }
+      } else {
+        ({ code } = await context.load({ id }));
+      }
+      if (code === null) {
+        return { constants: undefined, partial: false };
+      }
+      // Loaded code is JavaScript, whatever the module was written in, and keeps its JSX.
+      const filename = `${stripQuery(id)}.${target.jsx ? 'jsx' : 'js'}`;
+      try {
+        const own = readModuleConstants(code, { filename, globalConstants: globals });
+        if (own.imports.length === 0) {
+          return { constants: own, partial: false };
+        }
+        const imported = await importedConstants(
+          context,
+          own.imports,
+          id,
+          new Set([...visiting, id]),
+          transform,
+        );
+        return {
+          constants: readModuleConstants(code, {
+            filename,
+            importedConstants: imported.constants,
+            globalConstants: globals,
+          }),
+          partial: imported.partial,
+        };
+      } catch (error) {
+        // A module the parser rejects fails its own transform, with a better error.
+        if (error instanceof SyntaxError) {
+          return { constants: undefined, partial: false };
+        }
+        throw error;
+      }
+    })();
+    if (!result.partial) {
+      moduleConstants.set(id, result);
+    }
+    return result;
   }
 
   /**
@@ -378,11 +508,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       return { ...compileOptions, filename, sourceMap: wantsMaps() };
     }
     const { imports } = readModuleConstants(code, { filename });
+    const imported = await importedConstants(context, imports, filename, new Set([filename]), id);
     return {
       ...compileOptions,
       filename,
       sourceMap: wantsMaps(),
-      importedConstants: await importedConstants(context, imports, filename, new Set([filename])),
+      importedConstants: imported.constants,
+      globalConstants: globals,
     };
   }
 
@@ -461,15 +593,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    */
   const recorded = new Map<string, string>();
 
-  /** The modules with JSX each module imports, read from its file. */
-  const jsxImports = new Map<string, Promise<string[]>>();
+  /** The modules of the project each module imports, read from its file. */
+  const localImports = new Map<string, Promise<string[]>>();
 
   /**
-   * The modules with JSX a module imports. They come from the file on disk,
-   * so they do not depend on the order modules are transformed in.
+   * The modules of the project a module imports, leaving out dependencies.
+   * They come from the file on disk, so they do not depend on the order
+   * modules are transformed in. Modules without JSX count too, since reading
+   * their constants can load a module with JSX.
    */
-  async function jsxImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
-    let pending = jsxImports.get(id);
+  async function localImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
+    let pending = localImports.get(id);
     if (!pending) {
       pending = (async () => {
         let code: string;
@@ -503,15 +637,15 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           [...sources].map(async (source) => context.resolve(source, id)),
         );
         return resolved
-          .filter((target) => target && !target.external && isJSXModule(target.id))
+          .filter((target) => target && !target.external && !target.id.includes('/node_modules/'))
           .map((target) => target?.id ?? '');
       })();
-      jsxImports.set(id, pending);
+      localImports.set(id, pending);
     }
     return pending;
   }
 
-  /** Whether `from` imports `to`, directly or through other modules with JSX. */
+  /** Whether `from` imports `to`, directly or through other modules of the project. */
   async function reaches(
     context: Rollup.PluginContext,
     from: string,
@@ -527,7 +661,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         seen.add(id);
       }
       // oxlint-disable-next-line no-await-in-loop
-      const next = await Promise.all(frontier.map(async (id) => jsxImportsOf(context, id)));
+      const next = await Promise.all(frontier.map(async (id) => localImportsOf(context, id)));
       frontier = [...new Set(next.flat())].filter((id) => !seen.has(id));
     }
     return false;
@@ -667,6 +801,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     readonly importAs: (base: string, imported: string, from: string) => string;
     /** The code of a module with JSX to copy from, or `undefined` to skip it. */
     readonly load: (target: string) => Promise<string | undefined>;
+    /** Where the copies that are not made are recorded, when the report is on. */
+    readonly skips: Skip[] | undefined;
   }
 
   /**
@@ -680,14 +816,23 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     imported: string,
     state: CopyState,
   ): Promise<{ key: string; text: (name: string) => string } | undefined> {
+    const skip = (reason: string): void => {
+      state.skips?.push({ pass: 'inline', reason, name: `${imported} (${source})` });
+    };
     const resolved = await context.resolve(source, id);
-    if (
-      !resolved ||
-      resolved.external ||
-      resolved.id === id ||
-      resolved.id.includes('/node_modules/') ||
-      !isJSXModule(resolved.id)
-    ) {
+    if (!resolved || resolved.external) {
+      skip('copy-external');
+      return undefined;
+    }
+    if (resolved.id.includes('/node_modules/')) {
+      skip('copy-package');
+      return undefined;
+    }
+    if (resolved.id === id) {
+      return undefined;
+    }
+    if (!isJSXModule(resolved.id)) {
+      skip('copy-not-jsx');
       return undefined;
     }
     const key = `${resolved.id}\0${imported}`;
@@ -695,11 +840,28 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       return undefined;
     }
     const loaded = await state.load(resolved.id);
-    const component = loaded
-      ? readExportedComponent(loaded, stripQuery(resolved.id), imported, moduleSources)
-      : undefined;
+    if (loaded === undefined) {
+      state.excluded.add(key);
+      skip('copy-cycle');
+      return undefined;
+    }
+    const component = readExportedComponent(
+      loaded,
+      stripQuery(resolved.id),
+      imported,
+      moduleSources,
+    );
     if (!component) {
       state.excluded.add(key);
+      skip('copy-shape');
+      return undefined;
+    }
+    // Its copy would still call a component of that module, so the call
+    // site gains nothing. Moving its template out of its module makes both
+    // compress worse.
+    if (component.wrapsLocal) {
+      state.excluded.add(key);
+      skip('copy-wrapper');
       return undefined;
     }
     // Each import of the module resolves from it, so the copy imports the same module.
@@ -710,6 +872,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         const target = await context.resolve(dependency.source, resolved.id);
         if (!target) {
           state.excluded.add(key);
+          skip('copy-external');
           return undefined;
         }
         targets.set(dependency.source, target.external ? dependency.source : target.id);
@@ -744,9 +907,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     id: string,
     compileOptionsOfModule: CompileOptions,
     load: (target: string) => Promise<string | undefined>,
-  ): Promise<{ code: string; maps: string[] } | undefined> {
+    copySkips?: Skip[],
+  ): Promise<{ code: string; maps: string[]; skipped?: Skip[] } | undefined> {
     const filename = stripQuery(id);
     const maps: string[] = [];
+    let skipped: Skip[] | undefined;
     const excluded = new Set<string>();
     const usage = await usageIndex(context);
     // The components copied here that leave their module, by module.
@@ -759,6 +924,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // The contexts the copies import, which the provider pass needs to know.
     const contexts = new Map<string, Set<string>>();
     let code = source;
+    const copyNames = new Map<string, string>();
     for (let round = 0; round < 4; round += 1) {
       const program = parse(filename, code);
       const scopes = analyzeScopes(program);
@@ -824,7 +990,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             contexts,
             importAs,
             load,
+            skips: copySkips,
           });
+          if (copy && copySkips) {
+            // A copy the inline pass leaves behind is recorded under the reason it gave.
+            copyNames.set(copy.key, `${binding.imported} (${statement.source.value})`);
+          }
           if (copy) {
             const name = fresh(specifier.local.name);
             copies.push({ key: copy.key, name, tags, text: copy.text(name) });
@@ -869,6 +1040,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         for (const copy of stuck) {
           excluded.add(copy.key);
           copies.splice(copies.indexOf(copy), 1);
+          const reason = result.skipped?.find((entry) => entry.name === copy.name)?.reason;
+          copySkips?.push({
+            pass: 'inline',
+            reason: `copy-${reason ?? 'left'}`,
+            name: copyNames.get(copy.key) ?? copy.name,
+          });
         }
         result = undefined;
       }
@@ -889,8 +1066,9 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         maps.push(result.map.toString());
       }
       code = result.code;
+      ({ skipped } = result);
     }
-    return code === source ? undefined : { code, maps };
+    return code === source ? undefined : { code, maps, skipped };
   }
 
   /**
@@ -929,13 +1107,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // Components imported from other modules inline here, so the bundler
     // drops them, and what only they used, before it splits the chunks.
     if (moduleCompileOptions.inline !== false) {
+      const copySkips: Skip[] | undefined = compileOptions.report ? [] : undefined;
       const imported = await inlineImports(
         context,
         code,
         id,
         moduleCompileOptions,
         async (target) => loadModule(context, id, target),
+        copySkips,
       );
+      // The rest of the report comes from the chunk this module ends up in.
+      addSkips(context, copySkips);
       if (imported) {
         code = imported.code;
         maps.push(...imported.maps);
@@ -968,13 +1150,29 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         needed.add(helper);
       }
     }
+    // A component inlined into another module of the chunk can turn its
+    // spread into any attribute.
+    if (moduleCompileOptions.inline !== false && spreadsOntoElement(code, filename)) {
+      for (const helper of attributeHelpers()) {
+        needed.add(helper);
+      }
+    }
+
     if (needed.size > 0) {
       const marked = addMarker(code, filename, {
         moduleName,
         helpers: withRelated([...needed]),
         moduleSources,
-        // The passes also recognize these primitives, which a chunk renames too.
-        builtIns: new Set([...builtIns, 'createContext', ...CONTEXT_SAFE_PRIMITIVES]),
+        // The passes also recognize these primitives, which a chunk renames
+        // too. `render` takes a callback that statements can move into, and
+        // `children` can be inlined like a memo.
+        builtIns: new Set([
+          ...builtIns,
+          'createContext',
+          'render',
+          'children',
+          ...CONTEXT_SAFE_PRIMITIVES,
+        ]),
       });
       if (marked) {
         code = marked.code;
@@ -1012,15 +1210,17 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     enforce: 'pre',
     configResolved(resolved) {
       config = resolved;
+      globals = sharedGlobals(resolved);
     },
     buildStart() {
       moduleConstants.clear();
-      jsxImports.clear();
+      localImports.clear();
       usageIndexes.clear();
+      skips.delete(this.environment.name);
     },
     watchChange() {
       moduleConstants.clear();
-      jsxImports.clear();
+      localImports.clear();
       usageIndexes.clear();
     },
     async transform(source, id) {
@@ -1037,13 +1237,22 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       const maps: (string | null | undefined)[] = [result.map?.toString()];
       // Components imported from other modules inline here too. The server
       // and client builds read the same modules, so they inline the same ones.
+      let { skipped } = result;
       if (isBuild() && sourceOptions.inline !== false) {
-        const imported = await inlineImports(this, code, id, sourceOptions, async (target) =>
-          loadRecorded(this, id, target),
+        const copySkips: Skip[] | undefined = compileOptions.report ? [] : undefined;
+        const imported = await inlineImports(
+          this,
+          code,
+          id,
+          sourceOptions,
+          async (target) => loadRecorded(this, id, target),
+          copySkips,
         );
+        addSkips(this, copySkips);
         if (imported) {
           code = imported.code;
           maps.push(...imported.maps);
+          skipped = imported.skipped ?? skipped;
         }
         // Entries get the extra exports too. The server and client builds
         // have different entries, and both have to copy the same components.
@@ -1053,6 +1262,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           maps.push(exposed.map);
         }
       }
+      addSkips(this, skipped);
       recorded.set(environmentKey(this, id), code);
       if (code === source) {
         return null;
@@ -1117,6 +1327,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         try {
           lowered = lowerChunk(optimized.code);
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
+          addSkips(this, optimized.skipped);
         } catch (error) {
           if (!(error instanceof MissingHelperError)) {
             throw error;
@@ -1127,6 +1338,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           // so the chunks do not have to match anything else.
           this.warn(`${error.message} ${filename} is not optimized.`);
           optimized = undefined;
+          addSkips(this, [{ pass: 'inline', reason: 'missing-helper', name: filename }]);
           lowered = lowerChunk(chunkCode);
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
         }
@@ -1143,6 +1355,21 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         };
       },
     },
+  };
+
+  // Prints the report once every chunk is rendered.
+  chunkPlugin.generateBundle = function generateBundle() {
+    const { report } = optimizer;
+    if (report === undefined || report === false) {
+      return;
+    }
+    const environment = this.environment.name;
+    const result: OptimizerReport = { environment, skips: skips.get(environment) ?? [] };
+    if (typeof report === 'function') {
+      report(result);
+    } else {
+      this.environment.logger.info(formatReport(result));
+    }
   };
 
   // Runs after `vite:oxc` strips types, which reports the module as plain

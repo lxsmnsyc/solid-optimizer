@@ -42,7 +42,7 @@ Chunk mode keeps JSX through bundling, so each chunk is optimized as one scope a
 
 This replaces the official plugin's transform.
 
-1. Read the constants of imported modules that have no JSX, through `this.load`, so another plugin's output is what folds.
+1. Read the constants of imported modules through `this.load`, so another plugin's output is what folds. A module with JSX is read from this plugin's output for it, unless it could be waiting for this transform.
 2. Compile without inlining: fold, remove providers, inline memos. A branch that folds away takes its imports and `lazy()` chunks out of the module graph, which only this phase can do.
 3. Rewrite `<Ns.Member>` tags of a namespace import to named imports, so Rolldown does not build a namespace object.
 4. Copy components imported from other modules in, and inline them. See [Components from other modules](#components-from-other-modules).
@@ -101,7 +101,7 @@ A component inlines only where its copies are estimated to be no larger, once lo
 - **Look-ahead.** A component with statements needs an element around its call to hoist them to. When a component's children hold such calls, the estimate measures them as if the component were inlined, and credits what they would save.
 - **Escape hatch.** `alwaysInline` skips the estimate and inlines everything that can be.
 
-The estimate cannot see runtime helpers that the bundle drops once their last use is gone, or how the copies change Rolldown's chunk split. On the three test apps every build is smaller than plain: the demo by 23–25%, solid-ui by 0.2–1.2%, and Hacker News by 0.4–1.1%.
+The estimate cannot see runtime helpers that the bundle drops once their last use is gone, or how the copies change Rolldown's chunk split. On Solid 2, every build of the demo is 27–32% smaller than plain, and every build of Hacker News 0.1–2.2% smaller. On Solid 1, solid-ui shrinks by 0.2–1.2%.
 
 ## Consistency and limits
 

@@ -7,7 +7,7 @@ import { Browser, Window } from 'happy-dom';
 import type { Plugin, Rollup } from 'vite';
 import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
-import type { Options } from '../src/vite';
+import type { OptimizerReport, Options } from '../src/vite';
 import solid from '../src/vite';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -206,6 +206,49 @@ describe('solid-optimizer/vite', () => {
     expect(await bundle('imported-constants', { optimizer: false })).toHaveLength(2);
   });
 
+  it('folds constants exported from a module with JSX', async () => {
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('jsx-constants', { optimizer: { mode } });
+      // `BETA` folds before bundling, so its branch takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).not.toContain('beta tools');
+    }
+    expect(await bundle('jsx-constants', { optimizer: false })).toHaveLength(2);
+  });
+
+  it('reads constants of modules with JSX that import each other through other modules', async () => {
+    // Each transform would wait for the other through a module without JSX.
+    for (const mode of ['auto', 'module'] as const) {
+      const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+      // oxlint-disable-next-line no-await-in-loop
+      const optimized = text(await load('constant-cycle', { optimizer: { mode } }));
+      expect(optimized).toBe('<main><p class="a">b off</p><p class="b">a on</p></main>');
+    }
+  });
+
+  it('folds define entries before bundling, in module mode too', async () => {
+    const define = { __DEBUG__: 'false' };
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const result = await build({
+        root: path.join(fixtures, 'define-constants'),
+        configFile: false,
+        logLevel: 'silent',
+        define,
+        plugins: [solid({ optimizer: { mode } })],
+        build: { write: false, minify: false, modulePreload: false },
+      });
+      const outputs = Array.isArray(result) ? result : [result];
+      const chunks = outputs.flatMap((output) =>
+        'output' in output ? output.output.filter((item) => item.type === 'chunk') : [],
+      );
+      // The branch folds away before bundling, and takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('<h1>production');
+    }
+  });
+
   it('reads imported constants after other plugins transform them', async () => {
     // A plugin that rewrites the flag makes the value on disk wrong.
     const enableAdmin: Plugin = {
@@ -320,6 +363,25 @@ describe('solid-optimizer/vite', () => {
     );
   });
 
+  it('reports what stays as written, in chunk mode and module mode', async () => {
+    for (const mode of ['auto', 'module'] as const) {
+      const reports: OptimizerReport[] = [];
+      // oxlint-disable-next-line no-await-in-loop
+      await bundle('cross-module', {
+        optimizer: {
+          mode,
+          report: (report) => {
+            reports.push(report);
+          },
+        },
+      });
+      // `Badge` is copied into both modules, so only the lazy page stays a call.
+      expect(reports).toEqual([
+        { environment: 'client', skips: [{ pass: 'inline', reason: 'lazy', name: 'Page' }] },
+      ]);
+    }
+  });
+
   it('copies a component into the only module that renders it, read from the HTML entry', async () => {
     // Module mode has no chunk step, so only a copy made before bundling inlines it.
     const optimized = (await bundle('sole-user', { optimizer: { mode: 'module' } }))
@@ -339,6 +401,32 @@ describe('solid-optimizer/vite', () => {
     expect(optimized).toBe(text(await load('cycle', { optimizer: false })));
     expect(optimized).toBe(
       '<div class="a"><div class="b"><div class="a"><div class="b">end</div></div></div></div>',
+    );
+  });
+
+  it('optimizes a chunk where an inlined spread becomes attributes no module used', async () => {
+    // The modules import each other, so `Box` is not copied. The chunk inlines
+    // it, and its spread becomes `class`, which neither module uses itself.
+    const warnings: string[] = [];
+    const chunks = await bundle('spread-helpers', {}, undefined, {}, [
+      {
+        name: 'collect-warnings',
+        configResolved(config) {
+          const { logger } = config;
+          const warn = logger.warn.bind(logger);
+          logger.warn = (message, options) => {
+            warnings.push(message);
+            warn(message, options);
+          };
+        },
+      },
+    ]);
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(warnings.filter((message) => message.includes('is not optimized'))).toEqual([]);
+    expect(code).not.toContain('createComponent(Box');
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    expect(text(await load('spread-helpers'))).toBe(
+      text(await load('spread-helpers', { optimizer: false })),
     );
   });
 

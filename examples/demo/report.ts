@@ -112,12 +112,12 @@ const NEVER_INLINED = new Set([
  * Components each chunk may still call. A component used by several chunks
  * is copied into a chunk only where its copies are no larger than its calls,
  * counting the chunk's share of the declaration that goes away once every
- * chunk copies it. Two copies of the table are larger than its calls.
+ * chunk copies it. Every component in the demo is worth copying.
  */
 const KEPT: Record<Mode, Record<string, readonly string[]>> = {
-  default: { Dashboard: ['Table'], Settings: ['Table'] },
-  vendor: { Dashboard: ['Table'], Settings: ['Table'] },
-  single: { index: ['Table'] },
+  default: {},
+  vendor: {},
+  single: {},
 };
 
 /** Chunks with only Solid's runtime, which has no app components. */

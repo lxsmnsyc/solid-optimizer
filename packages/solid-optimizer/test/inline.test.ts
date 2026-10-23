@@ -177,6 +177,80 @@ export function App() {
     expect(inlined(code)).toBe(code);
   });
 
+  it('moves statements into the callbacks Solid runs once per item or value', () => {
+    const imports =
+      "import { For, Match, Repeat, Show } from 'solid-js';\nimport { render } from '@solidjs/web';\n";
+    const row = `function Row(props) {
+  const [on, setOn] = createSignal(false);
+  return <li onClick={() => setOn(!on())}>{props.name}</li>;
+}
+`;
+    // Five copies of `Row` are larger than five calls, so the size estimate is skipped.
+    const output = optimize(
+      `${imports}${row}export function App(props) {
+  return (
+    <ul>
+      <For each={props.items}>{(item) => <Row name={item.name} />}</For>
+      <Repeat count={3}>{(index) => <Row name={index} />}</Repeat>
+      <Show when={props.user}>{(user) => <Row name={user().name} />}</Show>
+      <Match when={props.user}>{(user) => <Row name={user().name} />}</Match>
+    </ul>
+  );
+}
+render(() => <Row name="root" />, document.body);
+`,
+      { fold: false, alwaysInline: true },
+    );
+    expect(output).not.toContain('<Row');
+    expect(output).toContain(
+      '{(item) => { const [on$1, setOn$1] = createSignal(false); return <li onClick={() => setOn$1(!on$1())}>{item.name}</li>; }}',
+    );
+    expect(output).toContain(
+      'render(() => { const [on$5, setOn$5] = createSignal(false); return <li onClick={() => setOn$5(!on$5())}>{"root"}</li>; }, document.body);',
+    );
+  });
+
+  it('keeps statements out of callbacks that are not run once per creation', () => {
+    const imports = "import { Show } from 'solid-js';\n";
+    const code = `${imports}function Item(props) {
+  const label = format(props.value);
+  return <li>{label}</li>;
+}
+export function App() {
+  return (
+    <ul>
+      <Show when={ready()}>{() => <Item value={1} />}</Show>
+      <Show when={ready()} fallback={<Item value={2} />}>{(value) => <b>{value()}</b>}</Show>
+      {list.map((value) => <Item value={value} />)}
+      <Other>{(value) => <Item value={value} />}</Other>
+    </ul>
+  );
+}
+`;
+    expect(inlined(code)).toBe(code);
+  });
+
+  it('forwards a ref from the call site to the element the component gives it to', () => {
+    const output = inlined(`function Field(props) {
+  return <label><input ref={props.ref} /><b ref={props.ref} /></label>;
+}
+function Plain() {
+  return <i />;
+}
+export function App() {
+  let el;
+  return <main><Field ref={el} /><Field ref={[(e) => use(e), el]} /><Plain ref={el} /></main>;
+}
+`);
+    // A ref read twice stays the name, so each element sets it, as the component's ref did.
+    expect(output).toContain('<label><input ref={el} /><b ref={el} /></label>');
+    expect(output).toContain(
+      '<label><input ref={[(e) => use(e), el]} /><b ref={[(e) => use(e), el]} /></label>',
+    );
+    // A component that never applies the ref drops it.
+    expect(output).toContain('<i />');
+  });
+
   it('stores a static prop that is read more than once', () => {
     const code = `
 function Button(props) {
@@ -317,15 +391,15 @@ export const App = () => <div><Title text="a" /><Other text="b" /></div>;
   it('bails on shapes it cannot keep equivalent', () => {
     const cases = [
       // The props object escapes.
-      `function A(props) { return <div {...props} />; }\nexport const App = () => <A x={1} />;`,
       `function A(props) { use(props); return <div />; }\nexport const App = () => <A x={1} />;`,
       // Destructured props.
       `function A({ x }) { return <div>{x}</div>; }\nexport const App = () => <A x={1} />;`,
       // A prop is written.
       `function A(props) { props.x = 2; return <div />; }\nexport const App = () => <A x={1} />;`,
-      // The call site spreads props or passes a ref.
+      // The call site spreads props, or passes a ref the component does more with than forward.
       `function A(props) { return <div>{props.x}</div>; }\nexport const App = () => <A {...rest} />;`,
-      `function A(props) { return <div ref={props.ref} />; }\nexport const App = () => <A ref={el} />;`,
+      `function A(props) { return <div ref={props.ref} />; }\nexport const App = () => <A ref={make()} />;`,
+      `function A(props) { return <div ref={(e) => props.ref(e)} />; }\nexport const App = () => <A ref={el} />;`,
       // More than one return.
       `function A(props) { if (props.x) return <b />; return <i />; }\nexport const App = () => <A x={1} />;`,
       // The component renders itself.

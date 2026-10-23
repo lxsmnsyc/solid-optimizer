@@ -56,6 +56,28 @@ export function App() {
     );
   });
 
+  it('spreads the props themselves onto an element', () => {
+    const code = views(`function Box(props) {
+  return <div {...props} />;
+}
+export function App() {
+  const [tone, setTone] = createSignal('dark');
+  return <main><Box id="a" class={tone()} onClick={() => setTone('light')}><p>hi</p></Box></main>;
+}`);
+    expect(code).toMatch(
+      /<main><div id=\{"a"\} class=\{tone\(\)\} onClick=\{\(\) => setTone\('light'\)\}\s*><p>hi<\/p><\/div><\/main>/,
+    );
+    expect(code).not.toContain('function Box');
+  });
+
+  it('spreads the props and reads them in one component', () => {
+    const code = views(`function Field(props) {
+  return <label title={props.label}><input {...props} /></label>;
+}
+export const App = () => <main><Field label="Name" value="x" /></main>;`);
+    expect(code).toContain('<label title={"Name"}><input label={"Name"} value={"x"} /></label>');
+  });
+
   it('orders keys where the last source that carries them puts them', () => {
     const code = views(`function Field(props) {
   const merged = merge({ kind: 'text', placeholder: 'none' }, props);
@@ -116,6 +138,20 @@ export const App = () => <Box tone="dark" />;`);
   return <div class="box" {...rest} />;
 }
 export const App = () => <Box tone="dark" class="x" />;`);
+  });
+
+  it('keeps a component whose props spread repeats an attribute', () => {
+    stays(`function Box(props) {
+  return <div class="box" {...props} />;
+}
+export const App = () => <Box class="x" />;`);
+  });
+
+  it('keeps a component that passes its props on', () => {
+    stays(`function Box(props) {
+  return <div ref={(el) => use(el, props)} {...props} />;
+}
+export const App = () => <Box id="x" />;`);
   });
 
   it('keeps a component whose spread passes children to an element with some', () => {

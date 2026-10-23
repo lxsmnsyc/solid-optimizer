@@ -78,4 +78,26 @@ export default () => <p />;`;
   it('skips an export that is not a function', () => {
     expect(readExportedComponent('export const A = 1;', 'a.jsx', 'A', SOURCES)).toBeUndefined();
   });
+
+  it('tells whether a component only wraps another component of its module', () => {
+    const icons = `import { createContext } from 'solid-js';
+import { Glyph } from './Glyph';
+const Icon = (props) => <svg {...props} />;
+export function IconBell(props) {
+  return <Icon {...props}><path d="M1 1" /></Icon>;
+}
+export const IconStar = (props) => <Glyph {...props} />;
+export const Panel = () => <section><Icon /></section>;
+const Theme = createContext();
+export const ThemeProvider = (props) => <Theme value={props.theme}>{props.children}</Theme>;
+export { Icon as __so_local$Icon, Theme as __so_local$Theme };`;
+    const wraps = (name: string): boolean | undefined =>
+      readExportedComponent(icons, 'icons.jsx', name, SOURCES)?.wrapsLocal;
+    expect(wraps('IconBell')).toBe(true);
+    // An imported component's copy can still inline it.
+    expect(wraps('IconStar')).toBe(false);
+    expect(wraps('Panel')).toBe(false);
+    // The provider pass can remove a provider from the copy.
+    expect(wraps('ThemeProvider')).toBe(false);
+  });
 });

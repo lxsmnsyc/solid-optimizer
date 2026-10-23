@@ -57,7 +57,7 @@ function App() {
     );
     // The consumer outside the provider reads the default. The one inside
     // moves out with the provider's value, and the provider is removed.
-    expect(code).toContain('const theme$1 = useContext(Theme);');
+    expect(code).toMatch(/const theme\$\d+ = useContext\(Theme\);/);
     expect(code).not.toContain('createComponent(Label');
     expect(code).not.toContain('createComponent(Theme');
   });
@@ -144,6 +144,31 @@ function App() {
   });
 });
 
+describe('props spread', () => {
+  it('spreads the props onto an element the same once inlined', async () => {
+    const code = await expectSameBehavior(
+      'props-spread',
+      app(
+        `function Box(props) {
+  return <section {...props} />;
+}
+function App() {
+  const [tone, setTone] = createSignal('dark');
+  return (
+    <main>
+      <Box id="box" class={tone()} onClick={() => setTone(tone() === 'dark' ? 'light' : 'dark')}>
+        <p>{tone()}</p>
+      </Box>
+    </main>
+  );
+}`,
+      ),
+      ['#box', '#box'],
+    );
+    expect(code).not.toContain('createComponent(Box');
+  });
+});
+
 describe('refs', () => {
   it('sets a ref on an element the same', async () => {
     await expectSameBehavior(
@@ -163,6 +188,161 @@ describe('refs', () => {
       ),
       ['#read'],
     );
+  });
+
+  it('sets a ref forwarded through a component the same once inlined', async () => {
+    const code = await expectSameBehavior(
+      'forwarded-ref',
+      app(
+        `function Field(props) {
+  return <input id="field" value="a" ref={props.ref} />;
+}
+function App() {
+  let el;
+  const [seen, setSeen] = createSignal('none');
+  const [called, setCalled] = createSignal('no');
+  return (
+    <main>
+      <Field ref={el} />
+      <Field ref={(node) => setCalled(node.tagName)} />
+      <button id="read" onClick={() => setSeen(el ? el.tagName + ':' + el.value : 'none')} />
+      <p>{seen()} {called()}</p>
+    </main>
+  );
+}`,
+      ),
+      ['#read'],
+    );
+    expect(code).not.toContain('createComponent(Field');
+  });
+});
+
+describe('constant lists', () => {
+  it('renders an unrolled <For> the same, with stateful rows', async () => {
+    const code = await expectSameBehavior(
+      'for-constant-list',
+      app(
+        `const LINKS = [
+  { href: '/', label: 'Home' },
+  { href: '/docs', label: 'Docs' },
+];
+function App() {
+  const [active, setActive] = createSignal('/');
+  return (
+    <nav>
+      <For each={LINKS}>
+        {(link, index) => (
+          <a
+            href={link.href}
+            data-index={index()}
+            class={active() === link.href ? 'active' : ''}
+            onClick={(event) => {
+              event.preventDefault();
+              setActive(link.href);
+            }}
+          >
+            {link.label}
+          </a>
+        )}
+      </For>
+    </nav>
+  );
+}`,
+        "import { createSignal, For } from 'solid-js';",
+      ),
+      ['a[data-index="1"]', 'a[data-index="0"]'],
+    );
+    expect(code).not.toContain('mapArray');
+  });
+});
+
+describe('children helper', () => {
+  it('renders children resolved by the helper the same once it is inlined', async () => {
+    const code = await expectSameBehavior(
+      'children-helper',
+      app(
+        `function Box(props) {
+  const resolved = children(() => props.children);
+  return <section class="box">{resolved()}</section>;
+}
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <Box>
+        <button onClick={() => setCount(count() + 1)}>{count()}</button>
+      </Box>
+    </main>
+  );
+}`,
+        "import { children, createSignal } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('children(');
+  });
+});
+
+describe('dynamic', () => {
+  it('renders a known component through <Dynamic> the same as a call', async () => {
+    const code = await expectSameBehavior(
+      'dynamic-component',
+      app(
+        `function Counter(props) {
+  const [count, setCount] = createSignal(props.start);
+  return (
+    <button onClick={() => setCount(count() + 1)}>
+      {props.label} {count()}
+    </button>
+  );
+}
+function App() {
+  const [label, setLabel] = createSignal('a');
+  return (
+    <main>
+      <i id="rename" onClick={() => setLabel('b')} />
+      <Dynamic component={Counter} label={label()} start={1} />
+    </main>
+  );
+}`,
+        "import { createSignal } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';",
+      ),
+      ['button', '#rename', 'button'],
+    );
+    expect(code).not.toContain('Dynamic');
+  });
+});
+
+describe('callback hosts', () => {
+  it('keeps each row its own state when a stateful component inlines into <For>', async () => {
+    const code = await expectSameBehavior(
+      'for-row-state',
+      app(
+        `function Row(props) {
+  const [on, setOn] = createSignal(false);
+  return (
+    <li class={on() ? 'on' : 'off'} onClick={() => setOn(!on())}>
+      {props.name}
+    </li>
+  );
+}
+function App() {
+  const [items, setItems] = createSignal(['a', 'b']);
+  return (
+    <main>
+      <button id="add" onClick={() => setItems([...items(), 'c'])} />
+      <button id="drop" onClick={() => setItems(items().slice(1))} />
+      <ul>
+        <For each={items()}>{(item) => <Row name={item} />}</For>
+      </ul>
+    </main>
+  );
+}`,
+        "import { createSignal, For } from 'solid-js';",
+      ),
+      ['li:nth-child(2)', '#add', 'li:nth-child(3)', '#drop', 'li:nth-child(1)'],
+    );
+    expect(code).not.toContain('createComponent(Row');
   });
 });
 
@@ -236,9 +416,12 @@ function App() {
       ),
     );
     // A function read twice is stored once, so both calls share it.
-    expect(code).toMatch(/const children\$1 = \(side\) =>/);
-    expect(code).toContain('children$1("left")');
-    expect(code).toContain('children$1("right")');
+    const stored = /const (children\$\d+) = \(side\$\d+\) =>/.exec(code)?.[1];
+    expect(stored).toBeDefined();
+    expect(code).toContain(`${stored ?? ''}("left")`);
+    expect(code).toContain(`${stored ?? ''}("right")`);
+    // A function called once with a constant becomes its JSX, which joins the template.
+    expect(code).not.toContain('(42)');
   });
 
   it('passes children through control flow', async () => {

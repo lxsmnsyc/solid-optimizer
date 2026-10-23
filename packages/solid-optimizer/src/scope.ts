@@ -385,6 +385,11 @@ class Analyzer {
         this.reference(node, false);
         break;
       case 'VariableDeclaration': {
+        // `declare const` only tells TypeScript about a global. It is stripped
+        // with the types and declares nothing, so its name stays global.
+        if (node.declare) {
+          break;
+        }
         // `using` binds a disposable resource, so it is never a folding candidate.
         let kind: BindingKind = 'other';
         if (node.kind === 'var' || node.kind === 'let' || node.kind === 'const') {
@@ -399,10 +404,14 @@ class Analyzer {
         break;
       }
       case 'FunctionDeclaration':
-      case 'TSDeclareFunction':
         if (node.id) {
           this.declare(node.id, 'function', node);
         }
+        this.visitFunction(node);
+        break;
+      // An overload signature or a `declare function` has no body and is
+      // stripped with the types. The implementation declares the name, if there is one.
+      case 'TSDeclareFunction':
         this.visitFunction(node);
         break;
       case 'FunctionExpression':
@@ -422,6 +431,10 @@ class Analyzer {
         });
         break;
       case 'ClassDeclaration':
+        // A `declare class` is stripped with the types, like `declare const`.
+        if (node.declare) {
+          break;
+        }
         if (node.id) {
           this.declare(node.id, 'class', node);
         }

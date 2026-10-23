@@ -178,7 +178,7 @@ In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the 
 
 - Calls that always return a new value, such as `Array.from`, `.map`, or `.filter`. Knowing that needs the receiver's type, so they are not treated as new today. Spreading the result into an array literal, as in `[...list.map(fn)]`, makes it count.
 - A memo read once inside another computation, such as the compute function of `createMemo` or `createEffect`. The same rule applies when the read is that function's whole return value.
-- A memo with no reactive reads at all, whose value never changes. It could become a plain value, but proving that a call reads nothing needs knowledge of every callee.
+- A memo with no reactive reads, other than one whose computation folds to a literal. Proving that a call reads nothing needs knowledge of every callee. A literal reads nothing, so every call of such a memo becomes the literal.
 
 ## Constants from other modules
 
@@ -193,18 +193,25 @@ Folded, with the same output:
 - A virtual module, with or without the `\0` prefix.
 - A plugin whose `load` hook replaces a real file, and a plugin that rewrites the module in `transform`. Reading from disk gave the wrong value in both cases.
 - JSON imports, `export *` barrels, `export default`, namespace imports, and imports that form a cycle.
+- A constant exported from a module with JSX. See below.
+- `define` entries and `import.meta.env` values, read from the resolved config. Rolldown replaces them after transform, so the loaded code still holds the identifier. Only a value every build environment shares folds, and `import.meta.env.SSR` never does. A server build and its client build that folded different values could inline differently, and their hydration keys would not match.
+- A name declared with `declare const`, which TypeScript strips, so it stays a global.
 
 Correct, but only folded in `renderChunk`:
 
-- `define` and `import.meta.env`. Rolldown replaces them after transform, so the loaded code still holds the identifier.
-- A constant exported from a module with JSX. See below.
+- A constant of a module with JSX that imports the importer back, in chunk mode. Module mode never folds it. See below.
 
 Never folded:
 
 - A `let` the module writes to, a `const enum`, and dependencies in `node_modules`.
 - Any import while serving. The dev server does not return the code of a loaded module.
 
-A module with JSX is never loaded. This plugin's transform can be waiting for that module while that module waits for this one. Two JSX modules that import each other then never finish. The probe that loaded them hung.
+A module with JSX is read from this plugin's own output for it: the code chunk mode keeps through bundling, or the module step's output in module mode. Loading it waits for its transform, so two modules that import each other would wait for each other forever. The first probe that loaded them hung. The same checks that guard copying components guard this:
+
+- Chunk mode records which modules each transform waits for, and skips a load that would wait for itself. The wait is recorded for the transform that reads the constants, not the module without JSX it reads them through.
+- Module mode skips a module that imports the importer, directly or through other modules of the project, read from the files on disk. Modules without JSX count, since reading their constants can load a module with JSX. Both builds read the same files, so they fold the same constants.
+
+A read in progress is never shared between reads. It can wait for a module with JSX, and a read that waited for it would wait for that module too, without the checks knowing. Two reads of modules that import each other in one transform hung that way. A finished read is kept, unless it skipped a module to avoid a cycle, since another transform may be able to load it.
 
 ### Comma expressions in JSX
 
@@ -248,7 +255,7 @@ Builds that hydrate, and server builds, lower JSX in `transform`, so `this.load`
 
 Hydration needs the server and client builds to inline the same components, so no decision can depend on the order modules are transformed in. Two rules keep it that way:
 
-- A module is not copied from when it imports the importer, directly or through other modules with JSX. The imports come from the files on disk, which both builds read alike. This also means no transform waits for one that waits for it.
+- A module is not copied from when it imports the importer, directly or through other modules of the project. The imports come from the files on disk, which both builds read alike. This also means no transform waits for one that waits for it.
 - Every module gets the extra exports, entries included. The two builds have different entries, and a module that is an entry in only one of them would otherwise be copied in only the other.
 
 ### Cycles
@@ -303,9 +310,10 @@ An HTML entry is read for its module scripts, since Vite has not resolved them w
 | ------------------------------------------- | ---------------------- | ---------------------- |
 | solid-ui, Solid 1 (default, vendor, single) | +1.8%, +1.0%, +1.1%    | −0.3%, −0.2%, −1.2%    |
 | Hacker News, Solid 1                        | −0.9%, −1.1%, −0.4%    | −0.9%, −1.1%, −0.4%    |
-| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −25.2%, −23.2%, −23.2% |
+| Hacker News, Solid 2                        |                        | −0.2%, −2.2%, −0.1%    |
+| Demo, Solid 2                               | −25.9%, −23.7%, −23.4% | −32.1%, −28.5%, −27.6% |
 
-The demo keeps `Table` as a component: two copies are larger than its two calls, even with its whole declaration counted.
+The demo used to keep `Table` as a component, since two copies measured larger than its two calls. Each copy was measured without the constant list its call site passes, `rows={ROWS}`, so the estimate could not see the `<For>` in it unroll, or the `Badge` in each row turn static. A copy is now measured with the top-level constants of literals its module declares, and `Table` inlines into both pages.
 
 ### Not covered yet
 

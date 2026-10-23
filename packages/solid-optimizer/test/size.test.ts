@@ -25,6 +25,25 @@ export const App = () => <main><Card class="a">one</Card></main>;`);
     expect(code).not.toContain('function Card');
   });
 
+  it('measures a copy with the constants its call site passes by name', () => {
+    // Each list unrolls once its copy has the list, and every condition in it folds.
+    const code = optimize(`import { For } from 'solid-js';
+function Rows(props) {
+  return (
+    <ul class="rows">
+      <For each={props.rows}>
+        {(row) => <li class={row.on ? 'row row-on is-highlighted' : 'row row-off is-dimmed'} title={row.label}>{row.label}</li>}
+      </For>
+    </ul>
+  );
+}
+const FIRST = [{ on: true, label: 'x' }];
+const SECOND = [{ on: false, label: 'y' }];
+export const App = () => <main><Rows rows={FIRST} /><Rows rows={SECOND} /></main>;`);
+    expect(code).not.toContain('<Rows');
+    expect(code).toContain("<li class={'row row-on is-highlighted'} title={'x'}>");
+  });
+
   it('keeps a component with code of its own that many calls would repeat', () => {
     const code =
       optimize(`import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
