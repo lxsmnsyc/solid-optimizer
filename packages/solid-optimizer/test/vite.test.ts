@@ -382,6 +382,32 @@ describe('solid-optimizer/vite', () => {
     );
   });
 
+  it('optimizes a chunk where an inlined spread becomes attributes no module used', async () => {
+    // The modules import each other, so `Box` is not copied. The chunk inlines
+    // it, and its spread becomes `class`, which neither module uses itself.
+    const warnings: string[] = [];
+    const chunks = await bundle('spread-helpers', {}, undefined, {}, [
+      {
+        name: 'collect-warnings',
+        configResolved(config) {
+          const { logger } = config;
+          const warn = logger.warn.bind(logger);
+          logger.warn = (message, options) => {
+            warnings.push(message);
+            warn(message, options);
+          };
+        },
+      },
+    ]);
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(warnings.filter((message) => message.includes('is not optimized'))).toEqual([]);
+    expect(code).not.toContain('createComponent(Box');
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    expect(text(await load('spread-helpers'))).toBe(
+      text(await load('spread-helpers', { optimizer: false })),
+    );
+  });
+
   it('runs code-split chunks that share the runtime', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const optimized = text(await load('split'));
