@@ -1,6 +1,6 @@
 {
   "name": "solid-optimizer",
-  "version": "0.2.0",
+  "version": "1.0.0-next.0",
   "description": "Experimental compile-time optimizer for SolidJS",
   "keywords": [
     "compiler",
