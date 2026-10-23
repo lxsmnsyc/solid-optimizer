@@ -48,6 +48,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
 - `sourceMap` turns the source map on or off. Defaults to `true`.
+- `report` records what the inline, provider, and memo passes leave alone, and why. The result lists them in `skipped`, each with its pass, a reason code, and a name. Defaults to `false`.
 
 ### Constants from other modules
 
@@ -109,6 +110,30 @@ The plugin takes every option of `vite-plugin-solid`, plus `optimizer`.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 - `optimizer.server` applies the `server` option in server builds. Defaults to `true`.
+- `optimizer.report` reports what stays as written in each build, and why. `true` prints it. A function receives it instead, once per build environment. Defaults to `false`.
+
+### Report
+
+`optimizer.report` lists each component call, provider, and memo the optimizer left alone, grouped by reason:
+
+```
+solid-optimizer: what stays as written in client
+  inline   copy-size         3  Table (../components/Table)×2, Card (../components/Card)
+  inline   imported          2  Table (./Table-*.js)×2
+  inline   no-host           2  App, Home
+```
+
+Each line is a pass, a reason, how many times it happened, and the names it happened to. The reasons for the inline pass:
+
+- `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
+- `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
+- `call-spread`, `call-ref`, and `call-namespace` mean the call site passes a spread, a `ref`, or a namespaced attribute.
+- `no-host` means the component has statements, and the call is not in JSX a component returns, such as a `<For>` callback.
+- `size` means the copies would be larger than the calls.
+- `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
+- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
+
+The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps.
 
 ### Limits
 
@@ -162,7 +187,7 @@ Solid then creates one template for `<main>` instead of two.
 A component inlines when all of these hold:
 
 - It is declared once at the top level, with a capitalized name.
-- Its parameter is one identifier that is only read as `props.name`, or passed to `mergeProps()` and `splitProps()`. See below.
+- Its parameter is one identifier that is only read as `props.name`, spread onto an element as `{...props}`, or passed to `mergeProps()` and `splitProps()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
 - The call site has no spread attribute, no `ref`, and no namespaced attribute.

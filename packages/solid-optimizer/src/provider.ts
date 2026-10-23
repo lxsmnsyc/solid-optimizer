@@ -40,7 +40,7 @@ import type {
 } from 'oxc-parser';
 import { forEachChild, isFunctionNode, isIntrinsicTag, unwrap } from './ast';
 import type { PassContext } from './context';
-import { isConstantDeclaration, solidExport } from './context';
+import { isConstantDeclaration, recordSkip, solidExport } from './context';
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
 import { evaluate, isSideEffectFree, literalText } from './value';
@@ -301,6 +301,8 @@ export interface ClosedOptions {
   readonly props?: Binding;
   /** The value a read of a context gets, when the provider is known. */
   readonly contextValue?: (target: Binding) => Expression | undefined;
+  /** Called with a short code for the code that is not visible, for the report. */
+  readonly onOpen?: (reason: string) => void;
 }
 
 /**
@@ -314,6 +316,10 @@ export interface ClosedOptions {
  */
 export function isClosed(context: PassContext, root: Node, options: ClosedOptions): boolean {
   let closed = true;
+  const open = (reason: string): void => {
+    closed = false;
+    options.onOpen?.(reason);
+  };
   const visit = (node: Node): void => {
     if (!closed) {
       return;
@@ -327,25 +333,27 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
       case 'JSXSpreadAttribute':
         // A view of the component's own props is expanded when it inlines.
         if (!isOwnView(context, node.argument, options.props, 0)) {
-          closed = false;
+          open('open-spread');
           return;
         }
         break;
-      case 'JSXSpreadChild':
       case 'NewExpression':
+        open('open-new');
+        return;
+      case 'JSXSpreadChild':
       case 'TaggedTemplateExpression':
       case 'ImportExpression':
-        closed = false;
+        open('open-other');
         return;
       case 'JSXElement':
         if (!isVisibleElement(context, node, options)) {
-          closed = false;
+          open('open-component');
           return;
         }
         break;
       case 'CallExpression':
         if (!isVisibleCall(context, node, options)) {
-          closed = false;
+          open('open-call');
           return;
         }
         break;
@@ -355,7 +363,7 @@ export function isClosed(context: PassContext, root: Node, options: ClosedOption
         // binding declared under `root`, like a callback's parameter, is a value.
         const binding = context.scopes.references.get(node);
         if (binding && runsOutsideCode(context, binding, root, options, 0)) {
-          closed = false;
+          open('open-outer');
           return;
         }
         break;
@@ -784,22 +792,69 @@ class ProviderRemover {
       const overlaps = this.removed.some(
         (other) => element.start < other.end && other.start < element.end,
       );
-      if (!overlaps && !hasNestedProvider(this.context, provider) && this.tryRemove(provider)) {
+      if (overlaps) {
+        continue;
+      }
+      if (hasNestedProvider(this.context, provider)) {
+        this.skip(provider, 'provider-nested');
+      } else if (this.tryRemove(provider)) {
         this.removed.push(element);
       }
     }
+    if (this.context.skips) {
+      this.reportShapes();
+    }
+  }
+
+  private skip(provider: Provider, reason: string): void {
+    recordSkip(this.context, 'contexts', reason, provider.context.name);
+  }
+
+  /**
+   * Records each context tag that is not a provider this pass understands,
+   * such as one with more attributes than `value`.
+   */
+  private reportShapes(): void {
+    const visit = (node: Node): void => {
+      if (node.type === 'JSXElement') {
+        const binding = providerContext(this.context, node.openingElement.name);
+        if (binding && !providerOf(this.context, node)) {
+          // A lone `value` is turned down because it could be `undefined`.
+          const { attributes } = node.openingElement;
+          const attribute = attributes.at(0);
+          const onlyValue =
+            attributes.length === 1 &&
+            attribute?.type === 'JSXAttribute' &&
+            attribute.name.type === 'JSXIdentifier' &&
+            attribute.name.name === 'value';
+          recordSkip(
+            this.context,
+            'contexts',
+            onlyValue && !node.openingElement.selfClosing ? 'provider-undefined' : 'provider-shape',
+            binding.name,
+          );
+        }
+      }
+      forEachChild(node, visit);
+    };
+    visit(this.context.program);
   }
 
   private tryRemove(provider: Provider): boolean {
     const { element } = provider;
     const children = element.children;
+    let reason = 'open-other';
     const closed = children.every((child) =>
       isClosed(this.context, child, {
         component: () => false,
         contextValue: (target) => (target === provider.context ? provider.value : undefined),
+        onOpen: (open) => {
+          reason = open;
+        },
       }),
     );
     if (!closed) {
+      this.skip(provider, reason);
       return false;
     }
     const reads = children.flatMap((child) => contextReads(this.context, child, provider.context));
@@ -807,6 +862,7 @@ class ProviderRemover {
     for (const read of reads) {
       const text = stableValueText(this.context, provider, read);
       if (text === undefined) {
+        this.skip(provider, 'provider-value');
         return false;
       }
       texts.push(text);
@@ -815,6 +871,7 @@ class ProviderRemover {
     if (reads.length === 0 && !isSideEffectFree(provider.value)) {
       const stable = stableValueText(this.context, provider, element);
       if (stable === undefined) {
+        this.skip(provider, 'provider-value');
         return false;
       }
     }

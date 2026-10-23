@@ -78,4 +78,21 @@ export default () => <p />;`;
   it('skips an export that is not a function', () => {
     expect(readExportedComponent('export const A = 1;', 'a.jsx', 'A', SOURCES)).toBeUndefined();
   });
+
+  it('tells whether a component only wraps another component of its module', () => {
+    const icons = `import { Glyph } from './Glyph';
+const Icon = (props) => <svg {...props} />;
+export function IconBell(props) {
+  return <Icon {...props}><path d="M1 1" /></Icon>;
+}
+export const IconStar = (props) => <Glyph {...props} />;
+export const Panel = () => <section><Icon /></section>;
+export { Icon as __so_local$Icon };`;
+    const wraps = (name: string): boolean | undefined =>
+      readExportedComponent(icons, 'icons.jsx', name, SOURCES)?.wrapsLocal;
+    expect(wraps('IconBell')).toBe(true);
+    // An imported component's copy can still inline it.
+    expect(wraps('IconStar')).toBe(false);
+    expect(wraps('Panel')).toBe(false);
+  });
 });
