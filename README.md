@@ -131,7 +131,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 - `no-host` means the component has statements, and the call is not in JSX a component returns, such as a `<For>` callback.
 - `size` means the copies would be larger than the calls.
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
-- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, and `copy-size` means the copy was larger.
+- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
 
 The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps.
 
