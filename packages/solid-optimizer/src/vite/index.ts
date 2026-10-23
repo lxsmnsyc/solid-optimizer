@@ -266,7 +266,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    * relative to the project root, or to `node_modules` for a package.
    */
   const shortName = (name: string): string =>
-    name.replace(/\((\/[^)]*)\)$/, (whole, file: string) => {
+    name.replace(/\((\/.*)\)$/, (whole, file: string) => {
       const index = file.lastIndexOf('/node_modules/');
       if (index !== -1) {
         return `(${file.slice(index + '/node_modules/'.length)})`;
