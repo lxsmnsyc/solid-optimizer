@@ -48,9 +48,13 @@ describe('readModuleConstants', () => {
       import './f';
       export { g } from './g';
       export type { H } from './h';
+      import { I } from './i';
+      import { j } from './j';
+      export const value: I = [a, b, c.k];
     `,
       { filename: 'input.ts' },
     );
+    // `I` is only a type and `j` is never read, so neither has a constant to fold.
     expect(imports).toEqual(['./a', './b', './c', './g']);
   });
 

@@ -228,6 +228,16 @@ describe('solid-optimizer/vite', () => {
     }
   });
 
+  it('does not load a module imported only for its types', async () => {
+    // `./config` imports a package that does not resolve. TypeScript drops the
+    // import, so only loading it for its constants would bring it into the build.
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('type-only-import', { optimizer: { mode } });
+      expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('Hello');
+    }
+  });
+
   it('keeps comma expressions in JSX valid through bundling', async () => {
     // Rolldown and `vite:oxc` print a comma expression in a JSX expression
     // container without its parentheses. A fold that keeps a side effect makes one.

@@ -348,8 +348,9 @@ export function readModuleConstants(
   options: Pick<CompileOptions, 'filename' | 'importedConstants'> = {},
 ): ModuleConstants {
   const program = parse(options.filename ?? 'input.jsx', code);
+  const scopes = analyzeScopes(program);
   return {
-    imports: namedImportSources(program),
-    exports: constantExports(program, resolveOptions(options)),
+    imports: namedImportSources(program, scopes),
+    exports: constantExports(program, resolveOptions(options), scopes),
   };
 }
