@@ -5,7 +5,7 @@
  * from `importedConstants`, which a caller fills with `constantExports` of
  * each imported module.
  */
-import type { MemberExpression, Node, Program } from 'oxc-parser';
+import type { ImportDeclaration, MemberExpression, Node, Program } from 'oxc-parser';
 import type { ResolvedOptions } from './context';
 import { isConstantDeclaration } from './context';
 import type { Binding, ScopeAnalysis } from './scope';
@@ -131,17 +131,19 @@ export class ConstantTable {
 /**
  * The modules `program` imports or re-exports bindings from. Their
  * constant exports are what `importedConstants` can hold.
+ *
+ * An import counts only when one of its bindings is read as a value. A
+ * binding read only in types has no constant to fold, and TypeScript drops its
+ * import, so the module it names may not even build for this target.
  */
-export function namedImportSources(program: Program): string[] {
+export function namedImportSources(
+  program: Program,
+  scopes: ScopeAnalysis = analyzeScopes(program),
+): string[] {
   const sources = new Set<string>();
   for (const statement of program.body) {
     if (statement.type === 'ImportDeclaration') {
-      if (
-        statement.importKind !== 'type' &&
-        statement.specifiers.some(
-          (specifier) => !(specifier.type === 'ImportSpecifier' && specifier.importKind === 'type'),
-        )
-      ) {
+      if (statement.importKind !== 'type' && readsAsValue(statement.specifiers, scopes)) {
         sources.add(statement.source.value);
       }
     } else if (
@@ -154,6 +156,23 @@ export function namedImportSources(program: Program): string[] {
     }
   }
   return [...sources];
+}
+
+/**
+ * Whether the module reads one of these import bindings as a value. Scope
+ * analysis skips type positions, so a binding used only in types has no
+ * references.
+ */
+function readsAsValue(specifiers: ImportDeclaration['specifiers'], scopes: ScopeAnalysis): boolean {
+  for (const specifier of specifiers) {
+    if (specifier.type === 'ImportSpecifier' && specifier.importKind === 'type') {
+      continue;
+    }
+    if (scopes.root.bindings.get(specifier.local.name)?.references.length) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function exportName(node: Node): string | undefined {
