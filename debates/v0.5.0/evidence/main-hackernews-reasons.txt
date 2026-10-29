@@ -1,0 +1,18 @@
+solid-optimizer: what stays as written in client
+  inline   member-tag             3  RouteContextObj.Provider×2, RouterContextObj.Provider
+  memos    memo-computation       3  children, routeStates, url
+  inline   component-recursive    2  Comment×2
+  inline   component-body         1  Router
+  inline   copy-no-host           1  default (../../components/comment)
+  inline   copy-package           1  Router (@solidjs/router)
+  inline   no-host                1  Routes
+  memos    memo-options           1  conditionValue
+computing gzip size...
+dist/default/optimized/index.html                        0.53 kB │ gzip:  0.31 kB
+dist/default/optimized/.vite/manifest.json               1.16 kB │ gzip:  0.30 kB
+dist/default/optimized/assets/createAsync-JYV__3Tn.js    1.21 kB │ gzip:  0.50 kB
+dist/default/optimized/assets/_id_-BZVqs8OX.js           2.58 kB │ gzip:  0.92 kB
+dist/default/optimized/assets/_id_-DbjvLGCK.js           4.26 kB │ gzip:  1.42 kB
+dist/default/optimized/assets/_...stories_-Dks49RMc.js   5.07 kB │ gzip:  1.37 kB
+dist/default/optimized/assets/index-CblI9_Uj.js         75.54 kB │ gzip: 20.49 kB
+

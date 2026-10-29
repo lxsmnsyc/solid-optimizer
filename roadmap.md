@@ -250,6 +250,24 @@ This needs research before a plan:
 
 Start with a prototype that only works in chunk mode. Measure it on solid-ui, where most wrappers are declined today.
 
+## 12. Measure runtime and hydration, not only bundle size
+
+Status: planned, not started. Covers both lines.
+
+Every number so far is gzip size or build time. Template merging, component inlining, provider removal and memo inlining also change what runs. They create fewer templates and components, fewer owners and computations, fewer DOM marker comments, and in hydrating builds fewer hydration keys and markers in the server's HTML. Nothing measures that yet. `report.ts` counts templates and component calls in the output code, and `scripts/bench.ts` measures only size and build time.
+
+Plan:
+
+1. Counts, plain against optimized. They are exact, so any difference is real.
+   - Client render: templates created and cloned, component calls, owners and computations alive after mount, and DOM nodes, with `<!>` marker comments counted on their own.
+   - Server render and hydration: SSR HTML bytes, hydration key attributes and marker comments in the HTML, and nodes the client claims while hydrating.
+2. Timings, in Chromium through Playwright. Each result needs repeated runs and has to clear the noise, measured as the perf-pass skill's `bench.py` does.
+   - Client: time to first render, mount and unmount loops, heap after mount.
+   - Server and hydration: `renderToString` throughput and client hydration time.
+3. Apps: the demo and Hacker News on Solid 2, and Hacker News and solid-ui on Solid 1. Neither line's examples include a hydrating app. The `ssr` test fixtures are too small, so add one, for example by porting `todos-server` or the SSR `hackernews` from the Solid repo into `examples/`.
+
+Start with the client counts in step 1. They need only a small counting harness, and they show whether the runtime effect is large enough to justify the timings and the SSR app. Updates after mount, such as a signal write reaching the DOM, are left out at first: merging changes creation more than updates, and update benchmarks need a script per app.
+
 ## Not planned
 
 These are known gaps that are not worth doing now.

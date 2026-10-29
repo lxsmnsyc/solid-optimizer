@@ -1,0 +1,39 @@
+rc19 board client: 4 195367 68811 server: 3 367521 94039
+rc19 canvas client: 4 196699 69172 server: 3 372603 95777
+rc19 chat client: 14 323965 119767 server: 4 516287 136451
+rc19 chat-client client: 4 161959 56820 server: 3 466808 126987
+rc19 effect client: 1 237120 80238 server: -
+rc19 hackernews client: 12 297141 108334 server: 5 1227391 344937
+rc19 hackernews-spa client: 6 226397 80084 server: 3 1118488 314584
+rc19 migrating-element client: 1 39328 15912 server: -
+rc19 notes client: 19 354761 130208 server: 8 506056 134308
+rc19 server-dbmon client: 12 309664 112752 server: 5 490987 130154
+rc19 sierpinski client: 1 35097 14094 server: -
+rc19 todos client: 1 89266 33082 server: -
+rc19 todos-server client: 12 306727 111315 server: 4 483575 126420
+base board client: 4 195367 68811 server: 3 367533 94054
+base canvas client: 4 196699 69172 server: 3 372619 95787
+base chat client: 14 323965 119767 server: 4 516299 136451
+base chat-client client: 4 161959 56820 server: 3 466812 126992
+base effect client: 1 237120 80238 server: -
+base hackernews client: 12 297141 108334 server: 5 1227391 344934
+base hackernews-spa client: 6 226397 80084 server: 3 1118488 314585
+base migrating-element client: 1 39328 15912 server: -
+base notes client: 19 354761 130208 server: 8 506065 134313
+base server-dbmon client: 12 309664 112752 server: 5 490995 130158
+base sierpinski client: 1 35097 14094 server: -
+base todos client: 1 89266 33082 server: -
+base todos-server client: 12 306727 111315 server: 4 483587 126420
+patched board client: 4 195367 68811 server: 3 367533 94054
+patched canvas client: 4 196667 69162 server: 3 372619 95788
+patched chat client: 14 323965 119767 server: 4 516299 136452
+patched chat-client client: 4 161959 56820 server: 3 466812 126990
+patched effect client: 1 237030 80214 server: -
+patched hackernews client: 12 297141 108334 server: 5 1227391 344936
+patched hackernews-spa client: 6 226369 80078 server: 3 1118488 314585
+patched migrating-element client: 1 39328 15912 server: -
+patched notes client: 19 354747 130204 server: 8 506065 134310
+patched server-dbmon client: 12 309664 112752 server: 5 490995 130158
+patched sierpinski client: 1 35097 14094 server: -
+patched todos client: 1 89231 33072 server: -
+patched todos-server client: 12 306727 111315 server: 4 483587 126421

@@ -12,6 +12,8 @@ export default defineConfig({
     'examples/showcase/App.jsx',
     // The Hacker News app is untyped JavaScript from another repository, kept as it was written.
     'examples/hackernews/src/**',
+    // Debate evidence is raw build output and throwaway measuring scripts, kept as they ran.
+    'debates/*/evidence/**',
   ],
   rules: {
     // Modules use named exports, even when they have one export.

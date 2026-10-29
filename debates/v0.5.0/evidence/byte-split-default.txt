@@ -1,0 +1,177 @@
+##### /Users/alexis/Documents/GitHub/solid-optimizer/examples/demo
+dist/default/plain
+  gzip total 26.21 kB (regions minified alone: 81168 B vs whole chunks same settings 75111 B, fully minified 67589 B)
+  @solidjs/signals                     15.06 kB gz   57.4%    48.42 kB min
+  @solidjs/web                          5.61 kB gz   21.4%    18.05 kB min
+  app                                   3.65 kB gz   13.9%     9.23 kB min
+  solid-js                              1.23 kB gz    4.7%     3.96 kB min
+  chunk                                 0.66 kB gz    2.5%     1.50 kB min
+  top app modules:
+    src/main.tsx                                                 0.64 kB gz
+    \0vite/preload-helper.js                                     0.44 kB gz
+    src/pages/Dashboard.tsx                                      0.32 kB gz
+    \0vite/modulepreload-polyfill.js                             0.25 kB gz
+    src/pages/Chart.tsx                                          0.25 kB gz
+    src/pages/Settings.tsx                                       0.22 kB gz
+    src/components/Table.tsx                                     0.20 kB gz
+    src/pages/About.tsx                                          0.19 kB gz
+dist/default/optimized
+  gzip total 17.80 kB (regions minified alone: 51226 B vs whole chunks same settings 47798 B, fully minified 44087 B)
+  @solidjs/signals                     12.28 kB gz   69.0%    36.59 kB min
+  @solidjs/web                          2.40 kB gz   13.5%     7.15 kB min
+  app                                   1.49 kB gz    8.4%     3.78 kB min
+  chunk                                 1.20 kB gz    6.7%     2.42 kB min
+  solid-js                              0.43 kB gz    2.4%     1.29 kB min
+  top app modules:
+    src/main.tsx                                                 0.54 kB gz
+    \0vite/modulepreload-polyfill.js                             0.25 kB gz
+    src/pages/Chart.tsx                                          0.21 kB gz
+    src/pages/Home.tsx                                           0.19 kB gz
+    src/pages/Dashboard.tsx                                      0.17 kB gz
+    src/pages/Settings.tsx                                       0.10 kB gz
+    src/pages/About.tsx                                          0.02 kB gz
+##### /Users/alexis/Documents/GitHub/solid-optimizer/examples/hackernews
+dist/default/plain
+  gzip total 29.50 kB (regions minified alone: 89589 B vs whole chunks same settings 82124 B, fully minified 74204 B)
+  @solidjs/signals                     12.73 kB gz   43.2%    39.31 kB min
+  @solidjs/router                       8.42 kB gz   28.5%    24.97 kB min
+  app                                   3.75 kB gz   12.7%    11.17 kB min
+  @solidjs/web                          3.30 kB gz   11.2%    10.19 kB min
+  chunk                                 0.68 kB gz    2.3%     2.02 kB min
+  solid-js                              0.62 kB gz    2.1%     1.92 kB min
+  top app modules:
+    src/pages/users/[id].jsx                                     0.56 kB gz
+    src/components/story.jsx                                     0.55 kB gz
+    src/pages/stories/[id].jsx                                   0.47 kB gz
+    \0vite/preload-helper.js                                     0.46 kB gz
+    src/components/comment.jsx                                   0.41 kB gz
+    src/pages/[...stories].jsx                                   0.38 kB gz
+    \0vite/modulepreload-polyfill.js                             0.27 kB gz
+    src/routes.jsx                                               0.24 kB gz
+dist/default/optimized
+  gzip total 29.44 kB (regions minified alone: 89331 B vs whole chunks same settings 81989 B, fully minified 74073 B)
+  @solidjs/signals                     12.73 kB gz   43.2%    39.31 kB min
+  @solidjs/router                       8.40 kB gz   28.5%    24.93 kB min
+  @solidjs/web                          3.30 kB gz   11.2%    10.19 kB min
+  app                                   3.14 kB gz   10.7%     9.29 kB min
+  chunk                                 1.24 kB gz    4.2%     3.69 kB min
+  solid-js                              0.62 kB gz    2.1%     1.92 kB min
+  top app modules:
+    src/pages/[...stories].jsx                                   0.73 kB gz
+    \0vite/modulepreload-polyfill.js                             0.72 kB gz
+    src/pages/users/[id].jsx                                     0.45 kB gz
+    src/pages/stories/[id].jsx                                   0.38 kB gz
+    src/components/comment.jsx                                   0.35 kB gz
+    src/routes.jsx                                               0.33 kB gz
+    src/pages/[...stories].data.js                               0.07 kB gz
+    src/lib/api.js                                               0.06 kB gz
+##### /private/tmp/claude-501/-Users-alexis-Documents-GitHub-solid-optimizer/1ec47f36-031a-4e80-af38-347092582b57/scratchpad/main-wt/examples/hackernews
+dist/default/plain
+  gzip total 16.76 kB (regions minified alone: 48737 B vs whole chunks same settings 46345 B, fully minified 42952 B)
+  solid-js                              7.91 kB gz   47.2%    23.09 kB min
+  @solidjs/router                       4.98 kB gz   29.7%    14.35 kB min
+  app                                   3.51 kB gz   21.0%    10.32 kB min
+  chunk                                 0.35 kB gz    2.1%     0.98 kB min
+  top app modules:
+    src/pages/users/[id].jsx                                     0.54 kB gz
+    src/components/story.jsx                                     0.51 kB gz
+    src/pages/stories/[id].jsx                                   0.46 kB gz
+    \0vite/preload-helper.js                                     0.44 kB gz
+    src/components/comment.jsx                                   0.42 kB gz
+    src/pages/[...stories].jsx                                   0.37 kB gz
+    \0vite/modulepreload-polyfill.js                             0.26 kB gz
+    src/routes.jsx                                               0.17 kB gz
+dist/default/optimized
+  gzip total 16.61 kB (regions minified alone: 47204 B vs whole chunks same settings 44980 B, fully minified 42532 B)
+  solid-js                              8.39 kB gz   50.5%    23.89 kB min
+  @solidjs/router                       4.37 kB gz   26.3%    12.29 kB min
+  app                                   2.94 kB gz   17.7%     8.44 kB min
+  chunk                                 0.91 kB gz    5.5%     2.58 kB min
+  top app modules:
+    src/pages/[...stories].jsx                                   0.68 kB gz
+    src/pages/users/[id].data.js                                 0.47 kB gz
+    src/pages/users/[id].jsx                                     0.44 kB gz
+    src/pages/stories/[id].jsx                                   0.36 kB gz
+    src/components/comment.jsx                                   0.35 kB gz
+    \0vite/modulepreload-polyfill.js                             0.26 kB gz
+    src/routes.jsx                                               0.17 kB gz
+    src/lib/api.js                                               0.07 kB gz
+##### /private/tmp/claude-501/-Users-alexis-Documents-GitHub-solid-optimizer/1ec47f36-031a-4e80-af38-347092582b57/scratchpad/main-wt/examples/solid-ui
+dist/default/plain
+  gzip total 208.61 kB (regions minified alone: 741508 B vs whole chunks same settings 690234 B, fully minified 643782 B)
+  chart.js                             59.75 kB gz   28.6%   193.70 kB min
+  app                                  42.21 kB gz   20.2%   160.47 kB min
+  @kobalte/core                        31.18 kB gz   14.9%   119.75 kB min
+  @tanstack/table-core                 13.42 kB gz    6.4%    57.54 kB min
+  solid-js                             12.13 kB gz    5.8%    35.06 kB min
+  @corvu/resizable                      7.17 kB gz    3.4%    25.73 kB min
+  @solidjs/router                       7.07 kB gz    3.4%    22.58 kB min
+  tailwind-merge                        5.90 kB gz    2.8%    20.50 kB min
+  chunk                                 4.83 kB gz    2.3%    15.91 kB min
+  cmdk-solid                            4.18 kB gz    2.0%    17.91 kB min
+  @modular-forms/solid                  3.62 kB gz    1.7%    11.96 kB min
+  @solid-primitives/resize-observer     2.52 kB gz    1.2%     8.27 kB min
+  @kurkle/color                         2.39 kB gz    1.1%     7.74 kB min
+  @floating-ui/dom                      2.31 kB gz    1.1%     8.65 kB min
+  @floating-ui/core                     2.18 kB gz    1.0%     8.16 kB min
+  @kobalte/utils                        2.05 kB gz    1.0%     7.12 kB min
+  solid-prevent-scroll                  1.11 kB gz    0.5%     4.16 kB min
+  @floating-ui/utils                    1.07 kB gz    0.5%     4.01 kB min
+  @corvu/utils                          0.89 kB gz    0.4%     3.30 kB min
+  @solidjs/meta                         0.74 kB gz    0.4%     2.09 kB min
+  @solid-primitives/storage             0.70 kB gz    0.3%     2.50 kB min
+  @solid-primitives/keyed               0.30 kB gz    0.1%     1.09 kB min
+  solid-presence                        0.27 kB gz    0.1%     1.03 kB min
+  class-variance-authority              0.25 kB gz    0.1%     0.88 kB min
+  @tanstack/solid-table                 0.11 kB gz    0.1%     0.46 kB min
+  clsx                                  0.10 kB gz    0.0%     0.36 kB min
+  @solid-primitives/event-listener      0.08 kB gz    0.0%     0.29 kB min
+  @solid-primitives/props               0.07 kB gz    0.0%     0.26 kB min
+  @solid-primitives/refs                0.01 kB gz    0.0%     0.03 kB min
+  top app modules:
+    src/components/icons.tsx                                     4.87 kB gz
+    src/routes/(app)/examples/tasks/components/data.tsx          3.60 kB gz
+    src/components/mail/data.tsx                                 2.96 kB gz
+    src/components/mail/account-switcher.tsx                     2.19 kB gz
+    src/components/cards/notifications.tsx                       1.78 kB gz
+    src/components/dashboard/index.tsx                           1.67 kB gz
+    src/components/mail/mail-display.tsx                         1.48 kB gz
+    src/registry/ui/dropdown-menu.tsx                            1.11 kB gz
+dist/default/optimized
+  gzip total 207.91 kB (regions minified alone: 736182 B vs whole chunks same settings 687646 B, fully minified 642528 B)
+  chart.js                             59.83 kB gz   28.8%   193.74 kB min
+  @kobalte/core                        33.91 kB gz   16.3%   130.54 kB min
+  app                                  32.88 kB gz   15.8%   125.72 kB min
+  chunk                                14.67 kB gz    7.1%    53.19 kB min
+  @tanstack/table-core                 13.51 kB gz    6.5%    57.71 kB min
+  solid-js                             12.13 kB gz    5.8%    35.06 kB min
+  @corvu/resizable                      7.14 kB gz    3.4%    25.44 kB min
+  @solidjs/router                       7.02 kB gz    3.4%    21.57 kB min
+  clsx                                  6.01 kB gz    2.9%    20.85 kB min
+  @modular-forms/solid                  3.61 kB gz    1.7%    11.93 kB min
+  @solid-primitives/resize-observer     2.51 kB gz    1.2%     8.27 kB min
+  @kurkle/color                         2.39 kB gz    1.2%     7.75 kB min
+  @floating-ui/dom                      2.32 kB gz    1.1%     8.64 kB min
+  @floating-ui/core                     2.19 kB gz    1.1%     8.16 kB min
+  @kobalte/utils                        2.05 kB gz    1.0%     7.12 kB min
+  solid-prevent-scroll                  1.26 kB gz    0.6%     4.68 kB min
+  @floating-ui/utils                    1.08 kB gz    0.5%     4.01 kB min
+  @corvu/utils                          0.90 kB gz    0.4%     3.30 kB min
+  @solidjs/meta                         0.71 kB gz    0.3%     1.99 kB min
+  @solid-primitives/storage             0.70 kB gz    0.3%     2.50 kB min
+  @solid-primitives/keyed               0.30 kB gz    0.1%     1.09 kB min
+  solid-presence                        0.28 kB gz    0.1%     1.03 kB min
+  class-variance-authority              0.25 kB gz    0.1%     0.88 kB min
+  @tanstack/solid-table                 0.11 kB gz    0.1%     0.46 kB min
+  @solid-primitives/event-listener      0.08 kB gz    0.0%     0.29 kB min
+  @solid-primitives/props               0.07 kB gz    0.0%     0.26 kB min
+  @solid-primitives/refs                0.01 kB gz    0.0%     0.03 kB min
+  top app modules:
+    src/components/cards/index.tsx                               3.91 kB gz
+    src/routes/(app)/examples/tasks/components/data.tsx          3.62 kB gz
+    src/components/mail/data.tsx                                 2.98 kB gz
+    src/components/mail/account-switcher.tsx                     2.17 kB gz
+    src/routes/(app)/examples/tasks/index.tsx                    1.85 kB gz
+    src/routes/(app)/examples/dashboard.tsx                      1.85 kB gz
+    src/registry/ui/table.tsx                                    1.58 kB gz
+    src/components/icons.tsx                                     1.53 kB gz

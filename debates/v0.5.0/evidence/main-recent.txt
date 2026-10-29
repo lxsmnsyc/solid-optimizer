@@ -1,0 +1,23 @@
+2026-10-02 11:21:54 +0800 perf: parse less and skip unneeded source maps
+2026-10-02 11:14:41 +0800 feat: benchmark bundle size and build time
+2026-10-23 08:31:46 +0800 perf: do not copy a component that only wraps one from its module
+2026-10-23 08:31:46 +0800 fix: keep a chunk optimized when an inlined spread becomes attributes
+2026-10-23 00:25:03 +0800 feat: inline a component that spreads its props
+2026-10-23 08:32:01 +0800 fix: shorten report paths that contain parentheses
+2026-10-22 21:11:04 +0800 feat: report what the optimizer leaves alone
+2026-10-23 00:38:55 +0800 fix: keep a ref's variable written through bundling
+2026-10-02 10:16:43 +0800 feat: credit each user's share of a component copied everywhere
+2026-10-02 01:43:51 +0800 fix: count the calls inlining enables, and read HTML entries
+2026-10-02 01:29:40 +0800 feat: inline components only where it makes the output smaller
+2026-10-02 01:29:32 +0800 fix: build modules with no code
+2026-10-02 01:29:31 +0800 fix: keep providers around values built from props
+2026-10-02 00:11:04 +0800 feat: inline components from other modules in hydrating builds
+2026-10-01 23:36:25 +0800 feat: inline components from other modules in chunk mode
+2026-09-30 19:07:32 +0800 feat: inline components that read props through mergeProps() and splitProps()
+2026-09-30 18:51:49 +0800 feat: remove context providers whose readers are all visible
+2026-09-30 18:31:03 +0800 fix: load imported constants through the bundler
+2026-09-30 11:45:27 +0800 feat: fold constants imported from other modules
+2026-09-30 11:27:08 +0800 fix: keep chunk mode working across Rolldown chunk layouts
+2026-09-30 11:06:30 +0800 feat: fold before bundling and mark lazy() as pure
+2026-09-30 10:59:53 +0800 feat: add a server pass for SSR builds
+2026-09-30 10:51:02 +0800 feat!: rewrite as an oxc-based JSX optimizer for Solid 1.x

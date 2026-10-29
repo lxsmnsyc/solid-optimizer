@@ -1,0 +1,1 @@
+T1: kobalte copy proof. Baseline == patched (byte-identical) in all 3 chunkings: default 207909, vendor 199230, single 198180 gzip bytes (optimized). See T1-*-sizes.txt, T1-*-reasons-*.txt, T1-patch.diff.

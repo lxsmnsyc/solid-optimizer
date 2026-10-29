@@ -1,0 +1,9 @@
+2026-10-23 00:32:35 +0800 feat: inline a component that forwards a ref
+2026-10-23 00:12:47 +0800 feat: fold define and import.meta.env in every build
+2026-10-23 00:08:53 +0800 feat: fold constants exported from modules with JSX
+2026-10-22 23:10:57 +0800 feat: unroll <For> over a constant list
+2026-10-22 22:05:17 +0800 feat: reduce a JSX arrow called with constants
+2026-10-22 22:01:43 +0800 feat: inline the children helper over JSX read once
+2026-10-22 21:55:32 +0800 feat: fold <Dynamic> with a known component into a call
+2026-10-22 21:51:39 +0800 feat: replace a constant memo with its value
+2026-10-22 21:45:48 +0800 feat: move component statements into Solid's untracked callbacks

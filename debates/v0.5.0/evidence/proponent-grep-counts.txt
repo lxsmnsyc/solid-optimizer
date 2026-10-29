@@ -1,0 +1,8 @@
+Pattern counts in main worktree examples (grep -rF, src/ only), ui = solid-ui, hn = hackernews
+<For: ui 10 hn 3 | <Index 0/0 | <Dynamic 0/0 | children( 2/0 | createMemo 2/0 | import.meta.env 0/0
+<Show: 17/13 | <Switch 19/0 | splitProps 108/0 | mergeProps 9/0 | ref= 21/18 | lazy( 5/3
+<For each={[...]} literal: 0. <For each={CONST} : 1 (table-row-actions.tsx labels). top-level 'const x = [' in solid-ui src: 7
+Built output counts (examples/solid-ui/dist/default, 17 chunks, grep -o 'createComponent'):
+plain 916 calls, optimized 855 calls => 61 removed (6.7%)
+optimized: splitProps( 140, mergeProps( 241, memo( 90
+Duplicated template strings: pattern did not match the minified shape, not measured.

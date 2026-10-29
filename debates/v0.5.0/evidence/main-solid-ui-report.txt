@@ -1,0 +1,18 @@
+[33m[PLUGIN_TIMINGS] [0mJavaScript callbacks ran for 3.2s of this 3.2s build (99%).
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin solid-optimizer:chunk renderChunk (34%, 1.1s, 17 calls)
+Additional callback time came from the callbacks below and from callbacks under 1s.
+1 callback is listed without a time. Its calls overlapped, so the time inside one call includes work from other calls. To find its cost, profile the build with `node --cpu-prof`:
+  - plugin solid transform (334 calls)
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+
+[BABEL] Note: The code generator has deoptimised the styling of /private/tmp/claude-501/-Users-alexis-Documents-GitHub-solid-optimizer/1ec47f36-031a-4e80-af38-347092582b57/scratchpad/main-wt/examples/solid-ui/assets/vendor-!~{001}~.js as it exceeds the max of 500KB.
+[BABEL] Note: The code generator has deoptimised the styling of /private/tmp/claude-501/-Users-alexis-Documents-GitHub-solid-optimizer/1ec47f36-031a-4e80-af38-347092582b57/scratchpad/main-wt/examples/solid-ui/assets/index-!~{000}~.js as it exceeds the max of 500KB.
+[33m[PLUGIN_TIMINGS] [0mJavaScript callbacks ran for 3.1s of this 3.1s build (98%).
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin solid-optimizer:chunk renderChunk (41%, 1.3s, 1 call)
+Additional callback time came from the callbacks below and from callbacks under 1s.
+1 callback is listed without a time. Its calls overlapped, so the time inside one call includes work from other calls. To find its cost, profile the build with `node --cpu-prof`:
+  - plugin solid transform (334 calls)
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+
