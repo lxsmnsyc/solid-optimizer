@@ -1,0 +1,37 @@
+{
+  "name": "website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@lezer/highlight": "^1.2.5",
+    "@oxc-parser/binding-wasm32-wasi": "0.151.0",
+    "@solidjs/compiler-wasm32-wasi": "2.0.0-rc.16",
+    "@solidjs/web": "2.0.0-rc.16",
+    "@twinkleplop/bash": "0.1.7",
+    "@twinkleplop/tsx": "0.1.7",
+    "codemirror": "^6.0.2",
+    "magic-string": "^1.4.2",
+    "oxc-parser": "^0.151.0",
+    "solid-js": "2.0.0-rc.16",
+    "solid-optimizer": "workspace:*"
+  },
+  "devDependencies": {
+    "@solidjs/compiler": "2.0.0-rc.16",
+    "@solidjs/vite-plugin": "3.0.0-next.50",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
