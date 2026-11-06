@@ -52,6 +52,24 @@ export const A = () => <main><Box id="a" /><Pair a="x" /><Later /><Maybe /><Self
     ]);
   });
 
+  it('turns down a component whose statements write outside it', () => {
+    expect(
+      reasons(`let count = 0;
+const cache = {};
+function Counted() { count++; return <i />; }
+function Cached(props) { cache[props.key] = true; return <b />; }
+function Titled() { document.title = 'x'; return <u />; }
+function Handler() { const reset = () => { count = 0; }; return <s onClick={reset} />; }
+function Local() { let n = 0; n += 1; const box = { n }; box.n = 2; return <p>{n}{box.n}</p>; }
+export const A = () => <main><Counted /><Cached key="a" /><Titled /><Handler /><Local /></main>;`),
+    ).toEqual([
+      'inline:component-write:Counted',
+      'inline:component-write:Cached',
+      'inline:component-write:Titled',
+      'inline:component-write:Handler',
+    ]);
+  });
+
   it('gives the reason a call site is turned down', () => {
     expect(
       reasons(`function Title(props) { return <h1>{props.label}</h1>; }

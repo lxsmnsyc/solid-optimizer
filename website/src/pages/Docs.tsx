@@ -404,6 +404,16 @@ const INLINE_REASONS: Reason[] = [
     text: <>The component’s own shape is not supported.</>,
   },
   {
+    codes: ['component-write'],
+    text: (
+      <>
+        The component’s statements assign to something declared outside it, like a counter at the
+        top of the module. A copy’s statements run before the JSX around the call, so that JSX would
+        see the write too early.
+      </>
+    ),
+  },
+  {
     codes: ['call-spread', 'call-namespace'],
     text: <>The call site passes a spread or a namespaced attribute.</>,
   },
