@@ -766,11 +766,11 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       for (const id of frontier) {
         seen.add(id);
       }
-      // oxlint-disable-next-line no-await-in-loop
       const reading = [];
       for (const id of frontier) {
         reading.push(findLocalImports(context, id));
       }
+      // oxlint-disable-next-line no-await-in-loop
       const next = await Promise.all(reading);
       frontier = [];
       for (const id of new Set(next.flat())) {
@@ -1279,11 +1279,15 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if (!result || !edit) {
         break;
       }
-      // Their uses of other components move here with them.
+      // Their uses of other components move here with them. Count every copy's
+      // users first, since moving one changes what the next one counts.
+      const sole: Copy[] = [];
       for (const copy of copies) {
-        if (countUsers(copy) !== 1) {
-          continue;
+        if (countUsers(copy) === 1) {
+          sole.push(copy);
         }
+      }
+      for (const copy of sole) {
         const [module = '', exported = ''] = copy.key.split('\0');
         absorbed.set(module, new Set([...(absorbed.get(module) ?? []), exported]));
       }

@@ -397,7 +397,6 @@ export async function buildUsageIndex(
     for (const id of frontier) {
       seen.add(id);
     }
-    // oxlint-disable-next-line no-await-in-loop
     async function readModule(id: string): Promise<string[]> {
       const code = await host.read(id);
       let program: Program;
@@ -434,6 +433,7 @@ export async function buildUsageIndex(
     for (const id of frontier) {
       reading.push(readModule(id));
     }
+    // oxlint-disable-next-line no-await-in-loop
     const next = await Promise.all(reading);
     frontier = [];
     for (const id of new Set(next.flat())) {

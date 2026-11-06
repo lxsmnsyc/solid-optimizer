@@ -58,10 +58,6 @@ function freshName(scopes: ScopeAnalysis, base: string): string {
   return name;
 }
 
-/**
- * Whether an import specifier was added by Solid's JSX transform, which
- * names every helper it imports `_$name`.
- */
 function isAllGenerated(specifiers: readonly ImportDeclarationSpecifier[]): boolean {
   for (const specifier of specifiers) {
     if (!isGeneratedSpecifier(specifier)) {
@@ -80,6 +76,10 @@ function hasStatement(functions: readonly { statement: Node }[], statement: Node
   return false;
 }
 
+/**
+ * Whether an import specifier was added by Solid's JSX transform, which
+ * names every helper it imports `_$name`.
+ */
 function isGeneratedSpecifier(specifier: ImportDeclarationSpecifier): boolean {
   return specifier.type === 'ImportSpecifier' && specifier.local.name.startsWith('_$');
 }
