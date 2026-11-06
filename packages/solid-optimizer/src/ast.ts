@@ -90,7 +90,7 @@ const RAW_TRANSFER = rawTransferSupported();
 
 export function parse(filename: string, code: string): Program {
   const options: ParserOptions & { experimentalRawTransfer?: boolean } = {
-    lang: languageOf(filename),
+    lang: getLanguage(filename),
     sourceType: 'module',
     preserveParens: true,
     experimentalRawTransfer: RAW_TRANSFER,
@@ -103,7 +103,7 @@ export function parse(filename: string, code: string): Program {
   return result.program;
 }
 
-function languageOf(filename: string): 'jsx' | 'ts' | 'tsx' {
+function getLanguage(filename: string): 'jsx' | 'ts' | 'tsx' {
   if (/\.tsx$/i.test(filename)) {
     return 'tsx';
   }

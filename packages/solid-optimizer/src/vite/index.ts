@@ -513,7 +513,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if (target === undefined || visiting.has(target.id)) {
         return undefined;
       }
-      const result = await constantsOf(context, target, visiting, transform);
+      const result = await readConstants(context, target, visiting, transform);
       partial ||= result.partial;
       if (!result.constants || Object.keys(result.constants.exports).length === 0) {
         return undefined;
@@ -534,7 +534,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return { constants, partial };
   }
 
-  async function constantsOf(
+  async function readConstants(
     context: Rollup.PluginContext,
     target: { id: string; jsx: boolean },
     visiting: ReadonlySet<string>,
@@ -702,7 +702,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    * modules are transformed in. Modules without JSX count too, since reading
    * their constants can load a module with JSX.
    */
-  async function localImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
+  async function findLocalImports(context: Rollup.PluginContext, id: string): Promise<string[]> {
     let pending = localImports.get(id);
     if (!pending) {
       pending = (async () => {
@@ -769,7 +769,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       // oxlint-disable-next-line no-await-in-loop
       const reading = [];
       for (const id of frontier) {
-        reading.push(localImportsOf(context, id));
+        reading.push(findLocalImports(context, id));
       }
       const next = await Promise.all(reading);
       frontier = [];
@@ -1130,7 +1130,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // The components copied here that leave their module, by module.
     const absorbed = new Map<string, Set<string>>();
     // How many modules use the original of a copy, this one included.
-    const usersOf = (copy: Copy): number => {
+    const countUsers = (copy: Copy): number => {
       const [module = '', exported = ''] = copy.key.split('\0');
       return usage.users(module, exported, id, absorbed);
     };
@@ -1233,7 +1233,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         const sharedComponents: Record<string, number> = {};
         const alwaysInlineComponents: string[] = [];
         for (const copy of copies) {
-          const users = usersOf(copy);
+          const users = countUsers(copy);
           if (users !== 1) {
             sharedComponents[copy.name] = users;
           }
@@ -1281,7 +1281,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       }
       // Their uses of other components move here with them.
       for (const copy of copies) {
-        if (usersOf(copy) !== 1) {
+        if (countUsers(copy) !== 1) {
           continue;
         }
         const [module = '', exported = ''] = copy.key.split('\0');

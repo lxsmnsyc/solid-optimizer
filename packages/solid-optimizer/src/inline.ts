@@ -101,7 +101,7 @@ import {
   unwrap,
 } from './ast';
 import type { PassContext, ResolvedOptions } from './context';
-import { isConstantDeclaration, recordSkip, solidExport, textOf } from './context';
+import { getText, isConstantDeclaration, recordSkip, solidExport } from './context';
 import type { Piece } from './jsx';
 import type { ClosedOptions, Provider } from './provider';
 import {
@@ -453,7 +453,10 @@ function acceptsAnyExpression(context: PassContext, node: Node): boolean {
 /**
  * The function a top-level binding declares, if it declares one.
  */
-function functionOf(binding: Binding, options: ResolvedOptions): ComponentFunction | undefined {
+function findComponentFunction(
+  binding: Binding,
+  options: ResolvedOptions,
+): ComponentFunction | undefined {
   const { declaration } = binding;
   if (binding.kind === 'function' && declaration.type === 'FunctionDeclaration') {
     return declaration;
@@ -475,7 +478,7 @@ function functionOf(binding: Binding, options: ResolvedOptions): ComponentFuncti
 /**
  * The attributes of a call site by name, or `undefined` when one cannot be inlined.
  */
-function attributesOf(
+function getAttributes(
   context: PassContext,
   element: JSXElement,
 ): Map<string, JSXAttribute> | undefined {
@@ -599,7 +602,7 @@ function isVoidZero(node: Expression): boolean {
 }
 
 /**
- * Why `attributesOf` turns down a call site, for the report.
+ * Why `getAttributes` turns down a call site, for the report.
  */
 function callSiteReason(element: JSXElement): string {
   const names = new Set<string>();
@@ -707,7 +710,7 @@ class Inliner {
   // Components
   // ---------------------------------------------------------------------------
 
-  private scopeOf(fn: ComponentFunction): Scope | undefined {
+  private getScope(fn: ComponentFunction): Scope | undefined {
     return this.context.scopes.scopes.get(fn);
   }
 
@@ -771,7 +774,7 @@ class Inliner {
       this.reason = 'component-mutated';
       return undefined;
     }
-    const fn = functionOf(binding, this.context.options);
+    const fn = findComponentFunction(binding, this.context.options);
     if (!fn?.body) {
       this.reason = this.isLazy(binding) ? 'lazy' : 'not-a-function';
       return undefined;
@@ -784,7 +787,7 @@ class Inliner {
       this.reason = 'component-params';
       return undefined;
     }
-    const scope = this.scopeOf(fn);
+    const scope = this.getScope(fn);
     if (!scope) {
       this.reason = 'not-a-function';
       return undefined;
@@ -1008,7 +1011,7 @@ class Inliner {
       if (init.type !== 'CallExpression' || (callee !== 'merge' && callee !== 'omit')) {
         continue;
       }
-      const view = this.viewOf(callee, init, param, views, args);
+      const view = this.resolveView(callee, init, param, views, args);
       if (view === null) {
         continue;
       }
@@ -1080,20 +1083,20 @@ class Inliner {
    * take the props or another view, and `undefined` when it does but its
    * other arguments are not literal.
    */
-  private viewOf(
+  private resolveView(
     callee: 'merge' | 'omit',
     call: CallExpression,
     param: Binding | undefined,
     views: ReadonlyMap<Binding, View>,
     args: Set<Node>,
   ): View | null | undefined {
-    const sourcesOf = (argument: Node): readonly ViewSource[] | undefined => {
+    const resolveSources = (argument: Node): readonly ViewSource[] | undefined => {
       if (argument.type === 'CallExpression') {
         const nested = solidCallee(this.context, argument);
         if (nested !== 'merge' && nested !== 'omit') {
           return undefined;
         }
-        return this.viewOf(nested, argument, param, views, args)?.sources;
+        return this.resolveView(nested, argument, param, views, args)?.sources;
       }
       if (argument.type !== 'Identifier') {
         return undefined;
@@ -1106,7 +1109,7 @@ class Inliner {
     };
     let involved = false;
     for (const argument of call.arguments) {
-      if (argument.type !== 'SpreadElement' && sourcesOf(unwrap(argument)) !== undefined) {
+      if (argument.type !== 'SpreadElement' && resolveSources(unwrap(argument)) !== undefined) {
         involved = true;
         break;
       }
@@ -1122,7 +1125,7 @@ class Inliner {
         return undefined;
       }
       const target = unwrap(first);
-      const base = sourcesOf(target);
+      const base = resolveSources(target);
       const hidden: string[] = [];
       for (const key of keys) {
         if (key.type !== 'Literal' || typeof key.value !== 'string') {
@@ -1150,7 +1153,7 @@ class Inliner {
         return undefined;
       }
       const inner = unwrap(argument);
-      const existing = sourcesOf(inner);
+      const existing = resolveSources(inner);
       if (existing) {
         args.add(inner);
         sources.push(...existing);
@@ -1280,7 +1283,7 @@ class Inliner {
    * returned JSX of a component, with only intrinsic elements, fragments,
    * and closed providers between it and the call.
    */
-  private hostOf(element: JSXElement): { fn: Node; host: Host } | undefined {
+  private findHost(element: JSXElement): { fn: Node; host: Host } | undefined {
     let node: Node = element;
     for (;;) {
       const parent = this.context.parents.get(node);
@@ -1351,13 +1354,13 @@ class Inliner {
       // A single expression is passed like an attribute value, such as a
       // render function that has to stay one function.
       const value = this.expressionValue(only.expression, 'children', reads, fresh, snapshots);
-      if (value.kind !== 'expression' || value.text !== textOf(this.context, only.expression)) {
+      if (value.kind !== 'expression' || value.text !== getText(this.context, only.expression)) {
         return value;
       }
       text = value.text;
       primary = value.primary;
     } else {
-      text = textOf(this.context, only);
+      text = getText(this.context, only);
     }
     return { kind: 'children', children, text, primary };
   }
@@ -1396,7 +1399,7 @@ class Inliner {
         return undefined;
       }
     }
-    return { kind: 'expression', text: textOf(this.context, value.expression), primary: true };
+    return { kind: 'expression', text: getText(this.context, value.expression), primary: true };
   }
 
   /**
@@ -1425,7 +1428,7 @@ class Inliner {
         return { kind: 'expression', text: JSON.stringify(value.value), primary: true };
       case 'JSXElement':
       case 'JSXFragment':
-        return { kind: 'jsx', text: textOf(this.context, value), primary: true };
+        return { kind: 'jsx', text: getText(this.context, value), primary: true };
       default:
         break;
     }
@@ -1447,7 +1450,7 @@ class Inliner {
     fresh: (base: string) => string,
     snapshots: string[],
   ): PropValue {
-    const text = textOf(this.context, expression);
+    const text = getText(this.context, expression);
     const inner = unwrap(expression);
     if (inner.type === 'JSXElement' || inner.type === 'JSXFragment') {
       return { kind: 'jsx', text, primary: true };
@@ -1522,7 +1525,7 @@ class Inliner {
    * when it cannot be inlined there. Nothing is written until `commit`.
    */
   private prepare(component: Component, element: JSXElement): PreparedSite | undefined {
-    const attributes = attributesOf(this.context, element);
+    const attributes = getAttributes(this.context, element);
     if (!attributes) {
       this.reason = callSiteReason(element);
       return undefined;
@@ -1599,7 +1602,7 @@ class Inliner {
     }
 
     const hoisted = component.statements.length > 0 || snapshots.length > 0;
-    const host = hoisted ? this.hostOf(element) : undefined;
+    const host = hoisted ? this.findHost(element) : undefined;
     if (hoisted && !host) {
       this.reason = 'no-host';
       return undefined;
@@ -1758,7 +1761,7 @@ class Inliner {
         this.transparent.set(element, { provider });
         continue;
       }
-      const host = this.hostOf(element);
+      const host = this.findHost(element);
       if (!host) {
         continue;
       }
@@ -1766,7 +1769,7 @@ class Inliner {
         `${provider.context.name.charAt(0).toLowerCase()}${provider.context.name.slice(1)}Value`,
       );
       const entry = this.hosts.get(host.fn) ?? { host: host.host, texts: [] };
-      entry.texts.push(`const ${name} = ${textOf(this.context, provider.value)};`);
+      entry.texts.push(`const ${name} = ${getText(this.context, provider.value)};`);
       this.hosts.set(host.fn, entry);
       this.context.s.overwrite(provider.value.start, provider.value.end, name);
       this.transparent.set(element, { provider, text: name });
@@ -1853,7 +1856,7 @@ class Inliner {
             names.add(
               attribute.name.type === 'JSXIdentifier'
                 ? attribute.name.name
-                : textOf(this.context, attribute.name),
+                : getText(this.context, attribute.name),
             );
           }
         }
@@ -2197,7 +2200,7 @@ class Inliner {
         copy,
         inTemplate,
         this.context.options,
-        blocked.length > 0 ? { declarations: this.declarationsOf(blocked), inline } : undefined,
+        blocked.length > 0 ? { declarations: this.createDeclarations(blocked), inline } : undefined,
         measured,
       );
       const body = measured.code.slice(measured.code.lastIndexOf(COPY_WRAPPER));
@@ -2239,12 +2242,12 @@ class Inliner {
   }
 
   /** The declarations of components, for a copy measured on its own. */
-  private declarationsOf(components: readonly Component[]): string {
+  private createDeclarations(components: readonly Component[]): string {
     const texts: string[] = [];
     for (const component of components) {
       const statement = this.topLevelStatement(component.binding.declaration);
       if (statement) {
-        texts.push(textOf(this.context, statement));
+        texts.push(getText(this.context, statement));
       }
     }
     return texts.join('\n');
@@ -2581,7 +2584,7 @@ class Inliner {
   ): { reason: string; name: string } | undefined {
     const tag = element.openingElement.name;
     if (tag.type === 'JSXMemberExpression') {
-      return { reason: 'member-tag', name: textOf(this.context, tag) };
+      return { reason: 'member-tag', name: getText(this.context, tag) };
     }
     if (tag.type !== 'JSXIdentifier' || !isCapitalized(tag.name)) {
       return undefined;

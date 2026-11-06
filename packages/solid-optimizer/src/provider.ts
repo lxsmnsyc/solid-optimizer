@@ -86,7 +86,7 @@ export interface Provider {
  * `useContext` throws when the value and the default are both `undefined`,
  * so a value that could be `undefined` keeps its provider.
  */
-export function providerOf(context: PassContext, element: JSXElement): Provider | undefined {
+export function findProvider(context: PassContext, element: JSXElement): Provider | undefined {
   const binding = contextBinding(context, element.openingElement.name);
   if (!binding || element.openingElement.selfClosing) {
     return undefined;
@@ -541,7 +541,7 @@ function isAccessorValue(
     return false;
   }
   if (expression.type === 'CallExpression') {
-    const value = contextValueOf(context, expression, options);
+    const value = findContextValue(context, expression, options);
     return value !== undefined && isAccessorValue(context, value, options, depth + 1);
   }
   if (expression.type !== 'Identifier') {
@@ -577,7 +577,7 @@ function constantInit(context: PassContext, binding: Binding): Expression | unde
 /**
  * The value `useContext(Ctx)` returns, when the provider is known.
  */
-function contextValueOf(
+function findContextValue(
   context: PassContext,
   call: CallExpression,
   options: ClosedOptions,
@@ -608,7 +608,7 @@ function isVisibleMethod(
   if (member.computed || member.property.type !== 'Identifier' || member.optional) {
     return false;
   }
-  const object = objectLiteralOf(context, member.object, options, 0);
+  const object = findObjectLiteral(context, member.object, options, 0);
   if (!object) {
     return false;
   }
@@ -647,7 +647,7 @@ function isVisibleMethod(
  * The object literal an expression evaluates to, through bindings that
  * never change and reads of a context whose value is known.
  */
-function objectLiteralOf(
+function findObjectLiteral(
   context: PassContext,
   node: Expression,
   options: ClosedOptions,
@@ -661,15 +661,15 @@ function objectLiteralOf(
     return expression;
   }
   if (expression.type === 'CallExpression') {
-    const value = contextValueOf(context, expression, options);
-    return value ? objectLiteralOf(context, value, options, depth + 1) : undefined;
+    const value = findContextValue(context, expression, options);
+    return value ? findObjectLiteral(context, value, options, depth + 1) : undefined;
   }
   if (expression.type !== 'Identifier') {
     return undefined;
   }
   const binding = context.scopes.references.get(expression);
   const init = binding ? constantInit(context, binding) : undefined;
-  return init ? objectLiteralOf(context, init, options, depth + 1) : undefined;
+  return init ? findObjectLiteral(context, init, options, depth + 1) : undefined;
 }
 
 /**
@@ -741,7 +741,7 @@ export function findProviders(context: PassContext): Provider[] {
   const providers: Provider[] = [];
   const visit = (node: Node): void => {
     if (node.type === 'JSXElement') {
-      const provider = providerOf(context, node);
+      const provider = findProvider(context, node);
       if (provider) {
         providers.push(provider);
       }
@@ -797,7 +797,7 @@ class ProviderRemover {
     const visit = (node: Node): void => {
       if (node.type === 'JSXElement') {
         const binding = contextBinding(this.context, node.openingElement.name);
-        if (binding && !providerOf(this.context, node)) {
+        if (binding && !findProvider(this.context, node)) {
           // A lone `value` is turned down because it could be `undefined`.
           const { attributes } = node.openingElement;
           const attribute = attributes.at(0);

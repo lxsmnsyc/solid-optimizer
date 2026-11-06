@@ -389,7 +389,7 @@ describe('solid-optimizer/vite', () => {
   });
 
   it('reports what the app leaves alone, not what a package does', async () => {
-    const reportOf = async (packages: string[]): Promise<string[]> => {
+    const readReport = async (packages: string[]): Promise<string[]> => {
       const skips: string[] = [];
       await bundle(
         'ssr-package',
@@ -408,10 +408,10 @@ describe('solid-optimizer/vite', () => {
       return skips;
     };
     // The package's own modules call `Polymorphic`, which the app cannot change.
-    expect((await reportOf([])).filter((skip) => skip.includes('Polymorphic'))).toEqual([]);
+    expect((await readReport([])).filter((skip) => skip.includes('Polymorphic'))).toEqual([]);
     // The app's calls of the package's component are still reported.
-    expect(await reportOf([])).toContain('copy-package Button (headless-ui)');
-    expect(await reportOf(['headless-ui'])).not.toContain('copy-package Button (headless-ui)');
+    expect(await readReport([])).toContain('copy-package Button (headless-ui)');
+    expect(await readReport(['headless-ui'])).not.toContain('copy-package Button (headless-ui)');
   });
 
   it('copies components from a listed package into a chunk that does not hold it', async () => {

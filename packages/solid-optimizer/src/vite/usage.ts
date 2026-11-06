@@ -224,7 +224,7 @@ function recordModule(
   // A module that uses its own export keeps it, whoever else copies it.
   const exported = exportedBindings(program, scopes);
   // The export names of the top-level declaration a use sits in.
-  const containersOf = (reference: Node): string[] => {
+  const findContainers = (reference: Node): string[] => {
     let node: Node = reference;
     let parent = parents.get(node);
     while (parent && parent.type !== 'Program') {
@@ -267,7 +267,7 @@ function recordModule(
       }
       if (imported !== '*') {
         if (isTagName(reference, parents)) {
-          usage.tag(target, imported, id, containersOf(reference));
+          usage.tag(target, imported, id, findContainers(reference));
         } else {
           usage.other(target, imported);
         }
@@ -277,7 +277,7 @@ function recordModule(
       const member = parents.get(reference);
       if (member?.type === 'JSXMemberExpression' && member.object === reference) {
         if (isTagName(member, parents)) {
-          usage.tag(target, member.property.name, id, containersOf(reference));
+          usage.tag(target, member.property.name, id, findContainers(reference));
         } else {
           usage.other(target, member.property.name);
         }
@@ -343,7 +343,7 @@ function recordModule(
 }
 
 /** The import specifiers a module loads, statically or with `import()`. */
-function specifiersOf(program: Program): { static: Set<string>; dynamic: Set<string> } {
+function collectSpecifiers(program: Program): { static: Set<string>; dynamic: Set<string> } {
   const statics = new Set<string>();
   const dynamics = new Set<string>();
   for (const statement of program.body) {
@@ -406,7 +406,7 @@ export async function buildUsageIndex(
       } catch {
         return [];
       }
-      const { static: statics, dynamic } = specifiersOf(program);
+      const { static: statics, dynamic } = collectSpecifiers(program);
       const targets = new Map<string, string>();
       async function resolveSource(source: string): Promise<void> {
         const target = await host.resolve(source, id);

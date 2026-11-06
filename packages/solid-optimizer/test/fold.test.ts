@@ -14,7 +14,7 @@ function lowered(code: string): string {
   return lower(folded(code));
 }
 
-function templateCountOf(code: string): number {
+function countTemplates(code: string): number {
   return templateCount(folded(code));
 }
 
@@ -157,7 +157,7 @@ ${declarations.replace('= lazy(', '= /* @__PURE__ */ lazy(')}export const view =
     ).toBe(
       'const LABEL = name;\nexport const view = <ul><li title={LABEL} data-n={1}>{1}</li><b>{(-2)}</b></ul>;',
     );
-    expect(templateCountOf('export const view = <ul>{((n) => <li>{n}</li>)(1)}</ul>;')).toBe(1);
+    expect(countTemplates('export const view = <ul>{((n) => <li>{n}</li>)(1)}</ul>;')).toBe(1);
   });
 
   it('keeps a call of a JSX arrow that could behave differently inline', () => {
@@ -205,7 +205,7 @@ export const nav = <nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a>
       `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
     );
     expect(
-      templateCountOf(
+      countTemplates(
         `${imports}export const list = <ul><For each={[1, 2, 3]}>{(x) => <li>{x}</li>}</For></ul>;`,
       ),
     ).toBe(1);

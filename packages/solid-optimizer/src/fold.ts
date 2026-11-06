@@ -65,7 +65,7 @@ import {
 } from './ast';
 import type { PassContext } from './context';
 import { ConstantTable } from './constants';
-import { isConstantDeclaration, solidExport, textOf } from './context';
+import { getText, isConstantDeclaration, solidExport } from './context';
 import type { Piece } from './jsx';
 import {
   findAttribute,
@@ -206,7 +206,7 @@ function containsHoistedDeclaration(statement: Node): boolean {
 function getTexts(context: PassContext, nodes: readonly Node[]): string[] {
   const texts: string[] = [];
   for (const node of nodes) {
-    texts.push(textOf(context, node));
+    texts.push(getText(context, node));
   }
   return texts;
 }
@@ -282,14 +282,14 @@ function primitiveText(context: PassContext, node: Expression): string | undefin
   }
   switch (expression.type) {
     case 'Literal':
-      return 'regex' in expression ? undefined : textOf(context, expression);
+      return 'regex' in expression ? undefined : getText(context, expression);
     case 'TemplateLiteral':
-      return expression.expressions.length === 0 ? textOf(context, expression) : undefined;
+      return expression.expressions.length === 0 ? getText(context, expression) : undefined;
     case 'UnaryExpression':
       return expression.operator === '-' &&
         expression.argument.type === 'Literal' &&
         typeof expression.argument.value === 'number'
-        ? textOf(context, expression)
+        ? getText(context, expression)
         : undefined;
     default:
       return undefined;
@@ -414,7 +414,7 @@ class Folder {
   }
 
   private replace(node: Node, text: string): void {
-    if (textOf(this.context, node) === text) {
+    if (getText(this.context, node) === text) {
       return;
     }
     this.context.s.overwrite(node.start, node.end, text);
@@ -524,11 +524,11 @@ class Folder {
   private keepAfter(target: Node, discarded: Expression | undefined, value: Expression): string {
     const parts = discarded ? effectfulParts(discarded) : [];
     if (parts.length === 0) {
-      const text = textOf(this.context, value);
+      const text = getText(this.context, value);
       return needsParensAt(target, value, this.context.parents) ? `(${text})` : text;
     }
     const texts = getTexts(this.context, parts);
-    texts.push(textOf(this.context, value));
+    texts.push(getText(this.context, value));
     return `(${texts.join(', ')})`;
   }
 
@@ -727,18 +727,18 @@ class Folder {
         };
       case 'JSXElement':
       case 'JSXFragment':
-        return { kind: 'jsx', text: textOf(this.context, value) };
+        return { kind: 'jsx', text: getText(this.context, value) };
       default:
         if (value.expression.type === 'JSXEmptyExpression') {
           return EMPTY;
         }
         // JSX in a container splices like JSX, so it can join the surrounding template.
         if (value.expression.type === 'JSXElement' || value.expression.type === 'JSXFragment') {
-          return { kind: 'jsx', text: textOf(this.context, value.expression) };
+          return { kind: 'jsx', text: getText(this.context, value.expression) };
         }
         return {
           kind: 'expression',
-          text: textOf(this.context, value.expression),
+          text: getText(this.context, value.expression),
           primary: isPrimary(value.expression),
         };
     }
@@ -1220,7 +1220,7 @@ class Folder {
     const attributes: string[] = [];
     for (const attribute of element.openingElement.attributes) {
       if (attribute !== component) {
-        attributes.push(textOf(this.context, attribute));
+        attributes.push(getText(this.context, attribute));
       }
     }
     const opening = [tag, ...attributes].join(' ');
@@ -1259,7 +1259,7 @@ class Folder {
           significant.length === 1 &&
           (only.type === 'JSXElement' || only.type === 'JSXFragment')
         ) {
-          return textOf(this.context, only);
+          return getText(this.context, only);
         }
         const first = resolved.children.at(0);
         const last = resolved.children.at(-1);
@@ -1403,12 +1403,12 @@ class Folder {
     }
     switch (node.type) {
       case 'Literal':
-        return 'regex' in node ? undefined : textOf(this.context, node);
+        return 'regex' in node ? undefined : getText(this.context, node);
       case 'TemplateLiteral':
-        return node.expressions.length === 0 ? textOf(this.context, node) : undefined;
+        return node.expressions.length === 0 ? getText(this.context, node) : undefined;
       case 'UnaryExpression':
         return node.operator === '-' && node.argument.type === 'Literal'
-          ? `(${textOf(this.context, node)})`
+          ? `(${getText(this.context, node)})`
           : undefined;
       case 'Identifier': {
         const binding = this.context.scopes.references.get(node);
@@ -1509,7 +1509,7 @@ class Folder {
       parts.push(effect);
     }
     if (kept) {
-      parts.push(textOf(this.context, kept));
+      parts.push(getText(this.context, kept));
     }
     this.replaceStatement(statement, parts.join(' '));
     return kept;

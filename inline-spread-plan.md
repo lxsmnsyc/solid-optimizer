@@ -9,8 +9,8 @@ These results come from `compile` with `alwaysInline: true` on the current `soli
 | Shape                                                    | Inlines | Why                                                      |
 | -------------------------------------------------------- | ------- | -------------------------------------------------------- |
 | `function Box(props) { return <div {...props} />; }`     | no      | A reference to `props` that is not `props.name`.         |
-| `<Title {...p} />` with an unknown `p`                   | no      | `attributesOf` rejects every spread at a call site.      |
-| `<Field ref={el} />` with `<input ref={props.ref} />`    | no      | `attributesOf` rejects `ref`.                            |
+| `<Title {...p} />` with an unknown `p`                   | no      | `getAttributes` rejects every spread at a call site.     |
+| `<Field ref={el} />` with `<input ref={props.ref} />`    | no      | `getAttributes` rejects `ref`.                           |
 | A wrapper that spreads an `omit()` view onto a component | yes     | The view becomes attributes, so the inner call is plain. |
 | `if (FLAG) return null;` with a constant `FLAG`          | yes     | Fold removes the branch before inline checks the body.   |
 
@@ -51,7 +51,7 @@ Status: done. Both forms run during element creation, untracked and with no owne
 
 Solid lowers `ref` on a component into a `ref(r$)` prop function. On an element it lowers `ref` into a call to `ref()`. The inlined copy can pass the call site's expression straight to the element when the component only forwards it.
 
-1. In `attributesOf`, allow `ref` when it is a plain `JSXAttribute`.
+1. In `getAttributes`, allow `ref` when it is a plain `JSXAttribute`.
 2. Inline the call site only when every read of `ref` is one of these:
    - the whole value of a `ref` attribute on an intrinsic element, as `ref={props.ref}`;
    - a key of a view or props spread onto an intrinsic element;
@@ -72,7 +72,7 @@ Status: not planned. No app has a case that would inline. See item 2 in [roadmap
 
 `<Title {...p} label="x" />` lowers to `createComponent(Title, mergeProps(p, { label: "x" }))`. The copy can do the same without the component call.
 
-1. Allow a `JSXSpreadAttribute` in `attributesOf`. Return the attributes and spreads in source order.
+1. Allow a `JSXSpreadAttribute` in `getAttributes`. Return the attributes and spreads in source order.
 2. When a call site has a spread, store its props in a `const` in the host, the way stored props already work:
 
    ```jsx

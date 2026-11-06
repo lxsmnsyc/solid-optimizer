@@ -63,7 +63,7 @@ import type {
 } from 'oxc-parser';
 import { isFunctionNode, isIntrinsicTag, unwrap } from './ast';
 import type { PassContext } from './context';
-import { recordSkip, solidExport, textOf } from './context';
+import { getText, recordSkip, solidExport } from './context';
 import { usesFunctionContext } from './inline';
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
@@ -120,14 +120,14 @@ function constantText(context: PassContext, node: Expression): string | undefine
   const expression = unwrap(node);
   switch (expression.type) {
     case 'Literal':
-      return 'regex' in expression ? undefined : textOf(context, expression);
+      return 'regex' in expression ? undefined : getText(context, expression);
     case 'TemplateLiteral':
-      return expression.expressions.length === 0 ? textOf(context, expression) : undefined;
+      return expression.expressions.length === 0 ? getText(context, expression) : undefined;
     case 'UnaryExpression':
       return expression.operator === '-' &&
         expression.argument.type === 'Literal' &&
         typeof expression.argument.value === 'number'
-        ? textOf(context, expression)
+        ? getText(context, expression)
         : undefined;
     default:
       return undefined;
@@ -273,7 +273,7 @@ class MemoInliner {
   /**
    * The function a node runs in.
    */
-  private functionOf(node: Node): Node | undefined {
+  private findEnclosingFunction(node: Node): Node | undefined {
     let current = this.context.parents.get(node);
     while (current && !isFunctionNode(current)) {
       current = this.context.parents.get(current);
@@ -282,7 +282,7 @@ class MemoInliner {
   }
 
   /** The JSX expression container a call is the whole of. */
-  private containerOf(call: Node): JSXExpressionContainer | undefined {
+  private findContainer(call: Node): JSXExpressionContainer | undefined {
     let parent = this.context.parents.get(call);
     while (parent?.type === 'ParenthesizedExpression') {
       parent = this.context.parents.get(parent);
@@ -331,7 +331,7 @@ class MemoInliner {
           return false;
         }
       } else if (
-        this.builtInOf(element.openingElement.name) !== tag ||
+        this.getBuiltIn(element.openingElement.name) !== tag ||
         TRACKED_PROPS.get(tag) !== attribute
       ) {
         // A component can read a prop any number of times.
@@ -343,7 +343,7 @@ class MemoInliner {
     return this.isStaticJSX(element, fn);
   }
 
-  private builtInOf(name: Node): string | undefined {
+  private getBuiltIn(name: Node): string | undefined {
     if (name.type !== 'JSXIdentifier') {
       return undefined;
     }
@@ -382,7 +382,7 @@ class MemoInliner {
         case 'ParenthesizedExpression':
           break;
         case 'ReturnStatement':
-          return this.functionOf(parent) === fn && !this.inLoop(parent, fn);
+          return this.findEnclosingFunction(parent) === fn && !this.inLoop(parent, fn);
         default:
           return false;
       }
@@ -472,7 +472,7 @@ class MemoInliner {
       return undefined;
     }
     const statement = this.context.parents.get(declarator);
-    const fn = this.functionOf(declarator);
+    const fn = this.findEnclosingFunction(declarator);
     if (statement?.type !== 'VariableDeclaration' || statement.declarations.length !== 1 || !fn) {
       this.reason = 'memo-declaration';
       return undefined;
@@ -488,7 +488,7 @@ class MemoInliner {
       return undefined;
     }
     // The resolved children are inserted, so the read has to be a child, not an attribute.
-    const container = this.containerOf(call);
+    const container = this.findContainer(call);
     const owner = container ? this.context.parents.get(container) : undefined;
     if (
       kind === 'children' &&
@@ -506,10 +506,10 @@ class MemoInliner {
     }
     if (kind === 'children' && container) {
       // The JSX takes the place of its container, so it joins the template around it.
-      this.context.s.overwrite(container.start, container.end, textOf(this.context, expression));
+      this.context.s.overwrite(container.start, container.end, getText(this.context, expression));
     } else {
       // The read sits in a JSX container, which takes any expression.
-      this.context.s.overwrite(call.start, call.end, textOf(this.context, expression));
+      this.context.s.overwrite(call.start, call.end, getText(this.context, expression));
     }
     this.context.s.remove(statement.start, statement.end);
     this.changed = true;
