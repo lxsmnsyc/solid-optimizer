@@ -251,6 +251,61 @@ export function App() {
     expect(output).toContain('<i />');
   });
 
+  it('forwards a ref array with empty entries', () => {
+    const output = inlined(`import { untrack } from 'solid-js';
+function Field(props) {
+  return <input ref={props.ref} />;
+}
+export function App() {
+  return <main><Field ref={[setA, void 0]} /><Field ref={[setB, untrack(() => setC)]} /></main>;
+}
+`);
+    // Solid skips an empty entry, and runs the whole ref untracked.
+    expect(output).toContain(
+      '<main><input ref={[setA, void 0]} /><input ref={[setB, untrack(() => setC)]} /></main>',
+    );
+  });
+
+  it('keeps a call site whose ref array runs other code', () => {
+    const code = `
+function Field(props) {
+  return <input ref={props.ref} />;
+}
+export function App() {
+  return <main><Field ref={[setA, pick()]} /></main>;
+}
+`;
+    expect(inlined(code)).toBe(code);
+  });
+
+  it('inlines the calls of an alias, and removes the alias with the component', () => {
+    const output = inlined(`function CardRoot(props) {
+  return <section class="card">{props.children}</section>;
+}
+const Card = CardRoot;
+export function App() {
+  return <main><Card>hi</Card></main>;
+}
+`);
+    expect(output).toContain('<main><section class="card">hi</section></main>');
+    expect(output).not.toContain('CardRoot');
+    expect(output).not.toContain('Card =');
+  });
+
+  it('keeps a component that an exported alias names', () => {
+    const output = inlined(`function CardRoot(props) {
+  return <section class="card">{props.children}</section>;
+}
+export const Card = CardRoot;
+export function App() {
+  return <main><Card>hi</Card></main>;
+}
+`);
+    expect(output).toContain('<main><section class="card">hi</section></main>');
+    expect(output).toContain('function CardRoot(props)');
+    expect(output).toContain('export const Card = CardRoot;');
+  });
+
   it('stores a static prop that is read more than once', () => {
     const code = `
 function Button(props) {

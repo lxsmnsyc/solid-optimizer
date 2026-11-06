@@ -122,15 +122,22 @@ const LAZY_PLACEHOLDER = /"__SOLID_LAZY_MODULE__:([^"]+)"/g;
  * The common kinds of attribute: a class, any other attribute, events, and
  * children. Inlining a component turns a spread onto an element into
  * attributes like these, in a module that may not use their helpers itself.
- * A rarer kind, like `style`, can still need a helper no module imports.
- * The chunk is then lowered without optimizing it.
+ * A `ref` can come through a spread too, and a link with a dynamic attribute
+ * claims its element. A rarer kind, like `style`, can still need a helper no
+ * module imports. The chunk is then lowered without optimizing it.
  */
 const ATTRIBUTE_SAMPLE = `const a = () => 0;
 export const Sample = () => (
-  <div class={a()} id={a()} onClick={a()} onScroll={a()}>{a()}</div>
+  <div class={a()} id={a()} onClick={a()} onScroll={a()}>
+    {a()}
+    <a href="/" title={a()} ref={a} />
+  </div>
 );`;
 
-/** Whether the code spreads anything onto an intrinsic element. */
+/**
+ * Whether the code spreads anything onto an intrinsic element, or onto
+ * `<Dynamic>`, which becomes one once its `component` is known.
+ */
 function spreadsOntoElement(code: string, filename: string): boolean {
   if (!code.includes('...')) {
     return false;
@@ -143,7 +150,7 @@ function spreadsOntoElement(code: string, filename: string): boolean {
     if (
       node.type === 'JSXOpeningElement' &&
       node.name.type === 'JSXIdentifier' &&
-      isIntrinsicTag(node.name.name) &&
+      (isIntrinsicTag(node.name.name) || node.name.name === 'Dynamic') &&
       node.attributes.some((attribute) => attribute.type === 'JSXSpreadAttribute')
     ) {
       found = true;

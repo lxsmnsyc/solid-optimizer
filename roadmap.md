@@ -185,7 +185,16 @@ Plan:
 
 ## 9. Copying components from chosen packages
 
+Status: on hold. The inline pass now inlines Kobalte's simple components when they share a chunk with their user, so copying them has something to gain. Do it when an app shows a library in another chunk than its user.
+
 Components from `node_modules` are never copied across modules.
+
+What a spike on Solid 2 libraries found, on 2026-11-06:
+
+- `@kobalte/core` 2.0.0-alpha.4 and `@tanstack/solid-router` 2.0.0-rc.10 publish their JSX through the `solid` condition. `@solidjs/router` 2 has no `<A>` left to copy.
+- Built as one chunk, where nothing needs a copy, none of their components inlined. A copy would not have changed that.
+- Kobalte's components were blocked by the inline pass itself: each export is an alias like `const Button = ButtonRoot`, each root renders `<Polymorphic as="button" ref={[setRef, untrack(() => merged.ref)]} {...others} />`, and `Polymorphic` renders `<Dynamic {...others} component={props.as} />`. These now inline. See `examples/kobalte`.
+- TanStack's `Link` has several `return`s and passes its props to `splitProps` and `useLinkProps`, so it stays.
 
 This was item 8. It moved below constants in hydrating builds, since copying adds less than it seemed:
 
@@ -226,7 +235,9 @@ This is less common than the items above. Do it only if step 0 finds it.
 
 ## 11. Runtime helpers in the size estimate
 
-Status: researched. The local part is done. Whole-program helper tracking is not planned.
+Status: researched. The local part is done. Whole-program helper tracking is not planned, but `examples/kobalte` is a case the local part does not catch.
+
+`examples/kobalte` saves 4.3% with the estimate, and 34% with `alwaysInline` (19.01 kB to 12.57 kB gzipped, one chunk). Its three `Button`s and two `Link`s stay calls, since each copy repeats Kobalte's signal, `createTagName`, and three memos. Inlining all of them leaves no `<Dynamic>`, `merge()`, or `omit()` in the app, and those runtime parts are most of the difference. A per-component credit cannot see that.
 
 What the demo showed, comparing the default build with one that sets `alwaysInline`:
 

@@ -700,3 +700,49 @@ function App() {
     expect(code).not.toContain('omit(');
   });
 });
+
+describe('headless components', () => {
+  it('renders a component through Dynamic, an alias, and a ref array', async () => {
+    const code = await expectSameBehavior(
+      'polymorphic',
+      app(
+        `function Polymorphic(props) {
+  const others = omit(props, 'as');
+  if (!untrack(() => props.as)) throw new Error('Polymorphic needs an \`as\` prop.');
+  return <Dynamic {...others} component={props.as} />;
+}
+function ButtonRoot(props) {
+  const [ref, setRef] = createSignal(undefined, { ownedWrite: true });
+  const merged = merge({ type: 'button' }, props);
+  const others = omit(merged, 'ref', 'type');
+  return (
+    <Polymorphic
+      as="button"
+      ref={[setRef, untrack(() => merged.ref)]}
+      type={merged.type}
+      data-ready={ref() ? '' : undefined}
+      {...others}
+    />
+  );
+}
+const Button = ButtonRoot;
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <Button class="primary" onClick={() => setCount(count() + 1)}>
+        Clicks: {count()}
+      </Button>
+    </main>
+  );
+}`,
+        `import { createSignal, merge, omit, untrack } from 'solid-js';
+import { Dynamic } from '@solidjs/web';`,
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('Polymorphic');
+    expect(code).not.toContain('ButtonRoot');
+    expect(code).not.toContain('Dynamic');
+  });
+});

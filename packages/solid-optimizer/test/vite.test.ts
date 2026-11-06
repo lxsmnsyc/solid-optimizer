@@ -440,6 +440,34 @@ describe('solid-optimizer/vite', () => {
     );
   });
 
+  it('optimizes a chunk where a spread onto Dynamic becomes a link', async () => {
+    // The modules import each other, so nothing is copied. The chunk inlines
+    // `Link` and `Polymorphic`, and `<Dynamic>` becomes an `<a>` with a ref
+    // and a dynamic attribute, whose helpers no module uses itself.
+    const warnings: string[] = [];
+    const chunks = await bundle('polymorphic', {}, undefined, {}, [
+      {
+        name: 'collect-warnings',
+        configResolved(config) {
+          const { logger } = config;
+          const warn = logger.warn.bind(logger);
+          logger.warn = (message, options) => {
+            warnings.push(message);
+            warn(message, options);
+          };
+        },
+      },
+    ]);
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(warnings.filter((message) => message.includes('is not optimized'))).toEqual([]);
+    expect(code).not.toContain('Polymorphic');
+    expect(code).not.toContain('LinkRoot');
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    expect(text(await load('polymorphic'))).toBe(
+      text(await load('polymorphic', { optimizer: false })),
+    );
+  });
+
   it('runs code-split chunks that share the runtime', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const optimized = text(await load('split'));

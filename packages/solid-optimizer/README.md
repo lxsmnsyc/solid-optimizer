@@ -132,7 +132,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 
 - `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
-- `call-spread` and `call-namespace` mean the call site passes a spread or a namespaced attribute. `call-ref` means its `ref` is an expression other than a name or a function, and `ref-use` means the component uses `props.ref` other than as a `ref`.
+- `call-spread` and `call-namespace` mean the call site passes a spread or a namespaced attribute. `call-ref` means its `ref` is an expression other than a name, a function, or an array of them, and `ref-use` means the component uses `props.ref` other than as a `ref`.
 - `no-host` means the component has statements, and the call is not in JSX that a component or one of Solid's callbacks returns. A `<Show>` child or a `fallback` is one such place.
 - `size` means the copies would be larger than the calls.
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
@@ -191,16 +191,16 @@ Solid then creates one template for `<main>` instead of two.
   - the child callback of `<Show>` or `<Match>`, when it takes the value;
   - the callback given to `render`.
 - Bindings declared in the component get fresh names in every copy.
-- A component nothing else uses is removed.
+- A component nothing else uses is removed, with any alias of it that nothing uses.
 
 A component inlines when all of these hold:
 
-- It is declared once at the top level, with a capitalized name.
+- It is declared once at the top level, with a capitalized name. A call through an alias, like `const Separator = SeparatorRoot`, is a call of the component it names.
 - Its parameter is one identifier that is only read as `props.name`, spread onto an element as `{...props}`, or passed to `merge()` and `omit()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
 - The call site has no spread attribute and no namespaced attribute.
-- A `ref` at the call site moves to the element the component gives `props.ref` to, when its value is a name, a function, or an array of them, and the component only uses `props.ref` as the `ref` of an element, of another component, or in a spread. Both run while the element is made, untracked, so the element gets the same ref.
+- A `ref` at the call site moves to the element the component gives `props.ref` to, when its value is a name, a function, or an array of them, and the component only uses `props.ref` as the `ref` of an element, of another component, or in a spread. Both run while the element is made, untracked, so the element gets the same ref. In an array, `void 0` and `untrack(() => ...)` around a name or a function count too: Solid skips an empty entry, and runs the whole `ref` untracked.
 
 The props can go through `merge()` and `omit()` first, declared as a `const` in the component:
 
@@ -236,6 +236,7 @@ Every copy repeats the component's own code, so inlining a component at many cal
 - A copy costs the component's statements, its dynamic attributes and children, and the elements that cannot join a template. Constant props are folded first, so a branch they rule out costs nothing.
 - When every call inlines and nothing else uses the component, its declaration goes away too.
 - A call in its children that can only inline once it does, because that component has statements to hoist, counts too.
+- A call in its body that can only inline in a copy counts too, such as a call that spreads a `merge()` or `omit()` view, which each call site resolves. The copy is measured with that call inlined, and the called component's declaration goes away when nothing else uses it.
 
 A component inlines only when its copies are no larger. A small component, or one used once, inlines at every call. A wrapper used many times, whose root is another component, like most wrappers of a component library, stays a component.
 
@@ -340,6 +341,7 @@ This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](
 - `<Repeat count>` becomes its `fallback` when `count` is below one.
 - `<Switch>` drops each `<Match>` that is always false, and becomes the first `<Match>` that is always true.
 - `<Dynamic component="div">` becomes `<div>`. `<Dynamic component={Card}>` becomes `<Card>` when `Card` is a capitalized component declared at the top level, as a function or with `lazy`, that nothing reassigns. An imported component stays, since an import could hold a tag name.
+- `untrack(() => value)` becomes the value when the value is a constant. A component inlined with a literal prop can leave one, like `untrack(() => props.as)`.
 - A call of an arrow function whose body is JSX, such as a render prop left by inlining, becomes the JSX when it is an element's child and each argument is a constant or a binding nothing reassigns. `{((n) => <li>{n}</li>)(1)}` becomes `<li>{1}</li>`. A `ref` or a spread in the JSX keeps the call, since both run while the JSX is made.
 
 A built-in only folds when the tag resolves to Solid's component. The tag must bind to nothing, or be imported from one of `moduleSources`. A tag with a spread attribute or a function child never folds. `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` never fold.
