@@ -8,7 +8,7 @@ import { lower, optimize, templateCount } from './utils';
 
 function folded(code: string): string {
   // `<Show>` stays unless a constant condition resolves it.
-  return optimize(code, { inline: false, shows: false });
+  return optimize(code, { inline: false, conditionals: false });
 }
 
 function lowered(code: string): string {

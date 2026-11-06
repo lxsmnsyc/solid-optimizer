@@ -432,9 +432,9 @@ Plan:
 2. Hoist to the nearest scope that declares all of them. A module-level target needs no `const` in a component.
 3. The bundle does not get smaller. Measure with item 12's runtime benchmark, mount time and heap for a list of 1,000 rows, before keeping it.
 
-## 21. `<Show>` lowered to a ternary
+## 21. `<Show>` and `<Switch>` lowered to ternaries
 
-Status: in progress in #43.
+Status: done. `<Show>` in #43. `<Switch>` followed, since the demo's two were the last users of `Switch`, `Match`, and `children()`, and its builds are 270 to 290 B smaller gzipped without them.
 
 Items 13 to 20 were checked against Hacker News on 2026-11-06, and none applies to it:
 

@@ -3,7 +3,7 @@ import { lower, optimize, templateCount } from './utils';
 
 function inlined(code: string): string {
   // `<Show>` stays, so the tests can see where inlining puts its children.
-  return optimize(code, { fold: false, shows: false });
+  return optimize(code, { fold: false, conditionals: false });
 }
 
 describe('component inlining', () => {
