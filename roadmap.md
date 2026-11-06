@@ -291,6 +291,147 @@ Plan:
 
 Start with the client counts in step 1. They need only a small counting harness, and they show whether the runtime effect is large enough to justify the timings and the SSR app. Updates after mount, such as a signal write reaching the DOM, are left out at first: merging changes creation more than updates, and update benchmarks need a script per app.
 
+## Items that bundlers cannot do
+
+Items 13 to 20 come from a brainstorm on 2026-11-06. Each one needs to know what a Solid call does, which a bundler or minifier does not. None is measured yet. Run step 0's report and the size script on the demo, Hacker News, and `examples/kobalte` before each plan starts.
+
+Suggested order:
+
+1. Item 13, since it is small and every fold leaves more for it to remove.
+2. Items 14 and 15, which reuse `memo.ts` and make each other fold more.
+3. Item 16, then item 17. These matter most for apps built on a component library.
+4. Items 18, 19, and 20, which depend on the build kind or on item 12's runtime numbers.
+
+## 13. Mark Solid's factory calls as free of side effects
+
+Solid 2.0.0-rc.21's `solid.js` has three `__PURE__` annotations, all on its own internal values. `createContext`, `createSignal`, `createMemo`, and `lazy` have none. A bundler keeps a call it cannot prove free of side effects, even when nothing reads its result.
+
+The optimizer's own folding leaves such calls behind:
+
+```jsx
+const ThemeCtx = createContext('light');
+const Settings = lazy(() => import('./Settings'));
+
+// Every reader of ThemeCtx inlined, and the only <Settings> sat in a branch that folded away.
+```
+
+Both declarations stay in the bundle, and the kept `lazy` keeps the `./Settings` chunk.
+
+Plan:
+
+1. Check which Solid 2 factories are safe to drop when their result is unused. `createContext` and `lazy` only build values. `createSignal` and `createMemo` at module scope create nodes with no owner. Check that dropping them changes nothing else, such as a dev warning or the hydration keys.
+2. After the last pass, add `/*@__PURE__*/` to each such call whose result is unused or only declared.
+3. In chunk mode the passes already know which chunk bindings are Solid's built-ins and `createMemo`. Record the other factories the same way.
+4. Measure the demo and Hacker News. Neither may have a case, so add a test fixture where folding leaves a `lazy` with no reader.
+
+## 14. Signals that are never written
+
+`const [count] = createSignal(5)` has no setter, so `count()` always returns `5`. A bundler cannot see this, since `createSignal` is a call into the runtime.
+
+Plan:
+
+1. In `memo.ts`, accept `createSignal(literal)` when the setter is not destructured, or is a binding nothing references.
+2. Also accept `createSignal(literal)` without options. An `equals` option does not matter when no write happens.
+3. Replace every read `count()` with the literal, and drop the declaration. Use the same rules as item 3 for other references to the getter: a getter passed as a value stays.
+4. Apply the same rule to `createStore(objectLiteral)` with no setter. A store read returns the same value every time when nothing writes to it. The store's object can hold functions or getters, so start with literals of primitives only.
+5. List the accepted difference in `strategy.md`. The signal no longer exists, which shifts the hydration keys after it if Solid gives signals a slot. Check that first.
+
+## 15. Derived accessors that are plain arrows
+
+`const double = () => count() * 2` read once in JSX can be replaced by its body. Memo inlining does this for `createMemo`. A plain arrow needs fewer rules, since it has no cache and no owner, and every call already runs its body again.
+
+```jsx
+const label = () => (props.open ? 'Close' : 'Open');
+return <button>{label()}</button>;
+```
+
+After inlining, the arrow becomes `<button>{props.open ? 'Close' : 'Open'}</button>`. With a constant `open` from the call site, the text joins the template.
+
+Plan:
+
+1. Accept a top-level or component-level `const` that holds an arrow with no parameters, whose body is one expression.
+2. Replace each call `label()` with the body, when the body only reads bindings that are in scope at the call and never reassigned.
+3. Allow more than one call when the body folds to a literal or is short, since the copy costs the same as the call. Use the size estimate otherwise.
+4. Leave the arrow alone when it is referenced other than by a call, such as `insert(el, label)` or `on:click={label}`.
+
+## 16. Class helpers evaluated at build time
+
+Component libraries build `class` with helpers like `clsx`, `cn` (`twMerge(clsx(...))`), and `cva`. A bundler treats each call as opaque. After component inlining, the arguments are often constants:
+
+```jsx
+// A copy of solid-ui's Button, inlined with variant="outline" and size="sm"
+<button class={cn(buttonVariants({ variant: 'outline', size: 'sm' }), undefined)} />
+```
+
+The call could become a string at build time. The `class` then turns static, joins the template, and needs no effect or `className` helper. `strategy.md` says solid-ui's wrappers stay calls because each copy repeats its `cn(...)` call and class string. A static string is one attribute in a template.
+
+Plan:
+
+1. Add an option `pureFunctions`, a list of package exports that return the same result for the same arguments and have no side effects, such as `{ clsx: ['clsx', 'default'], 'tailwind-merge': ['twMerge'] }`.
+2. In the fold pass, call such a function at build time when every argument folds to a constant. Load the package in the build process, not in the bundle, and replace the call with the result when it is a string, number, or boolean.
+3. Follow a local wrapper like `function cn(...inputs) { return twMerge(clsx(inputs)); }` when its body only calls listed functions on its parameters.
+4. Handle `cva` as a listed function that returns a function. Fold `buttonVariants({ ... })` when the `cva(...)` call's arguments are constants too.
+5. Measure on solid-ui with `@kobalte/core` in `optimizer.packages`. Count how many `class` attributes turn static.
+
+Risks:
+
+- Running package code during the build runs whatever it does on import. Only listed packages run, and they run in the build process.
+- The server build and the client build must give the same result. They do, since both run the same function on the same constants.
+
+## 17. Constant props baked into a component every caller agrees on
+
+When every call of a component passes the same constant for a prop, the component can fold that prop inside itself, and the calls can stop passing it:
+
+```jsx
+<Button variant="primary">Save</Button>
+<Button variant="primary">Send</Button>
+// Button folds props.variant to 'primary'. Its other variants, and their entries in a cva table, go away.
+```
+
+This applies to components that stay calls because of the size estimate. A bundler cannot do this, since props are an object of getters.
+
+The same pass drops props the component never reads, and the getters the call sites create for them.
+
+Plan:
+
+1. Chunk mode only at first. A chunk holds every call of a component when the component is not exported from it.
+2. Collect each call's attributes. A prop qualifies when every call passes the same constant, no call spreads, and the component is used in no other way, such as passed as a value.
+3. Rewrite `props.name` inside the component to the constant, then fold. Remove the attribute from every call.
+4. For a prop the component never reads, remove the attribute from every call when its value has no side effects.
+5. Module mode needs every call in the project. The usage index in `vite/index.ts` records which modules use each export. It would also have to record the constant attributes at each call. Both builds read the same files, so they would decide the same way. Plan that part only after chunk mode shows a gain.
+
+This is whole-program in module mode, which item 11 avoided. Keep it to chunk mode unless a measured app needs more.
+
+## 18. `isServer` in builds that do not hydrate
+
+A client build that does not hydrate always has `isServer === false` and `import.meta.env.SSR === false`. Folding them removes the server branches before Solid's JSX transform runs, so templates can merge. The bundler's own constant folding happens after the JSX is lowered, too late for that.
+
+Plan:
+
+1. In chunk mode, which only runs for client builds that do not hydrate, pass `isServer` from `@solidjs/web` as a constant `false`, and `import.meta.env.SSR` as `false` in `globalConstants`.
+2. Hydrating builds keep both unfolded for now. A fold that removes a `<Show>` removes it in both builds, whichever branch stays, so the owner tree may still match. Check each fold rule before turning it on there.
+
+## 19. Client-only code in server builds
+
+In a server build, `onMount`, `createEffect` bodies, `ref` callbacks, and `on*` handlers never run. Their imports stay in the server bundle, such as a chart library loaded inside `onMount`. A bundler cannot know these callbacks never run.
+
+Plan:
+
+1. Read what Solid's SSR transform already drops from `ref` and `on*` attributes in 2.0.0-rc.21.
+2. In a server build, replace the callback given to `onMount`, the effect function of `createEffect`, and the remaining `ref` and `on*` values with `() => {}`. The bundler then drops imports only those callbacks used.
+3. Keep `createEffect`'s compute function when it could throw or read a value that suspends, since the server may run it. Check Solid 2's server `createEffect` first.
+4. Measure the server bundle of a hydrating example, once item 12 adds one.
+
+## 20. Handlers hoisted out of `<For>` rows
+
+`onClick={() => setSelected(null)}` in a `<For>` callback creates a new function for each row. When the function only reads module-level bindings, or bindings of the component around the `<For>`, it can move out of the callback and be created once.
+
+Plan:
+
+1. Hoist an arrow given to an `on*` attribute when every binding it reads is declared outside the `<For>` callback.
+2. Hoist to the nearest scope that declares all of them. A module-level target needs no `const` in a component.
+3. The bundle does not get smaller. Measure with item 12's runtime benchmark, mount time and heap for a list of 1,000 rows, before keeping it.
+
 ## Not planned
 
 These are known gaps that are not worth doing now.
@@ -303,5 +444,6 @@ These are known gaps that are not worth doing now.
 - **`const enum`, the `babel` option, and `.tsrx` modules.** These depend on other tools.
 - **Destructured props and early returns that read props.** Both break reactivity in Solid, so idiomatic code does not use them. Early returns on a constant already fold away.
 - **Namespaced attributes on a component call, such as `on:click`.** Rare on components.
+- **Adjacent text children joined into one effect.** `{a()} - {b()}` takes two `insert` calls and their markers. One text effect would do, but only when both values are known to be strings or numbers, which needs type information.
 - **A spread of an unknown object at a component call.** No app has a case. See item 2.
 - **Components with statements in a `<Show>` child or a `fallback`.** About 16 B minified per call. See item 1.
