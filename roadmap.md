@@ -252,7 +252,7 @@ Start with a prototype that only works in chunk mode. Measure it on solid-ui, wh
 
 ## 12. Measure runtime and hydration, not only bundle size
 
-Status: planned, not started. Covers both lines.
+Status: started on Solid 2. `benchmarks/runtime` measures the demo with every page at once, in client, server, and hydrating builds. See its [results](benchmarks/runtime/results.md). Hacker News, the Solid 1 line, owner and computation counts, and updates after mount are open.
 
 Every number so far is gzip size or build time. Template merging, component inlining, provider removal and memo inlining also change what runs. They create fewer templates and components, fewer owners and computations, fewer DOM marker comments, and in hydrating builds fewer hydration keys and markers in the server's HTML. Nothing measures that yet. `report.ts` counts templates and component calls in the output code, and `scripts/bench.ts` measures only size and build time.
 

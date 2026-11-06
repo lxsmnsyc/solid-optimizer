@@ -1,5 +1,6 @@
 import type { JSX } from '@solidjs/web';
 import { For } from 'solid-js';
+import { Benchmarks } from './components/Benchmarks';
 import { Code, CopyButton } from './components/Code';
 import { Repl } from './components/Repl';
 
@@ -44,6 +45,7 @@ function Header(): JSX.Element {
       <nav class="nav-links">
         <a href="#repl">REPL</a>
         <a href="#passes">Passes</a>
+        <a href="#benchmarks">Benchmarks</a>
         <a href="#usage">Usage</a>
         <a
           class="nav-icon"
@@ -283,6 +285,12 @@ export function App(): JSX.Element {
           <Repl />
         </section>
         <Passes />
+        <section class="section" id="benchmarks">
+          <h2 class="section-title">
+            Less work <span class="gradient-text">at runtime</span>
+          </h2>
+          <Benchmarks />
+        </section>
         <Usage />
       </main>
       <Footer />
