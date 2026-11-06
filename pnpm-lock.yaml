@@ -381,6 +381,9 @@ importers:
       '@twinkleplop/bash':
         specifier: 0.1.7
         version: 0.1.7
+      '@twinkleplop/html':
+        specifier: 0.1.7
+        version: 0.1.7
       '@twinkleplop/tsx':
         specifier: 0.1.7
         version: 0.1.7
@@ -409,6 +412,9 @@ importers:
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.3
+      oxfmt:
+        specifier: ^0.71.0
+        version: 0.71.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

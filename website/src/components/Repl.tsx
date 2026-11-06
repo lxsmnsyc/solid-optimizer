@@ -6,6 +6,7 @@ import { createEditor, createFileState } from '../lib/editor';
 import { highlight } from '../lib/highlight';
 import type * as PipelineModule from '../repl/pipeline';
 import { PRESETS } from '../repl/presets';
+import { DEFAULT_OPTIONS, HASH_PREFIX, encodeShared, readShared } from '../repl/share';
 import type {
   Lowered,
   PipelineFailure,
@@ -30,59 +31,7 @@ const PASS_OPTIONS: { id: 'fold' | 'inline' | 'contexts' | 'memos'; label: strin
   { id: 'fold', label: 'fold' },
 ];
 
-const DEFAULT_OPTIONS: PipelineOptions = {
-  fold: true,
-  inline: true,
-  contexts: true,
-  memos: true,
-  generate: 'dom',
-};
-
-const HASH_PREFIX = '#repl=';
 const FILE_NAME = /^[\w-]+(\/[\w-]+)*\.(tsx|ts|jsx|js)$/;
-
-interface Shared {
-  files: VirtualFile[];
-  options: PipelineOptions;
-}
-
-function encodeShared(value: Shared): string {
-  let latin1 = '';
-  for (const byte of new TextEncoder().encode(JSON.stringify(value))) {
-    latin1 += String.fromCharCode(byte);
-  }
-  return btoa(latin1).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
-
-function isShared(value: unknown): value is Shared {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'files' in value &&
-    Array.isArray(value.files) &&
-    'options' in value &&
-    typeof value.options === 'object'
-  );
-}
-
-function readShared(): Shared | undefined {
-  if (!location.hash.startsWith(HASH_PREFIX)) {
-    return undefined;
-  }
-  try {
-    const latin1 = atob(
-      location.hash.slice(HASH_PREFIX.length).replaceAll('-', '+').replaceAll('_', '/'),
-    );
-    const bytes = new Uint8Array(latin1.length);
-    for (let i = 0; i < latin1.length; i++) {
-      bytes[i] = latin1.charCodeAt(i);
-    }
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    return isShared(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function getFileNames(files: VirtualFile[]): string[] {
   const names: string[] = [];
