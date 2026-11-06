@@ -378,7 +378,7 @@ The rewrite only applies when reading `when` again gives the same value:
 - The body reads `when` itself instead of a memo of it. An effect in the body that reads `user()` now depends on what `when` reads, which gives it the same value.
 - `<Show>`'s accessor throws `Stale read from <Show>` when it is read after the condition turns falsy. The copy reads the falsy value instead.
 
-The tracker's assignee `<Show>` runs in each of its 40 rows. Against `<Show>` lowering without callbacks, its optimized build holds 10.7% less heap per mounted app and runs `renderToString` 15% faster.
+The tracker's assignee `<Show>` runs in each of its 40 rows. Against `<Show>` lowering without callbacks, its optimized build holds 10.7% less heap per mounted app.
 
 ### `<Switch>`
 
