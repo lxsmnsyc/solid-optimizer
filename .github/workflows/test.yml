@@ -1,10 +1,10 @@
 name: Test
 
-# Checks every pull request and every push to `main`.
+# Checks every pull request and every push to `0.x`.
 on:
   push:
     branches:
-      - main
+      - 0.x
     # Roadmaps, debates, proposals and decisions are not build inputs.
     paths-ignore:
       - 'docs/**'

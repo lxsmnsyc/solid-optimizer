@@ -2,7 +2,7 @@
 
 ## Setup
 
-Pull requests go against `main`.
+This branch, `0.x`, is the maintenance line for Solid 1. It only takes fixes. Pull requests for it go against `0.x`. New work targets Solid 2 on `main`.
 
 1. Fork the repository and clone it.
 2. Create a branch.
@@ -44,5 +44,5 @@ Releases use [changesets](https://github.com/changesets/changesets).
    pnpm cs:add
    ```
 
-2. Merge the pull request into `main`.
+2. Merge the pull request into `0.x`.
 3. The release workflow opens a "Version Packages" pull request. Merging it publishes the new version to npm.
