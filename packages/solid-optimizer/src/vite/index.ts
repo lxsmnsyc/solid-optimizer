@@ -54,7 +54,7 @@ import {
 
 export interface OptimizerOptions extends Pick<
   CompileOptions,
-  'fold' | 'inline' | 'alwaysInline' | 'contexts' | 'memos' | 'maxPasses'
+  'fold' | 'inline' | 'alwaysInline' | 'contexts' | 'memos' | 'shows' | 'maxPasses'
 > {
   /**
    * Where the optimizer runs.
@@ -334,6 +334,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     alwaysInline: optimizer.alwaysInline,
     contexts: optimizer.contexts,
     memos: optimizer.memos,
+    shows: optimizer.shows,
     maxPasses: optimizer.maxPasses,
     builtIns: [...builtIns],
     moduleSources,

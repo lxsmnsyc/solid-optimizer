@@ -46,6 +46,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
+- `shows` turns `<Show>` lowering on or off. A `<Show>` without a callback child or `keyed` becomes a ternary, which Solid's JSX transform compiles to one memo instead of a component and three memos. Defaults to `true`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
@@ -110,7 +111,7 @@ The optimizer is off while serving. Set `optimizer.dev` to run module mode in de
 The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 
 - `optimizer: false` uses `@solidjs/vite-plugin` as it is.
-- `optimizer.fold`, `optimizer.inline`, `optimizer.contexts`, `optimizer.memos`, and `optimizer.maxPasses` work like the `compile` options.
+- `optimizer.fold`, `optimizer.inline`, `optimizer.contexts`, `optimizer.memos`, `optimizer.shows`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 - `optimizer.report` reports what stays as written in each build, and why. `true` prints it. A function receives it instead, once per build environment. Defaults to `false`.

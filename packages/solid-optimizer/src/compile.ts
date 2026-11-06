@@ -11,6 +11,7 @@ import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
 import { removeProviders } from './provider';
+import { lowerShows } from './show';
 import type { ScopeAnalysis } from './scope';
 import { analyzeScopes } from './scope';
 import type { Primitive } from './value';
@@ -50,6 +51,13 @@ export interface CompileOptions {
    * @default true
    */
   memos?: boolean;
+  /**
+   * Replace a `<Show>` without a callback child or `keyed` with a ternary,
+   * which Solid's JSX transform compiles to one memo instead of a component.
+   *
+   * @default true
+   */
+  shows?: boolean;
   /**
    * The names of Solid's built-in components. A tag only folds when it is
    * one of these, and an empty list turns control-flow folding off.
@@ -296,6 +304,22 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     }
     if (!changed) {
       break;
+    }
+  }
+
+  // `<Show>` is lowered last. The other passes read its `when` as a tracked
+  // place, and a ternary's condition is not one. A lowered `<Show>` can hold
+  // another, which the next round lowers.
+  if (options.shows ?? true) {
+    for (let round = 0; round < maxPasses; round += 1) {
+      const result = runPass(parsedCurrent(), filename, resolved, sourceMap, lowerShows, undefined);
+      if (!result) {
+        break;
+      }
+      current = result.code;
+      if (result.map !== undefined) {
+        maps.push(result.map);
+      }
     }
   }
 
