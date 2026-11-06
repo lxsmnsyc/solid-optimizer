@@ -293,7 +293,7 @@ Start with the client counts in step 1. They need only a small counting harness,
 
 ## Items that bundlers cannot do
 
-Items 13 to 20 come from a brainstorm on 2026-11-06. Each one needs to know what a Solid call does, which a bundler or minifier does not. None is measured yet. Run step 0's report and the size script on the demo, Hacker News, and `examples/kobalte` before each plan starts.
+Items 13 to 20 come from a brainstorm on 2026-11-06. Item 21 came from checking them against Hacker News. Each one needs to know what a Solid call does, which a bundler or minifier does not. None is measured yet. Run step 0's report and the size script on the demo, Hacker News, and `examples/kobalte` before each plan starts.
 
 Suggested order:
 
@@ -431,6 +431,35 @@ Plan:
 1. Hoist an arrow given to an `on*` attribute when every binding it reads is declared outside the `<For>` callback.
 2. Hoist to the nearest scope that declares all of them. A module-level target needs no `const` in a component.
 3. The bundle does not get smaller. Measure with item 12's runtime benchmark, mount time and heap for a list of 1,000 rows, before keeping it.
+
+## 21. `<Show>` lowered to a ternary
+
+Status: in progress in #43.
+
+Items 13 to 20 were checked against Hacker News on 2026-11-06, and none applies to it:
+
+- No factory call is left unused after folding, no signal goes unwritten, and no class helper is used.
+- Its `class={{ toggle: true, open: open() }}` already compiles to a static class and one `classList.toggle`.
+- Its handlers read a signal of the component around them, and it has no server build.
+
+What it does have is 14 `<Show>`s, most of them in `Story` and `Comment`, which render once per story and per comment. Solid 2's `<Show>` is a component call and three memos. Without a callback child or `keyed`, it does what `{when ? children : fallback}` compiles to: one memo of `!!when`, and a function `insert` runs.
+
+Rewriting every `<Show>` in the app by hand, counted in the `single` build with the fixtures:
+
+| Route          | Component calls | Computations |
+| -------------- | --------------- | ------------ |
+| `/`            | 106 → 13        | 402 → 186    |
+| `/stories/:id` | 31 → 21         | 69 → 53      |
+| `/users/:id`   | 15 → 12         | 42 → 37      |
+
+Each route rendered the same DOM. Size changed by 30 B or less gzipped, since the router keeps `<Show>` in the runtime.
+
+Plan:
+
+1. Lower a `<Show>` whose props are only `when` and `fallback` and whose children are not a callback, after the other passes stop changing the code.
+2. Write `{when ? children : fallback}` in an element or a fragment, and `<>{…}</>` as a component's sole child or outside JSX. A bare ternary as a component's child compiles to a getter with no memo.
+3. List the accepted difference in `strategy.md`. Removing `<Show>` shifts the hydration keys after it.
+4. Measure timings once item 12 has a Hacker News harness. The demo has one `<Show>`.
 
 ## Not planned
 
