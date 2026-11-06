@@ -86,7 +86,7 @@ export interface Provider {
  * `useContext` throws when the value and the default are both `undefined`,
  * so a value that could be `undefined` keeps its provider.
  */
-export function providerOf(context: PassContext, element: JSXElement): Provider | undefined {
+export function findProvider(context: PassContext, element: JSXElement): Provider | undefined {
   const binding = contextBinding(context, element.openingElement.name);
   if (!binding || element.openingElement.selfClosing) {
     return undefined;
@@ -278,8 +278,13 @@ function isAccessor(context: PassContext, binding: Binding): boolean {
   if (id.type !== 'ArrayPattern' || callee === undefined || !ACCESSOR_PAIRS.has(callee)) {
     return false;
   }
-  const index = id.elements.findIndex((element) => element === binding.identifier);
-  return index === 0 || index === 1;
+  // Only the first two slots of the pair are accessors.
+  for (const [index, element] of id.elements.entries()) {
+    if (element === binding.identifier) {
+      return index === 0 || index === 1;
+    }
+  }
+  return false;
 }
 
 export interface ClosedOptions {
@@ -457,17 +462,20 @@ function isOwnView(
   if (callee !== 'merge' && callee !== 'omit') {
     return false;
   }
-  return call.arguments.every((argument) => {
+  for (const argument of call.arguments) {
     if (argument.type === 'SpreadElement') {
       return false;
     }
     const inner = unwrap(argument);
-    return (
-      inner.type === 'ObjectExpression' ||
-      (inner.type === 'Literal' && typeof inner.value === 'string') ||
-      isOwnView(context, inner, props, depth + 1)
-    );
-  });
+    if (
+      inner.type !== 'ObjectExpression' &&
+      !(inner.type === 'Literal' && typeof inner.value === 'string') &&
+      !isOwnView(context, inner, props, depth + 1)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isVisibleElement(
@@ -533,7 +541,7 @@ function isAccessorValue(
     return false;
   }
   if (expression.type === 'CallExpression') {
-    const value = contextValueOf(context, expression, options);
+    const value = findContextValue(context, expression, options);
     return value !== undefined && isAccessorValue(context, value, options, depth + 1);
   }
   if (expression.type !== 'Identifier') {
@@ -569,7 +577,7 @@ function constantInit(context: PassContext, binding: Binding): Expression | unde
 /**
  * The value `useContext(Ctx)` returns, when the provider is known.
  */
-function contextValueOf(
+function findContextValue(
   context: PassContext,
   call: CallExpression,
   options: ClosedOptions,
@@ -600,18 +608,20 @@ function isVisibleMethod(
   if (member.computed || member.property.type !== 'Identifier' || member.optional) {
     return false;
   }
-  const object = objectLiteralOf(context, member.object, options, 0);
-  if (!object || object.properties.some((property) => property.type !== 'Property')) {
+  const object = findObjectLiteral(context, member.object, options, 0);
+  if (!object) {
     return false;
   }
   const { name } = member.property;
-  const matches = object.properties.filter(
-    (property) =>
-      property.type === 'Property' &&
-      !property.computed &&
-      property.key.type === 'Identifier' &&
-      property.key.name === name,
-  );
+  const matches: typeof object.properties = [];
+  for (const property of object.properties) {
+    if (property.type !== 'Property') {
+      return false;
+    }
+    if (!property.computed && property.key.type === 'Identifier' && property.key.name === name) {
+      matches.push(property);
+    }
+  }
   const property = matches.at(0);
   if (matches.length !== 1 || property?.type !== 'Property' || property.kind !== 'init') {
     return false;
@@ -637,7 +647,7 @@ function isVisibleMethod(
  * The object literal an expression evaluates to, through bindings that
  * never change and reads of a context whose value is known.
  */
-function objectLiteralOf(
+function findObjectLiteral(
   context: PassContext,
   node: Expression,
   options: ClosedOptions,
@@ -651,15 +661,15 @@ function objectLiteralOf(
     return expression;
   }
   if (expression.type === 'CallExpression') {
-    const value = contextValueOf(context, expression, options);
-    return value ? objectLiteralOf(context, value, options, depth + 1) : undefined;
+    const value = findContextValue(context, expression, options);
+    return value ? findObjectLiteral(context, value, options, depth + 1) : undefined;
   }
   if (expression.type !== 'Identifier') {
     return undefined;
   }
   const binding = context.scopes.references.get(expression);
   const init = binding ? constantInit(context, binding) : undefined;
-  return init ? objectLiteralOf(context, init, options, depth + 1) : undefined;
+  return init ? findObjectLiteral(context, init, options, depth + 1) : undefined;
 }
 
 /**
@@ -731,7 +741,7 @@ export function findProviders(context: PassContext): Provider[] {
   const providers: Provider[] = [];
   const visit = (node: Node): void => {
     if (node.type === 'JSXElement') {
-      const provider = providerOf(context, node);
+      const provider = findProvider(context, node);
       if (provider) {
         providers.push(provider);
       }
@@ -754,9 +764,13 @@ class ProviderRemover {
       // A provider inside one removed in this pass waits for the next pass,
       // so their edits do not overlap.
       const { element } = provider;
-      const overlaps = this.removed.some(
-        (other) => element.start < other.end && other.start < element.end,
-      );
+      let overlaps = false;
+      for (const other of this.removed) {
+        if (element.start < other.end && other.start < element.end) {
+          overlaps = true;
+          break;
+        }
+      }
       if (overlaps) {
         continue;
       }
@@ -783,7 +797,7 @@ class ProviderRemover {
     const visit = (node: Node): void => {
       if (node.type === 'JSXElement') {
         const binding = contextBinding(this.context, node.openingElement.name);
-        if (binding && !providerOf(this.context, node)) {
+        if (binding && !findProvider(this.context, node)) {
           // A lone `value` is turned down because it could be `undefined`.
           const { attributes } = node.openingElement;
           const attribute = attributes.at(0);
@@ -809,20 +823,28 @@ class ProviderRemover {
     const { element } = provider;
     const children = element.children;
     let reason = 'open-other';
-    const closed = children.every((child) =>
-      isClosed(this.context, child, {
-        component: () => false,
-        contextValue: (target) => (target === provider.context ? provider.value : undefined),
-        onOpen: (open) => {
-          reason = open;
-        },
-      }),
-    );
+    const closure: ClosedOptions = {
+      component: () => false,
+      contextValue: (target) => (target === provider.context ? provider.value : undefined),
+      onOpen: (open) => {
+        reason = open;
+      },
+    };
+    let closed = true;
+    for (const child of children) {
+      if (!isClosed(this.context, child, closure)) {
+        closed = false;
+        break;
+      }
+    }
     if (!closed) {
       this.skip(provider, reason);
       return false;
     }
-    const reads = children.flatMap((child) => contextReads(this.context, child, provider.context));
+    const reads: ReturnType<typeof contextReads> = [];
+    for (const child of children) {
+      reads.push(...contextReads(this.context, child, provider.context));
+    }
     const texts: string[] = [];
     for (const read of reads) {
       const text = stableValueText(this.context, provider, read);

@@ -123,12 +123,26 @@ class Usage implements UsageIndex {
     const users = new Set([user]);
     for (const [importer, containers] of usage.importers) {
       const moved = absorbed.get(importer);
-      users.add([...containers].every((name) => moved?.has(name) === true) ? user : importer);
+      users.add(hasEvery(containers, moved) ? user : importer);
     }
     // A module the component's module imports never gets a copy of it, so
     // the original stays for it.
-    return [...users].some((id) => this.reaches(module, id)) ? 0 : users.size;
+    for (const id of users) {
+      if (this.reaches(module, id)) {
+        return 0;
+      }
+    }
+    return users.size;
   }
+}
+
+function hasEvery(names: Iterable<string>, set: ReadonlySet<string> | undefined): boolean {
+  for (const name of names) {
+    if (set?.has(name) !== true) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isTagName(reference: Node, parents: Parents): boolean {
@@ -147,9 +161,13 @@ function declaredNames(declaration: Node | null | undefined): string[] {
     return [declaration.id.name];
   }
   if (declaration?.type === 'VariableDeclaration') {
-    return declaration.declarations.flatMap((declarator) =>
-      declarator.id.type === 'Identifier' ? [declarator.id.name] : [],
-    );
+    const names: string[] = [];
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === 'Identifier') {
+        names.push(declarator.id.name);
+      }
+    }
+    return names;
   }
   return [];
 }
@@ -206,7 +224,7 @@ function recordModule(
   // A module that uses its own export keeps it, whoever else copies it.
   const exported = exportedBindings(program, scopes);
   // The export names of the top-level declaration a use sits in.
-  const containersOf = (reference: Node): string[] => {
+  const findContainers = (reference: Node): string[] => {
     let node: Node = reference;
     let parent = parents.get(node);
     while (parent && parent.type !== 'Program') {
@@ -232,7 +250,12 @@ function recordModule(
         }
       }
     }
-    const names = bindings.flatMap((binding) => (binding ? (exported.get(binding) ?? []) : []));
+    const names: string[] = [];
+    for (const binding of bindings) {
+      if (binding) {
+        names.push(...(exported.get(binding) ?? []));
+      }
+    }
     return names.length > 0 ? names : [UNEXPORTED];
   };
 
@@ -244,7 +267,7 @@ function recordModule(
       }
       if (imported !== '*') {
         if (isTagName(reference, parents)) {
-          usage.tag(target, imported, id, containersOf(reference));
+          usage.tag(target, imported, id, findContainers(reference));
         } else {
           usage.other(target, imported);
         }
@@ -254,7 +277,7 @@ function recordModule(
       const member = parents.get(reference);
       if (member?.type === 'JSXMemberExpression' && member.object === reference) {
         if (isTagName(member, parents)) {
-          usage.tag(target, member.property.name, id, containersOf(reference));
+          usage.tag(target, member.property.name, id, findContainers(reference));
         } else {
           usage.other(target, member.property.name);
         }
@@ -299,14 +322,18 @@ function recordModule(
   }
 
   for (const [binding, names] of exported) {
-    const used = binding.references.some((reference) => {
+    let used = false;
+    for (const reference of binding.references) {
       const parent = parents.get(reference);
-      return (
+      if (
         parent?.type !== 'ExportSpecifier' &&
         parent?.type !== 'ExportDefaultDeclaration' &&
         !isClosingTagName(reference, parents)
-      );
-    });
+      ) {
+        used = true;
+        break;
+      }
+    }
     if (used) {
       for (const name of names) {
         usage.other(id, name);
@@ -316,7 +343,7 @@ function recordModule(
 }
 
 /** The import specifiers a module loads, statically or with `import()`. */
-function specifiersOf(program: Program): { static: Set<string>; dynamic: Set<string> } {
+function collectSpecifiers(program: Program): { static: Set<string>; dynamic: Set<string> } {
   const statics = new Set<string>();
   const dynamics = new Set<string>();
   for (const statement of program.body) {
@@ -360,46 +387,60 @@ export async function buildUsageIndex(
     usage.all(entry);
   }
   const seen = new Set<string>();
-  let frontier = entries.filter((id) => SCRIPT.test(id.replace(/\?.*$/, '')));
+  let frontier: string[] = [];
+  for (const id of entries) {
+    if (SCRIPT.test(id.replace(/\?.*$/, ''))) {
+      frontier.push(id);
+    }
+  }
   while (frontier.length > 0) {
     for (const id of frontier) {
       seen.add(id);
     }
+    async function readModule(id: string): Promise<string[]> {
+      const code = await host.read(id);
+      let program: Program;
+      try {
+        program = parse(id.replace(/\?.*$/, ''), code ?? '');
+      } catch {
+        return [];
+      }
+      const { static: statics, dynamic } = collectSpecifiers(program);
+      const targets = new Map<string, string>();
+      async function resolveSource(source: string): Promise<void> {
+        const target = await host.resolve(source, id);
+        if (target !== undefined) {
+          targets.set(source, target);
+        }
+      }
+      const resolving: Promise<void>[] = [];
+      for (const source of [...statics, ...dynamic]) {
+        resolving.push(resolveSource(source));
+      }
+      await Promise.all(resolving);
+      // A module loaded with `import()` is used as a whole.
+      for (const source of dynamic) {
+        const target = targets.get(source);
+        if (target !== undefined) {
+          usage.all(target);
+        }
+      }
+      recordModule(usage, id, program, targets);
+      usage.imports.set(id, [...targets.values()]);
+      return [...targets.values()];
+    }
+    const reading: Promise<string[]>[] = [];
+    for (const id of frontier) {
+      reading.push(readModule(id));
+    }
     // oxlint-disable-next-line no-await-in-loop
-    const next = await Promise.all(
-      frontier.map(async (id) => {
-        const code = await host.read(id);
-        let program: Program;
-        try {
-          program = parse(id.replace(/\?.*$/, ''), code ?? '');
-        } catch {
-          return [];
-        }
-        const { static: statics, dynamic } = specifiersOf(program);
-        const targets = new Map<string, string>();
-        await Promise.all(
-          [...statics, ...dynamic].map(async (source) => {
-            const target = await host.resolve(source, id);
-            if (target !== undefined) {
-              targets.set(source, target);
-            }
-          }),
-        );
-        // A module loaded with `import()` is used as a whole.
-        for (const source of dynamic) {
-          const target = targets.get(source);
-          if (target !== undefined) {
-            usage.all(target);
-          }
-        }
-        recordModule(usage, id, program, targets);
-        usage.imports.set(id, [...targets.values()]);
-        return [...targets.values()];
-      }),
-    );
-    frontier = [...new Set(next.flat())].filter(
-      (id) => !seen.has(id) && SCRIPT.test(id.replace(/\?.*$/, '')),
-    );
+    const next = await Promise.all(reading);
+    frontier = [];
+    for (const id of new Set(next.flat())) {
+      if (!seen.has(id) && SCRIPT.test(id.replace(/\?.*$/, ''))) {
+        frontier.push(id);
+      }
+    }
   }
   return usage;
 }

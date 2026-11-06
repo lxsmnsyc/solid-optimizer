@@ -145,6 +145,42 @@ export const Sample = () => (
   </div>
 );`;
 
+/** The references that are the name of a JSX tag. */
+function findTags(references: readonly Node[], parents: ReturnType<typeof collectParents>): Node[] {
+  const tags: Node[] = [];
+  for (const reference of references) {
+    const parent = parents.get(reference);
+    if (
+      (parent?.type === 'JSXOpeningElement' || parent?.type === 'JSXClosingElement') &&
+      parent.name === reference
+    ) {
+      tags.push(reference);
+    }
+  }
+  return tags;
+}
+
+function findSkipReason(
+  skipped: readonly { name: string; reason: string }[],
+  name: string,
+): string | undefined {
+  for (const entry of skipped) {
+    if (entry.name === name) {
+      return entry.reason;
+    }
+  }
+  return undefined;
+}
+
+function hasSpreadAttribute(attributes: readonly { type: string }[]): boolean {
+  for (const attribute of attributes) {
+    if (attribute.type === 'JSXSpreadAttribute') {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Whether the code spreads anything onto an intrinsic element, or onto
  * `<Dynamic>`, which becomes one once its `component` is known.
@@ -162,7 +198,7 @@ function spreadsOntoElement(code: string, filename: string): boolean {
       node.type === 'JSXOpeningElement' &&
       node.name.type === 'JSXIdentifier' &&
       (isIntrinsicTag(node.name.name) || node.name.name === 'Dynamic') &&
-      node.attributes.some((attribute) => attribute.type === 'JSXSpreadAttribute')
+      hasSpreadAttribute(node.attributes)
     ) {
       found = true;
       return;
@@ -216,7 +252,12 @@ function stripQuery(id: string): string {
  * source maps, since chaining the maps of a large chunk takes a while.
  */
 function combineMaps(wanted: boolean, maps: (string | null | undefined)[]): string | null {
-  const present = maps.filter((map): map is string => typeof map === 'string');
+  const present: string[] = [];
+  for (const map of maps) {
+    if (typeof map === 'string') {
+      present.push(map);
+    }
+  }
   if (!wanted || present.length === 0) {
     return null;
   }
@@ -465,27 +506,35 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     transform: string,
   ): Promise<{ constants: ImportedConstants; partial: boolean }> {
     let partial = false;
-    const entries = await Promise.all(
-      imports.map(async (specifier) => {
-        const target = await resolveConstantModule(context, specifier, importer);
-        if (target === undefined || visiting.has(target.id)) {
-          return undefined;
-        }
-        const result = await constantsOf(context, target, visiting, transform);
-        partial ||= result.partial;
-        if (!result.constants || Object.keys(result.constants.exports).length === 0) {
-          return undefined;
-        }
-        return [specifier, result.constants.exports] as const;
-      }),
-    );
-    return {
-      constants: Object.fromEntries(entries.filter((entry) => entry !== undefined)),
-      partial,
-    };
+    async function readImport(
+      specifier: string,
+    ): Promise<readonly [string, Readonly<Record<string, Primitive>>] | undefined> {
+      const target = await resolveConstantModule(context, specifier, importer);
+      if (target === undefined || visiting.has(target.id)) {
+        return undefined;
+      }
+      const result = await readConstants(context, target, visiting, transform);
+      partial ||= result.partial;
+      if (!result.constants || Object.keys(result.constants.exports).length === 0) {
+        return undefined;
+      }
+      return [specifier, result.constants.exports] as const;
+    }
+    const reading = [];
+    for (const specifier of imports) {
+      reading.push(readImport(specifier));
+    }
+    const entries = await Promise.all(reading);
+    const constants: Record<string, Readonly<Record<string, Primitive>>> = {};
+    for (const entry of entries) {
+      if (entry !== undefined) {
+        constants[entry[0]] = entry[1];
+      }
+    }
+    return { constants, partial };
   }
 
-  async function constantsOf(
+  async function readConstants(
     context: Rollup.PluginContext,
     target: { id: string; jsx: boolean },
     visiting: ReadonlySet<string>,
@@ -653,7 +702,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    * modules are transformed in. Modules without JSX count too, since reading
    * their constants can load a module with JSX.
    */
-  async function localImportsOf(context: Rollup.PluginContext, id: string): Promise<string[]> {
+  async function findLocalImports(context: Rollup.PluginContext, id: string): Promise<string[]> {
     let pending = localImports.get(id);
     if (!pending) {
       pending = (async () => {
@@ -684,12 +733,18 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             }
           }
         }
-        const resolved = await Promise.all(
-          [...sources].map(async (source) => context.resolve(source, id)),
-        );
-        return resolved
-          .filter((target) => target && !target.external && !target.id.includes('/node_modules/'))
-          .map((target) => target?.id ?? '');
+        const resolving = [];
+        for (const source of sources) {
+          resolving.push(context.resolve(source, id));
+        }
+        const resolved = await Promise.all(resolving);
+        const local: string[] = [];
+        for (const target of resolved) {
+          if (target && !target.external && !target.id.includes('/node_modules/')) {
+            local.push(target.id);
+          }
+        }
+        return local;
       })();
       localImports.set(id, pending);
     }
@@ -711,9 +766,18 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       for (const id of frontier) {
         seen.add(id);
       }
+      const reading = [];
+      for (const id of frontier) {
+        reading.push(findLocalImports(context, id));
+      }
       // oxlint-disable-next-line no-await-in-loop
-      const next = await Promise.all(frontier.map(async (id) => localImportsOf(context, id)));
-      frontier = [...new Set(next.flat())].filter((id) => !seen.has(id));
+      const next = await Promise.all(reading);
+      frontier = [];
+      for (const id of new Set(next.flat())) {
+        if (!seen.has(id)) {
+          frontier.push(id);
+        }
+      }
     }
     return false;
   }
@@ -813,14 +877,24 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     let pending = usageIndexes.get(key);
     if (!pending) {
       pending = (async () => {
-        const entries = await Promise.all(
-          [...context.getModuleIds()]
-            .filter((id) => context.getModuleInfo(id)?.isEntry === true)
-            .map(async (id) => scriptEntries(context, id)),
-        );
+        const reading = [];
+        for (const id of context.getModuleIds()) {
+          if (context.getModuleInfo(id)?.isEntry === true) {
+            reading.push(scriptEntries(context, id));
+          }
+        }
+        const entries = await Promise.all(reading);
         // A script the index cannot read could use any export.
-        const known = entries.every((scripts) => scripts !== undefined);
-        return buildUsageIndex(known ? entries.flat() : [], {
+        const scriptIds: string[] = [];
+        let known = true;
+        for (const scripts of entries) {
+          if (scripts === undefined) {
+            known = false;
+            break;
+          }
+          scriptIds.push(...scripts);
+        }
+        return buildUsageIndex(known ? scriptIds : [], {
           resolve: async (source, importer) => {
             const resolved = await context.resolve(source, importer);
             return !resolved || resolved.external || resolved.id.includes('/node_modules/')
@@ -888,7 +962,12 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (!file.includes('/node_modules/')) {
       return true;
     }
-    return (optimizer.packages ?? []).some((name) => file.includes(`/node_modules/${name}/`));
+    for (const name of optimizer.packages ?? []) {
+      if (file.includes(`/node_modules/${name}/`)) {
+        return true;
+      }
+    }
+    return false;
   };
 
   /** The listed packages already warned about, by environment. */
@@ -900,9 +979,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    * copies them would hydrate different markup.
    */
   const warnExternalPackage = (context: Rollup.PluginContext, source: string): void => {
-    const name = (optimizer.packages ?? []).find(
-      (item) => source === item || source.startsWith(`${item}/`),
-    );
+    let name: string | undefined;
+    for (const item of optimizer.packages ?? []) {
+      if (source === item || source.startsWith(`${item}/`)) {
+        name = item;
+        break;
+      }
+    }
     const key = environmentKey(context, name ?? '');
     if (name === undefined || warnedPackages.has(key)) {
       return;
@@ -1047,7 +1130,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     // The components copied here that leave their module, by module.
     const absorbed = new Map<string, Set<string>>();
     // How many modules use the original of a copy, this one included.
-    const usersOf = (copy: Copy): number => {
+    const countUsers = (copy: Copy): number => {
       const [module = '', exported = ''] = copy.key.split('\0');
       return usage.users(module, exported, id, absorbed);
     };
@@ -1100,13 +1183,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         for (const specifier of statement.specifiers) {
           const binding = scopes.root.bindings.get(specifier.local.name);
           // Only tags are copied. The import stays for any other use.
-          const tags = (binding?.references ?? []).filter((reference) => {
-            const parent = parents.get(reference);
-            return (
-              (parent?.type === 'JSXOpeningElement' || parent?.type === 'JSXClosingElement') &&
-              parent.name === reference
-            );
-          });
+          const tags = findTags(binding?.references ?? [], parents);
           if (
             specifier.type === 'ImportNamespaceSpecifier' ||
             binding?.imported === undefined ||
@@ -1149,36 +1226,48 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           edit.append(`\n${copy.text}\n`);
         }
         edit.append(`\n${imports.join('\n')}\n`);
+        const importedContexts: Record<string, string[]> = {};
+        for (const [module, exported] of contexts) {
+          importedContexts[module] = [...exported];
+        }
+        const sharedComponents: Record<string, number> = {};
+        const alwaysInlineComponents: string[] = [];
+        for (const copy of copies) {
+          const users = countUsers(copy);
+          if (users !== 1) {
+            sharedComponents[copy.name] = users;
+          }
+          if (copy.fromPackage) {
+            alwaysInlineComponents.push(copy.name);
+          }
+        }
         result = compile(edit.toString(), {
           ...compileOptionsOfModule,
           filename,
           sourceMap: wantsMaps(),
-          importedContexts: Object.fromEntries(
-            [...contexts].map(([module, exported]) => [module, [...exported]]),
-          ),
+          importedContexts,
           // The original of a copy stays in its module for its other users.
-          sharedComponents: Object.fromEntries(
-            copies
-              .map((copy): [string, number] => [copy.name, usersOf(copy)])
-              .filter(([, users]) => users !== 1),
-          ),
+          sharedComponents,
           // The estimate cannot see what a package's own modules use, so a
           // copy of its component never counts its declaration, or the
           // runtime code only it used, as removed. Listing the package asks
           // for its components to inline wherever they can be.
-          alwaysInlineComponents: copies
-            .filter((copy) => copy.fromPackage)
-            .map((copy) => copy.name),
+          alwaysInlineComponents,
         });
         const left = analyzeScopes(parse(filename, result.code)).root.bindings;
-        const stuck = copies.filter((copy) => left.has(copy.name));
+        const stuck = [];
+        for (const copy of copies) {
+          if (left.has(copy.name)) {
+            stuck.push(copy);
+          }
+        }
         if (stuck.length === 0) {
           break;
         }
         for (const copy of stuck) {
           excluded.add(copy.key);
           copies.splice(copies.indexOf(copy), 1);
-          const reason = result.skipped?.find((entry) => entry.name === copy.name)?.reason;
+          const reason = findSkipReason(result.skipped ?? [], copy.name);
           copySkips?.push({
             pass: 'inline',
             reason: `copy-${reason ?? 'left'}`,
@@ -1190,8 +1279,15 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if (!result || !edit) {
         break;
       }
-      // Their uses of other components move here with them.
-      for (const copy of copies.filter((item) => usersOf(item) === 1)) {
+      // Their uses of other components move here with them. Count every copy's
+      // users first, since moving one changes what the next one counts.
+      const sole: Copy[] = [];
+      for (const copy of copies) {
+        if (countUsers(copy) === 1) {
+          sole.push(copy);
+        }
+      }
+      for (const copy of sole) {
         const [module = '', exported = ''] = copy.key.split('\0');
         absorbed.set(module, new Set([...(absorbed.get(module) ?? []), exported]));
       }
@@ -1330,7 +1426,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return { code, map: combineMaps(wantsMaps(), maps) };
   }
 
-  const main = plugins.find((plugin) => plugin.name === 'solid');
+  let main: Plugin | undefined;
+  for (const plugin of plugins) {
+    if (plugin.name === 'solid') {
+      main = plugin;
+      break;
+    }
+  }
   const originalTransform = main?.transform;
   const originalHandler =
     typeof originalTransform === 'function' ? originalTransform : originalTransform?.handler;

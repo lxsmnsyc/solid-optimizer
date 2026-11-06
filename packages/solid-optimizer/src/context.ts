@@ -116,6 +116,6 @@ export function recordSkip(
 /**
  * The current text of `node`, including the edits made inside it so far.
  */
-export function textOf(context: PassContext, node: Node): string {
+export function getText(context: PassContext, node: Node): string {
   return context.s.slice(node.start, node.end);
 }

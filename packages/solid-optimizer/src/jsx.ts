@@ -132,9 +132,12 @@ export function findAttribute(element: JSXElement, name: string): JSXAttribute |
 }
 
 export function hasSpreadAttribute(element: JSXElement): boolean {
-  return element.openingElement.attributes.some(
-    (attribute) => attribute.type === 'JSXSpreadAttribute',
-  );
+  for (const attribute of element.openingElement.attributes) {
+    if (attribute.type === 'JSXSpreadAttribute') {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -142,18 +145,19 @@ export function hasSpreadAttribute(element: JSXElement): boolean {
  * narrowed value. Folding one away would drop that call.
  */
 export function hasCallbackChild(children: readonly JSXChild[]): boolean {
-  return children.some((child) => {
+  for (const child of children) {
     if (child.type !== 'JSXExpressionContainer') {
-      return false;
+      continue;
     }
     let expression: Node = child.expression;
     while (expression.type === 'ParenthesizedExpression') {
       expression = expression.expression;
     }
-    return (
-      expression.type === 'ArrowFunctionExpression' || expression.type === 'FunctionExpression'
-    );
-  });
+    if (expression.type === 'ArrowFunctionExpression' || expression.type === 'FunctionExpression') {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

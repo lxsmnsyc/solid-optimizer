@@ -240,6 +240,15 @@ export function truthiness(node: Node, lookup: ConstantLookup): boolean | undefi
   return value ? !!value.value : undefined;
 }
 
+function areSideEffectFree(nodes: readonly Node[]): boolean {
+  for (const node of nodes) {
+    if (!isSideEffectFree(node)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Whether skipping `node` entirely loses nothing observable.
  *
@@ -259,7 +268,7 @@ export function isSideEffectFree(node: Node): boolean {
     case 'ParenthesizedExpression':
       return isSideEffectFree(node.expression);
     case 'TemplateLiteral':
-      return node.expressions.every(isSideEffectFree);
+      return areSideEffectFree(node.expressions);
     case 'UnaryExpression':
       // `delete` changes its target.
       return node.operator !== 'delete' && isSideEffectFree(node.argument);
@@ -275,7 +284,7 @@ export function isSideEffectFree(node: Node): boolean {
     case 'LogicalExpression':
       return isSideEffectFree(node.left) && isSideEffectFree(node.right);
     case 'SequenceExpression':
-      return node.expressions.every(isSideEffectFree);
+      return areSideEffectFree(node.expressions);
     case 'ConditionalExpression':
       return (
         isSideEffectFree(node.test) &&
@@ -284,18 +293,24 @@ export function isSideEffectFree(node: Node): boolean {
       );
     case 'ArrayExpression':
       // A spread iterates its argument, which is observable.
-      return node.elements.every(
-        (element) =>
-          element === null || (element.type !== 'SpreadElement' && isSideEffectFree(element)),
-      );
+      for (const element of node.elements) {
+        if (element !== null && (element.type === 'SpreadElement' || !isSideEffectFree(element))) {
+          return false;
+        }
+      }
+      return true;
     case 'ObjectExpression':
-      return node.properties.every(
-        (property) =>
-          // A spread reads the source's own properties, which a getter observes.
-          property.type === 'Property' &&
-          (!property.computed || isSideEffectFree(property.key)) &&
-          isSideEffectFree(property.value),
-      );
+      for (const property of node.properties) {
+        // A spread reads the source's own properties, which a getter observes.
+        if (
+          property.type !== 'Property' ||
+          (property.computed && !isSideEffectFree(property.key)) ||
+          !isSideEffectFree(property.value)
+        ) {
+          return false;
+        }
+      }
+      return true;
     default:
       // A class is never skippable. Evaluating one runs its heritage
       // expression, computed keys, static fields, and static blocks.
@@ -333,8 +348,10 @@ export function arrayLiteralLength(node: Node): number | undefined {
   if (node.type !== 'ArrayExpression') {
     return undefined;
   }
-  if (node.elements.some((element) => element?.type === 'SpreadElement')) {
-    return undefined;
+  for (const element of node.elements) {
+    if (element?.type === 'SpreadElement') {
+      return undefined;
+    }
   }
   return node.elements.length;
 }

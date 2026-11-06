@@ -24,18 +24,33 @@ export function sharedGlobals(
     }
   }
   const environments = Object.values(config.environments);
-  const defines =
-    environments.length > 0
-      ? environments.map((environment) => environment.define ?? config.define ?? {})
-      : [config.define ?? {}];
-  const keys = new Set(defines.flatMap((define) => Object.keys(define)));
+  const defines: Record<string, unknown>[] = [];
+  if (environments.length > 0) {
+    for (const environment of environments) {
+      defines.push(environment.define ?? config.define ?? {});
+    }
+  } else {
+    defines.push(config.define ?? {});
+  }
+  const keys = new Set<string>();
+  for (const define of defines) {
+    for (const key of Object.keys(define)) {
+      keys.add(key);
+    }
+  }
   for (const key of keys) {
-    const values = defines.map((define) => defineValue(define[key]));
-    const first = values.at(0);
-    if (
-      first !== undefined &&
-      values.every((value) => value !== undefined && Object.is(value.value, first.value))
-    ) {
+    // Every environment must define the key as the same value.
+    let first: { value: Primitive } | undefined;
+    let same = true;
+    for (const define of defines) {
+      const value = defineValue(define[key]);
+      first ??= value;
+      if (value === undefined || !Object.is(value.value, first?.value)) {
+        same = false;
+        break;
+      }
+    }
+    if (first !== undefined && same) {
       globals[key] = first.value;
     }
   }

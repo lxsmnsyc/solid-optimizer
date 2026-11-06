@@ -75,7 +75,7 @@ interface TopLevelFunction {
  * The function a top-level binding holds: `function A() {}`, or
  * `const A = () => ...`.
  */
-function functionOf(binding: Binding): TopLevelFunction | undefined {
+function findTopLevelFunction(binding: Binding): TopLevelFunction | undefined {
   const { declaration } = binding;
   if (declaration.type === 'FunctionDeclaration') {
     return { binding, fn: declaration, kind: 'declaration' };
@@ -156,10 +156,26 @@ export function readReexport(
   return undefined;
 }
 
+function addDeclared(
+  exports: Map<string, Binding>,
+  declarators: readonly { id: { type: string; name?: string } }[],
+  bindings: ReadonlyMap<string, Binding>,
+): void {
+  for (const declarator of declarators) {
+    const binding =
+      declarator.id.type === 'Identifier' && declarator.id.name !== undefined
+        ? bindings.get(declarator.id.name)
+        : undefined;
+    if (binding !== undefined) {
+      exports.set(binding.name, binding);
+    }
+  }
+}
+
 /**
  * The names a module exports, each with the top-level binding it exports.
  */
-function exportsOf(program: Program, scopes: ScopeAnalysis): Map<string, Binding> {
+function collectExports(program: Program, scopes: ScopeAnalysis): Map<string, Binding> {
   const exports = new Map<string, Binding>();
   const { bindings } = scopes.root;
   for (const statement of program.body) {
@@ -171,12 +187,7 @@ function exportsOf(program: Program, scopes: ScopeAnalysis): Map<string, Binding
           exports.set(declaration.id.name, binding);
         }
       } else if (declaration?.type === 'VariableDeclaration') {
-        const declared = declaration.declarations.map((declarator) =>
-          declarator.id.type === 'Identifier' ? bindings.get(declarator.id.name) : undefined,
-        );
-        for (const binding of declared.filter((item) => item !== undefined)) {
-          exports.set(binding.name, binding);
-        }
+        addDeclared(exports, declaration.declarations, bindings);
       }
       for (const specifier of statement.specifiers) {
         const local = specifier.local.type === 'Identifier' ? specifier.local.name : undefined;
@@ -234,12 +245,12 @@ function outerBindings(fn: Node, self: Binding, scopes: ScopeAnalysis): Map<Node
 export function exposeLocals(code: string, filename: string): EditResult | undefined {
   const program = parse(filename, code);
   const scopes = analyzeScopes(program);
-  const exports = exportsOf(program, scopes);
+  const exports = collectExports(program, scopes);
   const exported = new Set(exports.values());
   const needed = new Set<Binding>();
   for (const [name, binding] of exports) {
     const component =
-      isCapitalized(binding.name) || name === 'default' ? functionOf(binding) : undefined;
+      isCapitalized(binding.name) || name === 'default' ? findTopLevelFunction(binding) : undefined;
     if (!component) {
       continue;
     }
@@ -253,9 +264,10 @@ export function exposeLocals(code: string, filename: string): EditResult | undef
     return undefined;
   }
   const s = new MagicString(code);
-  const specifiers = [...needed].map(
-    (binding) => `${binding.name} as ${LOCAL_EXPORT}${binding.name}`,
-  );
+  const specifiers: string[] = [];
+  for (const binding of needed) {
+    specifiers.push(`${binding.name} as ${LOCAL_EXPORT}${binding.name}`);
+  }
   s.append(`\nexport { ${specifiers.join(', ')} };\n`);
   return { code: s.toString(), map: generateMap(s, filename) };
 }
@@ -339,10 +351,10 @@ export function readExportedComponent(
 ): ExportedComponent | undefined {
   const program = parse(filename, code);
   const scopes = analyzeScopes(program);
-  const exports = exportsOf(program, scopes);
+  const exports = collectExports(program, scopes);
   const named = exports.get(exportName);
   const binding = named ? aliasedBinding(named) : undefined;
-  const component = binding ? functionOf(binding) : undefined;
+  const component = binding ? findTopLevelFunction(binding) : undefined;
   if (!binding || !component) {
     return undefined;
   }

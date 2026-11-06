@@ -26,7 +26,11 @@ export function resolveImportedConstants(
 ): ResolvedImportedConstants {
   const result = new Map<string, Map<string, Const>>();
   for (const [source, exports] of Object.entries(constants ?? {})) {
-    result.set(source, new Map(Object.entries(exports).map(([name, value]) => [name, { value }])));
+    const entries = new Map<string, Const>();
+    for (const [name, value] of Object.entries(exports)) {
+      entries.set(name, { value });
+    }
+    result.set(source, entries);
   }
   return result;
 }
@@ -67,7 +71,7 @@ export class ConstantTable {
       }
       const binding = scopes.references.get(reference);
       if (binding) {
-        return this.constantOf(binding);
+        return this.getConstant(binding);
       }
       return this.globalConstant(reference.name) ?? globalValue(reference.name);
     };
@@ -141,7 +145,7 @@ export class ConstantTable {
    * A reference that runs before its declaration throws at runtime, and
    * folding turns it into the value. Minifiers make the same trade.
    */
-  constantOf(binding: Binding): Const | undefined {
+  getConstant(binding: Binding): Const | undefined {
     const cached = this.constants.get(binding);
     if (cached !== undefined) {
       return cached ?? undefined;
@@ -268,7 +272,7 @@ export function constantExports(
       for (const declarator of declaration.declarations) {
         if (declarator.id.type === 'Identifier') {
           const binding = topLevel.bindings.get(declarator.id.name);
-          add(declarator.id.name, binding ? table.constantOf(binding) : undefined);
+          add(declarator.id.name, binding ? table.getConstant(binding) : undefined);
         }
       }
       continue;
@@ -286,7 +290,7 @@ export function constantExports(
         add(exported, options.importedConstants.get(statement.source.value)?.get(local));
       } else {
         const binding = topLevel.bindings.get(local);
-        add(exported, binding ? table.constantOf(binding) : undefined);
+        add(exported, binding ? table.getConstant(binding) : undefined);
       }
     }
   }
