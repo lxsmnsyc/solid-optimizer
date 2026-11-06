@@ -185,7 +185,9 @@ Plan:
 
 ## 9. Copying components from chosen packages
 
-Status: done. `optimizer.packages` lists the packages to copy from. Re-exports and aliases are followed, and the copies inline wherever they can be, since the estimate cannot see what a package's other modules and the runtime code only they use add up to. The `vendor` build of `examples/kobalte` drops from 19.00 kB to 13.75 kB gzipped, and module mode inlines Kobalte too.
+Status: done. `optimizer.packages` lists the packages to copy from. Re-exports and aliases are followed, and the copies inline wherever they can be, since the estimate cannot see what a package's other modules and the runtime code only they use add up to. The `vendor` build of `examples/kobalte` drops from 18.40 kB to 13.32 kB gzipped, and module mode inlines Kobalte too.
+
+The `vendor` build stays about 1 kB above `single`. Most of it is Rolldown, not the optimizer: `claimElement` only works once a router registers a claim handler. In one chunk, Rolldown sees that nothing registers one, and drops the calls and the claim, snapshot, and lane code they reach. Across chunks it keeps them, since the vendor chunk exports `claimElement` to the app chunk. The plain build shows the same, by 0.22 kB.
 
 Components from `node_modules` are never copied across modules.
 
