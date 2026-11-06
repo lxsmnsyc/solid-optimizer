@@ -745,6 +745,27 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   }
 
   /**
+   * The scripts a virtual entry runs, like the server entry `start` mode
+   * generates: the app's modules it imports. It has no file to read, and
+   * the server and client builds have to see the same uses of each export.
+   * `undefined` when the entry has not been loaded or imports none.
+   */
+  function virtualEntryScripts(context: Rollup.PluginContext, id: string): string[] | undefined {
+    const info = context.getModuleInfo(id);
+    if (!info || info.code === null) {
+      return undefined;
+    }
+    const scripts: string[] = [];
+    for (const imported of [...info.importedIds, ...info.dynamicallyImportedIds]) {
+      // Packages and other virtual modules hold none of the app's components.
+      if (!imported.startsWith('\0') && !imported.includes('/node_modules/')) {
+        scripts.push(imported);
+      }
+    }
+    return scripts.length > 0 ? scripts : undefined;
+  }
+
+  /**
    * The scripts an entry runs: the entry itself, or the module scripts of an
    * HTML entry. `undefined` when an HTML entry has an inline module script,
    * whose imports the usage index cannot read.
@@ -760,7 +781,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     try {
       html = await readFile(stripQuery(id), 'utf8');
     } catch {
-      return undefined;
+      return virtualEntryScripts(context, id);
     }
     const scripts: string[] = [];
     for (const [tag] of html.matchAll(/<script\b[^>]*>/gi)) {

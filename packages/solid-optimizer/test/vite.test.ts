@@ -131,10 +131,16 @@ let hydrations = 0;
 async function hydrateFixture(
   fixture: string,
   optimizer: Options['optimizer'],
-): Promise<{ markup: string; hydrated: string; claimed: boolean }> {
+  serverEntry: { input: string; plugins: Plugin[] } = {
+    input: 'src/entry-server.tsx',
+    plugins: [],
+  },
+): Promise<{ markup: string; hydrated: string; claimed: boolean; server: string }> {
   const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
   const options: Options = { ssr: true, optimizer };
-  const server = (await bundle(fixture, options, { server: 'src/entry-server.tsx' })).at(0);
+  const server = (
+    await bundle(fixture, options, { server: serverEntry.input }, {}, serverEntry.plugins)
+  ).at(0);
   const client = await bundle(fixture, options, { client: 'src/entry-client.tsx' });
   // Each build gets its own file, since `import()` caches a module by its URL.
   hydrations += 1;
@@ -167,6 +173,7 @@ async function hydrateFixture(
     hydrated: text(window.document.getElementById('app')?.innerHTML ?? ''),
     // Hydration claims the server's nodes instead of rendering new ones.
     claimed: serverButton !== null && serverButton === button,
+    server: server?.code ?? '',
   };
 }
 
@@ -338,6 +345,31 @@ describe('solid-optimizer/vite', () => {
     // module for `Odd`, so a copy in `App` would only add code.
     expect(optimized.markup.match(/_hk=/g)).toHaveLength(4);
     expect(plain.markup.match(/_hk=/g)).toHaveLength(8);
+  });
+
+  it('copies the same components when the server entry is a virtual module', async () => {
+    // Like the entry `start` mode generates, which has no file to read.
+    const id = '\0virtual:server-entry';
+    const virtualEntry: Plugin = {
+      name: 'virtual-server-entry',
+      resolveId(source) {
+        // Vite resolves a server entry against the root first.
+        return source.endsWith('virtual:server-entry') ? id : undefined;
+      },
+      load(source) {
+        return source === id
+          ? `import * as entry from ${JSON.stringify(path.join(fixtures, 'ssr-modules/src/entry-server.tsx'))};\nexport const render = entry.render;`
+          : undefined;
+      },
+    };
+    const fromFile = await hydrateFixture('ssr-modules', undefined);
+    const fromVirtual = await hydrateFixture('ssr-modules', undefined, {
+      input: 'virtual:server-entry',
+      plugins: [virtualEntry],
+    });
+    expect(fromVirtual.claimed).toBe(true);
+    expect(fromVirtual.markup).toBe(fromFile.markup);
+    expect(fromVirtual.hydrated).toBe(fromFile.hydrated);
   });
 
   it('hydrates server HTML with components copied from a listed package', async () => {
