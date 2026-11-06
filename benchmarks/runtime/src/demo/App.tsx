@@ -1,10 +1,10 @@
 import { createSignal } from 'solid-js';
-import { Avatar } from '../../../examples/demo/src/components/Avatar';
-import { Banner } from '../../../examples/demo/src/components/Banner';
-import { NavLink } from '../../../examples/demo/src/components/NavLink';
-import About from '../../../examples/demo/src/pages/About';
-import { Home } from '../../../examples/demo/src/pages/Home';
-import Settings from '../../../examples/demo/src/pages/Settings';
+import { Avatar } from '../../../../examples/demo/src/components/Avatar';
+import { Banner } from '../../../../examples/demo/src/components/Banner';
+import { NavLink } from '../../../../examples/demo/src/components/NavLink';
+import About from '../../../../examples/demo/src/pages/About';
+import { Home } from '../../../../examples/demo/src/pages/Home';
+import Settings from '../../../../examples/demo/src/pages/Settings';
 import { Dashboard } from './Dashboard';
 
 // The demo with every page rendered at once and none of them lazy, so one

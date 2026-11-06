@@ -1,7 +1,7 @@
-import { Card } from '../../../examples/demo/src/components/Card';
-import { Stat } from '../../../examples/demo/src/components/Stat';
-import { Table } from '../../../examples/demo/src/components/Table';
-import Chart from '../../../examples/demo/src/pages/Chart';
+import { Card } from '../../../../examples/demo/src/components/Card';
+import { Stat } from '../../../../examples/demo/src/components/Stat';
+import { Table } from '../../../../examples/demo/src/components/Table';
+import Chart from '../../../../examples/demo/src/pages/Chart';
 
 const ROWS = [
   { name: 'api', status: 'ok' },

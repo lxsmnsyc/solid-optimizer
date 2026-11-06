@@ -275,7 +275,9 @@ Start with a prototype that only works in chunk mode. Measure it on solid-ui, wh
 
 ## 12. Measure runtime and hydration, not only bundle size
 
-Status: started on Solid 2. `benchmarks/runtime` measures the demo with every page at once, in client, server, and hydrating builds. See its [results](benchmarks/runtime/results.md). Hacker News, the Solid 1 line, owner and computation counts, and updates after mount are open.
+Status: started on Solid 2. `benchmarks/runtime` measures two apps in client, server, and hydrating builds: the demo with every page at once ([results](benchmarks/runtime/results.md)), and Hacker News's story lists and comments from its fixtures ([results](benchmarks/runtime/results-hackernews.md)). The Solid 1 line, owner and computation counts, and updates after mount are open.
+
+On Hacker News, nearly all of the runtime change comes from item 21. With `conditionals: false`, the warm client render is 3% faster than the plain build and the heap 0.2% smaller. With it, they are 22% and 29% smaller, and `renderToString` is 37% faster.
 
 Every number so far is gzip size or build time. Template merging, component inlining, provider removal and memo inlining also change what runs. They create fewer templates and components, fewer owners and computations, fewer DOM marker comments, and in hydrating builds fewer hydration keys and markers in the server's HTML. Nothing measures that yet. `report.ts` counts templates and component calls in the output code, and `scripts/bench.ts` measures only size and build time.
 

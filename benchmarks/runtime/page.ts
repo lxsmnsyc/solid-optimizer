@@ -20,7 +20,7 @@ export interface HydrationCounts extends DomCounts {
   nodesCreated: number;
   /** Nodes the server wrote that hydration removed. */
   nodesRemoved: number;
-  /** Whether a click on the counter updates it after hydration. */
+  /** Whether a click on the app's probe updates it after hydration. */
   interactive: boolean;
   serverMarkup: string;
 }
@@ -171,10 +171,14 @@ export async function countHydration(): Promise<HydrationCounts> {
   }
   const markup = window.markup(root);
 
-  // Click the counter, and wait for Solid to flush the update.
-  const counter = root.querySelector('.counter');
-  const text = counter?.querySelector('strong')?.textContent;
-  counter?.querySelector('button')?.click();
+  // Click the app's probe, and wait for Solid to flush the update.
+  const probe = window.bench.probe;
+  const watched = (): string | null | undefined =>
+    probe ? root.querySelector(probe.watch)?.textContent : undefined;
+  const text = watched();
+  if (probe) {
+    root.querySelector<HTMLElement>(probe.click)?.click();
+  }
   await new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
@@ -184,7 +188,7 @@ export async function countHydration(): Promise<HydrationCounts> {
     nodesCloned: window.counts.nodesCloned - before.nodesCloned,
     nodesCreated,
     nodesRemoved,
-    interactive: counter?.querySelector('strong')?.textContent !== text,
+    interactive: text !== undefined && watched() !== text,
     markup,
     serverMarkup,
   };

@@ -1,7 +1,10 @@
 /**
  * Measures what the optimizer changes at runtime: client creation, server
- * rendering, and hydration. The app is the demo with every page rendered at
- * once (`src/App.tsx`), built once without the optimizer and once with it.
+ * rendering, and hydration. Each app in `src/<app>` is built once without the
+ * optimizer and once with it.
+ *
+ * - `demo` is the demo with every page rendered at once.
+ * - `hackernews` is Hacker News's story lists and comments, from its fixtures.
  *
  * Counts are exact, so any difference in them is real. Timings run the two
  * builds in turns, so drift in machine load hits both, and a change is only
@@ -12,9 +15,11 @@
  *
  * - `node bench.ts` builds, measures, and writes `results.md` and
  *   `results.json`.
+ * - `--app <name>` picks the app. Defaults to `demo`. Another app writes
+ *   `results-<app>.md` and `results-<app>.json`.
  * - `--runs <n>` takes n samples of each timing. Defaults to 15.
- * - `--json <file>` picks the path of the raw results, which the website
- *   reads. Defaults to `results.json`.
+ * - `--json <file>` picks the path of the raw results. The website reads the
+ *   demo's.
  * - `--markdown <file>` picks the report's path. `-` prints it.
  */
 import { spawnSync } from 'node:child_process';
@@ -41,18 +46,27 @@ import {
   timeOnce,
 } from './page.ts';
 import type { Results, Row, Samples, Variant } from './report.ts';
-import { VARIANTS, summarize, writeReport } from './report.ts';
+import { APPS, VARIANTS, isApp, summarize, writeReport } from './report.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.join(HERE, 'dist');
 
 const { values: args } = parseArgs({
   options: {
+    app: { type: 'string', default: 'demo' },
     runs: { type: 'string', default: '15' },
-    json: { type: 'string', default: path.join(HERE, 'results.json') },
-    markdown: { type: 'string', default: path.join(HERE, 'results.md') },
+    json: { type: 'string' },
+    markdown: { type: 'string' },
   },
 });
+if (!isApp(args.app)) {
+  throw new Error(`--app must be one of ${Object.keys(APPS).join(', ')}`);
+}
+const APP = args.app;
+// The demo keeps the plain names, which the website reads.
+const SUFFIX = APP === 'demo' ? '' : `-${APP}`;
+const JSON_PATH = args.json ?? path.join(HERE, `results${SUFFIX}.json`);
+const MARKDOWN_PATH = args.markdown ?? path.join(HERE, `results${SUFFIX}.md`);
+const DIST = path.join(HERE, 'dist', APP);
 const RUNS = Number(args.runs);
 const WARMUP = 3;
 
@@ -63,9 +77,9 @@ const WARMUP = 3;
 async function buildVariant(variant: Variant): Promise<void> {
   const optimizer = variant === 'plain' ? false : undefined;
   const targets = [
-    { name: 'client', entry: 'src/client.tsx', ssr: false, server: false },
-    { name: 'hydrate', entry: 'src/hydrate.tsx', ssr: true, server: false },
-    { name: 'server', entry: 'src/server.tsx', ssr: true, server: true },
+    { name: 'client', entry: `src/${APP}/client.tsx`, ssr: false, server: false },
+    { name: 'hydrate', entry: `src/${APP}/hydrate.tsx`, ssr: true, server: false },
+    { name: 'server', entry: `src/${APP}/server.tsx`, ssr: true, server: true },
   ];
   for (const target of targets) {
     // oxlint-disable-next-line no-await-in-loop
@@ -287,7 +301,7 @@ function check(
       problems.push(`The ${variant} build hydrates to other markup than it renders.`);
     }
     if (!counts.interactive) {
-      problems.push(`The ${variant} build's counter does not respond after hydration.`);
+      problems.push(`The ${variant} build does not respond to a click after hydration.`);
     }
   }
   if (problems.length > 0) {
@@ -386,6 +400,7 @@ try {
   }
 
   const results: Results = {
+    app: APP,
     date: new Date().toISOString().slice(0, 10),
     node: process.version,
     cpu: cpus()[0]?.model ?? 'unknown CPU',
@@ -423,11 +438,11 @@ try {
     timings: summarize(samples),
   };
   const report = writeReport(results);
-  writeFileSync(args.json, `${JSON.stringify(results, null, 2)}\n`);
-  if (args.markdown === '-') {
+  writeFileSync(JSON_PATH, `${JSON.stringify(results, null, 2)}\n`);
+  if (MARKDOWN_PATH === '-') {
     process.stdout.write(report);
   } else {
-    writeFileSync(args.markdown, report);
+    writeFileSync(MARKDOWN_PATH, report);
   }
 } finally {
   await browser.close();
