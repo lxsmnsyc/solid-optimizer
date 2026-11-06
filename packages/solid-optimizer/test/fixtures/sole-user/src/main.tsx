@@ -1,5 +1,5 @@
-import { render } from 'solid-js/web';
-import { lazy, Suspense } from 'solid-js';
+import { render } from '@solidjs/web';
+import { lazy, Loading } from 'solid-js';
 import { Title } from './parts';
 
 const Page = lazy(() => import('./Page'));
@@ -8,9 +8,9 @@ function App() {
   return (
     <main>
       <Title text="Hello" />
-      <Suspense fallback={<p>loading</p>}>
+      <Loading fallback={<p>loading</p>}>
         <Page />
-      </Suspense>
+      </Loading>
     </main>
   );
 }

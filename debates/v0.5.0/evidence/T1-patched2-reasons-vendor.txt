@@ -1,0 +1,25 @@
+  inline   imported            453  DropdownMenuItem (./dropdown-menu-*.js)×22, Meta (./vendor-*.js)×20, Button (./text-field-*.js)×18, Avatar (./dropdown-menu-*.js)×14, AvatarFallback (./dropdown-menu-*.js)×14, AvatarImage (./dropdown-menu-*.js)×14, 140 more
+  inline   copy-size           292  Button (~/registry/ui/button)×11, Card (~/registry/ui/card)×9, CardTitle (~/registry/ui/card)×9, TextField (~/registry/ui/text-field)×9, CardDescription (~/registry/ui/card)×8, CardHeader (~/registry/ui/card)×8, 92 more
+  inline   copy-props-use       91  ButtonRoot (./UKTBL2JL.jsx)×10, FormControlLabel (./FOXVCQFV.jsx)×4, ItemIndicator (@kobalte/core/dist/dropdown-menu/index.jsx)×4, Label (@kobalte/core/dist/text-field/index.jsx)×3, MenuRoot (./FWLJS4DZ.jsx)×3, FormControlDescription (./XUUROM4M.jsx)×2, 60 more
+  inline   call-spread          87  Icon×48, Polymorphic×34, HiddenSelectBase×2, Command, DismissableLayer, MenuContent
+  inline   copy-wrapper         81  MenuCheckboxItem (@kobalte/core/dist/dropdown-menu/index.jsx)×4, IconBrandGithub (src/components/icons.tsx)×3, IconSettings (src/components/icons.tsx)×3, IconBrandGithub (~/components/icons)×2, IconChevronLeft (src/components/icons.tsx)×2, IconChevronRight (src/components/icons.tsx)×2, 58 more
+  inline   copy-shape           70  DropdownMenuTrigger (~/registry/ui/dropdown-menu)×7, DropdownMenuTrigger (src/registry/ui/dropdown-menu.tsx)×7, Popper (./OGE3DKII.jsx)×6, Select (~/registry/ui/select)×5, SelectValue (~/registry/ui/select)×5, DropdownMenuGroup (src/registry/ui/dropdown-menu.tsx)×4, 24 more
+  inline   size                 60  Label×9, TooltipContent×7, Tooltip×6, TableColumnHeader×4, ComboboxContent×3, ComboboxControl×3, 12 more
+  inline   copy-call-spread     39  Polymorphic (./FLVHQV4A.jsx)×19, HiddenSelectBase (./GSF7SFRW.jsx)×2, TextFieldInput (src/registry/ui/text-field.tsx)×2, Content (@kobalte/core/combobox), Content (@kobalte/core/dropdown-menu), Content (@kobalte/core/select), 13 more
+  inline   call-ref             33  Polymorphic×28, DismissableLayer×5
+  inline   props-use            30  ButtonRoot×7, FormControlLabel×4, MenuItemBase×3, FormControlDescription×2, FormControlErrorMessage×2, ListboxRoot×2, 7 more
+  memos    memo-computation     30  delegate×3, defaultValue×2, value×2, activeDescendant, allOptions, ariaChecked, 20 more
+  inline   not-a-function       26  TooltipTrigger×7, Popper×5, Combobox×3, ComboboxItemLabel×3, Dynamic_default×3, ResizablePanel×3, 2 more
+  inline   copy-call-ref        25  Polymorphic (./FLVHQV4A.jsx)×16, DismissableLayer (./AAA75RJW.jsx)×6, CollapsibleTrigger (./UGE6PPGT.jsx), LinkRoot (./3JA5IX2L.jsx), ToggleButtonRoot (./WAUM5GOD.jsx)
+  inline   copy-package         24  Dynamic (@corvu/utils/dynamic)×3, default (@corvu/resizable/dist/index.jsx)×2, A (@solidjs/router), CommandEmpty (cmdk-solid), CommandEmpty (cmdk-solid/dist/index.jsx), CommandGroup (cmdk-solid), 15 more
+  contexts open-component       18  CheckboxContext, ComboboxContext, DismissableLayerContext, ImageContext, ListboxContext, ListboxItemContext, 12 more
+  inline   copy-no-host         15  List (@kobalte/core/dist/tabs/index.jsx)×2, TableFacetedFilter (src/routes/(app)/examples/tasks/components/table-faceted-filter.tsx)×2, AccountSwitcher (./account-switcher), AccountSwitcher (src/components/mail/account-switcher.tsx), CloseButton (@kobalte/core/dialog), Label (@kobalte/core/dist/switch/index.jsx), 7 more
+  inline   member-tag           15  Popper.Positioner×5, dialog_exports.Content, dialog_exports.Overlay, dialog_exports.Portal, dialog_exports.Root, Index_default.Handle, 5 more
+  inline   no-host              10  TableFacetedFilter×2, AccountSwitcher, CheckboxRootChild, ComboboxControlChild, MailDisplay, Overview, 3 more
+  contexts provider-undefined    9  FormControlContext×6, MetaContext, RouteContextObj, RouterContextObj
+  inline   nested                8  Icon×3, DomCollectionProvider×2, Field$1$1, Form$1$1, Root
+  memos    memo-reads            7  dataset×7
+  contexts open-outer            6  CommandContext, DialogContext, GroupContext, MenuContext, PopperContext, StoreContext
+  inline   component-body        2  Key, Routes
+  memos    memo-options          2  conditionValue×2
+  inline   view-use              1  BaseChart

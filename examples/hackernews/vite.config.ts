@@ -2,7 +2,7 @@ import solid from 'solid-optimizer/vite';
 import type { UserConfig } from 'vite';
 import { defineConfig } from 'vite';
 
-// `OPTIMIZER=off` builds the same app with `vite-plugin-solid` alone, for comparison.
+// `OPTIMIZER=off` builds the same app with `@solidjs/vite-plugin` alone, for comparison.
 const optimized = process.env.OPTIMIZER !== 'off';
 
 // `CHUNKS` picks how Rolldown splits the app:

@@ -1,0 +1,44 @@
+solid-optimizer: what stays as written in client
+  inline   imported            468  Polymorphic (./text-field-*.js)×56, DropdownMenuItem (./dropdown-menu-*.js)×22, Meta (./index-*.js)×20, Button (./text-field-*.js)×18, Avatar (./dropdown-menu-*.js)×14, AvatarFallback (./dropdown-menu-*.js)×14, 89 more
+  inline   copy-size           286  Button (~/registry/ui/button)×11, Card (~/registry/ui/card)×9, CardTitle (~/registry/ui/card)×9, TextField (~/registry/ui/text-field)×9, CardDescription (~/registry/ui/card)×8, CardHeader (~/registry/ui/card)×8, 86 more
+  inline   copy-package        211  Polymorphic (./FLVHQV4A.jsx)×35, ButtonRoot (./UKTBL2JL.jsx)×10, DismissableLayer (./AAA75RJW.jsx)×7, Popper (./OGE3DKII.jsx)×6, CheckboxItem (@kobalte/core/dist/dropdown-menu/index.jsx)×4, FormControlLabel (./FOXVCQFV.jsx)×4, 122 more
+  inline   call-spread          68  Icon×48, Polymorphic×3, ComboboxContent$1, ComboboxControl$1, Command$1, DismissableLayer, 13 more
+  inline   copy-wrapper         67  IconBrandGithub (src/components/icons.tsx)×3, IconSettings (src/components/icons.tsx)×3, IconBrandGithub (~/components/icons)×2, IconChevronLeft (src/components/icons.tsx)×2, IconChevronRight (src/components/icons.tsx)×2, IconChevronsLeft (src/components/icons.tsx)×2, 49 more
+  inline   size                 64  Label×9, TooltipContent×7, Tooltip×6, TableColumnHeader×4, ComboboxContent×3, ComboboxControl×3, 16 more
+  inline   copy-shape           63  DropdownMenuTrigger (~/registry/ui/dropdown-menu)×7, DropdownMenuTrigger (src/registry/ui/dropdown-menu.tsx)×7, Select (~/registry/ui/select)×5, SelectValue (~/registry/ui/select)×5, DropdownMenuGroup (src/registry/ui/dropdown-menu.tsx)×4, DropdownMenuGroup (~/registry/ui/dropdown-menu)×3, 22 more
+  inline   props-use            56  A×5, MenuItemBase×3, Menu×2, MenuContentBase×2, TextFieldInputBase×2, TooltipRoot×2, 40 more
+  memos    memo-computation     27  delegate×3, defaultValue×2, value×2, activeDescendant, allOptions, ariaChecked, 17 more
+  inline   not-a-function       23  TooltipTrigger×7, Combobox×3, ComboboxItemLabel×3, Dynamic_default×3, ResizablePanel×3, BarChart, 3 more
+  inline   member-tag           20  FormControlContext.Provider×5, Popper.Positioner×5, dialog_exports.Content, dialog_exports.Overlay, dialog_exports.Portal, dialog_exports.Root, 6 more
+  contexts open-component       18  CheckboxContext, ComboboxContext, DismissableLayerContext, ImageContext, ListboxContext, ListboxItemContext, 12 more
+  inline   no-host              15  TableFacetedFilter×2, AccountSwitcher, CheckboxRootChild, ComboboxControlChild, Command$1, Empty, 8 more
+  inline   copy-no-host          9  TableFacetedFilter (src/routes/(app)/examples/tasks/components/table-faceted-filter.tsx)×2, AccountSwitcher (./account-switcher), AccountSwitcher (src/components/mail/account-switcher.tsx), MailDisplay (./mail-display), MailDisplay (src/components/mail/mail-display.tsx), Overview (./overview), 2 more
+  inline   nested                8  Icon×3, DomCollectionProvider×2, Field$1$1, Form$1$1, Root
+  memos    memo-reads            7  dataset×7
+  contexts open-outer            6  CommandContext, DialogContext, GroupContext, MenuContext, PopperContext, StoreContext
+  contexts provider-undefined    4  FormControlContext, MetaContext, RouteContextObj, RouterContextObj
+  inline   call-ref              3  Polymorphic×3
+  inline   component-body        3  Key, Router, Routes
+  inline   copy-call-spread      3  TextFieldInput (src/registry/ui/text-field.tsx)×2, TextFieldInput (~/registry/ui/text-field)
+  inline   view-use              1  BaseChart
+computing gzip size...
+dist/default/optimized/index.html                           0.40 kB │ gzip:  0.27 kB
+dist/default/optimized/.vite/manifest.json                  4.42 kB │ gzip:  0.70 kB
+dist/default/optimized/assets/grid-B_nxa9OB.js              1.01 kB │ gzip:  0.27 kB
+dist/default/optimized/assets/badge-iUDCD0Ro.js             1.30 kB │ gzip:  0.64 kB
+dist/default/optimized/assets/card--F5t_6Kw.js              2.20 kB │ gzip:  0.61 kB
+dist/default/optimized/assets/meta-tags-DwAXHVL_.js         3.27 kB │ gzip:  0.94 kB
+dist/default/optimized/assets/switch-BXwNbtIO.js            9.20 kB │ gzip:  2.52 kB
+dist/default/optimized/assets/store-8zM7JUkS.js            12.04 kB │ gzip:  3.29 kB
+dist/default/optimized/assets/tabs-DP4A466T.js             18.72 kB │ gzip:  5.04 kB
+dist/default/optimized/assets/authentication-BYPpIIEF.js   36.00 kB │ gzip:  7.83 kB
+dist/default/optimized/assets/index-RPtmSxrc.js            37.42 kB │ gzip: 11.34 kB
+dist/default/optimized/assets/separator-Cia_g_hv.js        43.86 kB │ gzip: 10.44 kB
+dist/default/optimized/assets/web-BF3Ia0F5.js              56.41 kB │ gzip: 14.99 kB
+dist/default/optimized/assets/cards-Dd00E-M_.js            79.73 kB │ gzip: 15.44 kB
+dist/default/optimized/assets/mail-DYtOigN8.js            107.96 kB │ gzip: 24.64 kB
+dist/default/optimized/assets/text-field-YeBws4uj.js      125.92 kB │ gzip: 27.26 kB
+dist/default/optimized/assets/dropdown-menu-CkzegwfR.js   182.42 kB │ gzip: 40.03 kB
+dist/default/optimized/assets/tasks-Bl5GkcFe.js           219.84 kB │ gzip: 44.62 kB
+dist/default/optimized/assets/dashboard-BAXtoqx_.js       390.70 kB │ gzip: 97.08 kB
+

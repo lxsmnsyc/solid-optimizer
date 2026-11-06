@@ -10,24 +10,43 @@ import { optimize } from './utils';
  */
 const CARD = `
 function Card(props) {
-  const [local, others] = splitProps(props, ['class']);
-  return <Primitive class={cn('rounded-lg border bg-card text-card-foreground shadow-sm', local.class)} {...others} />;
+  const others = omit(props, 'class');
+  return <Primitive class={cn('rounded-lg border bg-card text-card-foreground shadow-sm', props.class)} {...others} />;
 }
 `;
 
 describe('size-aware inlining', () => {
   it('inlines a component used once, whose declaration goes away', () => {
     const code =
-      optimize(`import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+      optimize(`import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card></main>;`);
     expect(code).not.toContain('<Card');
     expect(code).not.toContain('function Card');
   });
 
+  it('measures a copy with the constants its call site passes by name', () => {
+    // Each list unrolls once its copy has the list, and every condition in it folds.
+    const code = optimize(`import { For } from 'solid-js';
+function Rows(props) {
+  return (
+    <ul class="rows">
+      <For each={props.rows}>
+        {(row) => <li class={row.on ? 'row row-on is-highlighted' : 'row row-off is-dimmed'} title={row.label}>{row.label}</li>}
+      </For>
+    </ul>
+  );
+}
+const FIRST = [{ on: true, label: 'x' }];
+const SECOND = [{ on: false, label: 'y' }];
+export const App = () => <main><Rows rows={FIRST} /><Rows rows={SECOND} /></main>;`);
+    expect(code).not.toContain('<Rows');
+    expect(code).toContain("<li class={'row row-on is-highlighted'} title={'x'}>");
+  });
+
   it('keeps a component with code of its own that many calls would repeat', () => {
     const code =
-      optimize(`import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+      optimize(`import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => (
   <main>
@@ -64,7 +83,7 @@ export const App = () => <p><Button variant="primary">a</Button><Button variant=
   });
 
   it('keeps a component whose code stays elsewhere unless each copy is smaller', () => {
-    const app = `import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+    const app = `import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card></main>;`;
     expect(optimize(app, { sharedComponents: { Card: 0 } })).toContain(
@@ -91,7 +110,7 @@ export const Home = () => <Card title="Home"><Counter label="Clicks" start={0} /
 
   it('inlines every component it can with alwaysInline', () => {
     const code = optimize(
-      `import { splitProps } from 'solid-js';\nimport { Primitive } from 'some-library';
+      `import { omit } from 'solid-js';\nimport { Primitive } from 'some-library';
 ${CARD}
 export const App = () => <main><Card class="a">one</Card><Card class="b">two</Card><Card class="c">three</Card></main>;`,
       { alwaysInline: true },

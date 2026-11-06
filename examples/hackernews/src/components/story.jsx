@@ -1,3 +1,5 @@
+import { Show } from "solid-js";
+
 export default function Story(props) {
   return (
     <li class="news-item">

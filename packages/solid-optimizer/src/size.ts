@@ -17,26 +17,17 @@
  * Other code counts as its text without the whitespace a minifier removes.
  */
 import type {
+  Expression,
   JSXAttribute,
   JSXAttributeItem,
   JSXChild,
   JSXElement,
   JSXElementName,
+  JSXEmptyExpression,
   JSXFragment,
   Node,
 } from 'oxc-parser';
-import MagicString from 'magic-string';
-import {
-  collectParents,
-  forEachChild,
-  isInsignificant,
-  isIntrinsicTag,
-  parse,
-  unwrap,
-} from './ast';
-import type { ResolvedOptions } from './context';
-import { fold } from './fold';
-import { analyzeScopes } from './scope';
+import { forEachChild, isInsignificant, isIntrinsicTag, unwrap } from './ast';
 
 /** A template's declaration, and the function that clones and returns it. */
 const TEMPLATE = 40;
@@ -75,6 +66,26 @@ function nameLength(name: JSXElementName): number {
     default:
       return 4;
   }
+}
+
+/** Whether an expression lowers to text in the template, like a literal. */
+function isStaticText(node: Expression | JSXEmptyExpression): boolean {
+  if (node.type === 'JSXEmptyExpression') {
+    return false;
+  }
+  const inner = unwrap(node);
+  if (inner.type === 'Literal') {
+    return typeof inner.value === 'string' || typeof inner.value === 'number';
+  }
+  if (inner.type === 'TemplateLiteral') {
+    return inner.expressions.length === 0;
+  }
+  return (
+    inner.type === 'UnaryExpression' &&
+    inner.operator === '-' &&
+    inner.argument.type === 'Literal' &&
+    typeof inner.argument.value === 'number'
+  );
 }
 
 function isIntrinsic(element: JSXElement): boolean {
@@ -142,6 +153,9 @@ export class SizeEstimator {
       }
       if (child.type === 'JSXText') {
         size += compactLength(child.value);
+      } else if (child.type === 'JSXExpressionContainer' && isStaticText(child.expression)) {
+        // A literal child is written into the template as text.
+        size += this.text(child.expression);
       } else if (child.type === 'JSXElement') {
         size += this.jsx(child, true);
       } else {
@@ -240,70 +254,16 @@ export class SizeEstimator {
     }
     return size + (spread ? MERGE : 0);
   }
-}
 
-/** The name of the function a copy is wrapped in to be folded and measured. */
-const WRAPPER = '__so_size__';
-
-export interface Copy {
-  /** The statements the copy hoists out of the JSX. */
-  readonly statements: readonly string[];
-  /** The JSX that replaces the call site. */
-  readonly root: string;
-}
-
-/**
- * The size of a component's copy at one call site, once its props have
- * folded. `header` declares the names the fold pass needs to know, like
- * imports of Solid. `inTemplate` is whether the call site sits directly in
- * an element.
- */
-export function copySize(
-  filename: string,
-  header: string,
-  copy: Copy,
-  inTemplate: boolean,
-  options: ResolvedOptions,
-): number {
-  let code = `${header}\nfunction ${WRAPPER}() {\n${copy.statements.join('\n')}\nreturn (${copy.root});\n}\n`;
-  // Constant props fold the copy's conditions, as later passes would.
-  for (let round = 0; round < 3; round += 1) {
-    const program = parse(filename, code);
-    const s = new MagicString(code);
-    const changed = fold({
-      code,
-      filename,
-      s,
-      program,
-      parents: collectParents(program),
-      scopes: analyzeScopes(program),
-      options,
-      // Only the copy is measured, so nothing it skips is reported.
-      skips: undefined,
-    });
-    if (!changed) {
-      break;
+  /**
+   * The size of what a component returns. JSX lowers as JSX, and anything
+   * else is inserted when it sits in an element.
+   */
+  root(node: Expression, inTemplate: boolean): number {
+    const inner = unwrap(node);
+    if (inner.type === 'JSXElement' || inner.type === 'JSXFragment') {
+      return this.jsx(inner, inTemplate);
     }
-    code = s.toString();
+    return (inTemplate ? INSERT + WALK : 0) + this.node(inner);
   }
-  const program = parse(filename, code);
-  const wrapper = program.body.at(-1);
-  if (wrapper?.type !== 'FunctionDeclaration' || !wrapper.body) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const estimator = new SizeEstimator(code);
-  let size = 0;
-  for (const statement of wrapper.body.body) {
-    if (statement.type !== 'ReturnStatement') {
-      size += estimator.node(statement);
-      continue;
-    }
-    const argument = statement.argument ? unwrap(statement.argument) : undefined;
-    if (argument?.type === 'JSXElement' || argument?.type === 'JSXFragment') {
-      size += estimator.jsx(argument, inTemplate);
-    } else if (argument) {
-      size += (inTemplate ? INSERT + WALK : 0) + estimator.node(argument);
-    }
-  }
-  return size;
 }

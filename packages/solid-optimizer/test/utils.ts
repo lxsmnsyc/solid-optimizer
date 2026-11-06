@@ -1,5 +1,4 @@
-import { transformSync } from '@babel/core';
-import solid from 'babel-preset-solid';
+import { transform } from '@solidjs/compiler';
 import type { CompileOptions } from '../src';
 import { compile } from '../src';
 
@@ -11,16 +10,15 @@ export function optimize(code: string, options: CompileOptions = {}): string {
 }
 
 /**
- * Lowers JSX with Solid's JSX transform, as a bundler plugin would after optimizing.
+ * Lowers JSX with Solid's own JSX transform, as a bundler plugin would after optimizing.
  */
 export function lower(code: string, generate: 'dom' | 'ssr' = 'dom'): string {
-  const result = transformSync(code, {
+  return transform(code, {
     filename: 'input.jsx',
-    presets: [[solid, { generate, hydratable: true }]],
-    configFile: false,
-    babelrc: false,
-  });
-  return result?.code ?? '';
+    moduleName: '@solidjs/web',
+    generate,
+    hydratable: true,
+  }).code;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { render } from 'solid-js/web';
+import { render } from '@solidjs/web';
 // A library build can leave a module with no code, like Kobalte's chunks.
 import './empty.jsx';
 

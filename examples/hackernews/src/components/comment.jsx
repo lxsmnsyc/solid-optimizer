@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 
 const pluralize = (n) => n + (n === 1 ? " reply" : " replies");
 
@@ -12,7 +12,7 @@ export default function Comment(props) {
       </div>
       <div class="text" innerHTML={props.comment.content} />
       <Show when={props.comment.comments.length}>
-        <div class="toggle" classList={{ open: open() }}>
+        <div class={{ toggle: true, open: open() }}>
           <a onClick={() => setOpen(!open())}>
             {open() ? "[-]" : "[+] " + pluralize(props.comment.comments.length) + " collapsed"}
           </a>

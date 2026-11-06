@@ -177,6 +177,152 @@ export function App() {
     expect(inlined(code)).toBe(code);
   });
 
+  it('moves statements into the callbacks Solid runs once per item or value', () => {
+    const imports =
+      "import { For, Match, Repeat, Show } from 'solid-js';\nimport { render } from '@solidjs/web';\n";
+    const row = `function Row(props) {
+  const [on, setOn] = createSignal(false);
+  return <li onClick={() => setOn(!on())}>{props.name}</li>;
+}
+`;
+    // Five copies of `Row` are larger than five calls, so the size estimate is skipped.
+    const output = optimize(
+      `${imports}${row}export function App(props) {
+  return (
+    <ul>
+      <For each={props.items}>{(item) => <Row name={item.name} />}</For>
+      <Repeat count={3}>{(index) => <Row name={index} />}</Repeat>
+      <Show when={props.user}>{(user) => <Row name={user().name} />}</Show>
+      <Match when={props.user}>{(user) => <Row name={user().name} />}</Match>
+    </ul>
+  );
+}
+render(() => <Row name="root" />, document.body);
+`,
+      { fold: false, alwaysInline: true },
+    );
+    expect(output).not.toContain('<Row');
+    expect(output).toContain(
+      '{(item) => { const [on$1, setOn$1] = createSignal(false); return <li onClick={() => setOn$1(!on$1())}>{item.name}</li>; }}',
+    );
+    expect(output).toContain(
+      'render(() => { const [on$5, setOn$5] = createSignal(false); return <li onClick={() => setOn$5(!on$5())}>{"root"}</li>; }, document.body);',
+    );
+  });
+
+  it('keeps statements out of callbacks that are not run once per creation', () => {
+    const imports = "import { Show } from 'solid-js';\n";
+    const code = `${imports}function Item(props) {
+  const label = format(props.value);
+  return <li>{label}</li>;
+}
+export function App() {
+  return (
+    <ul>
+      <Show when={ready()}>{() => <Item value={1} />}</Show>
+      <Show when={ready()} fallback={<Item value={2} />}>{(value) => <b>{value()}</b>}</Show>
+      {list.map((value) => <Item value={value} />)}
+      <Other>{(value) => <Item value={value} />}</Other>
+    </ul>
+  );
+}
+`;
+    expect(inlined(code)).toBe(code);
+  });
+
+  it('forwards a ref from the call site to the element the component gives it to', () => {
+    const output = inlined(`function Field(props) {
+  return <label><input ref={props.ref} /><b ref={props.ref} /></label>;
+}
+function Plain() {
+  return <i />;
+}
+export function App() {
+  let el;
+  return <main><Field ref={el} /><Field ref={[(e) => use(e), el]} /><Plain ref={el} /></main>;
+}
+`);
+    // A ref read twice stays the name, so each element sets it, as the component's ref did.
+    expect(output).toContain('<label><input ref={el} /><b ref={el} /></label>');
+    expect(output).toContain(
+      '<label><input ref={[(e) => use(e), el]} /><b ref={[(e) => use(e), el]} /></label>',
+    );
+    // A component that never applies the ref drops it.
+    expect(output).toContain('<i />');
+  });
+
+  it('forwards a ref array with empty entries', () => {
+    const output = inlined(`import { untrack } from 'solid-js';
+function Field(props) {
+  return <input ref={props.ref} />;
+}
+export function App() {
+  return <main><Field ref={[setA, void 0]} /><Field ref={[setB, untrack(() => setC)]} /></main>;
+}
+`);
+    // Solid skips an empty entry, and runs the whole ref untracked.
+    expect(output).toContain(
+      '<main><input ref={[setA, void 0]} /><input ref={[setB, untrack(() => setC)]} /></main>',
+    );
+  });
+
+  it('keeps a call site whose ref array runs other code', () => {
+    const code = `
+function Field(props) {
+  return <input ref={props.ref} />;
+}
+export function App() {
+  return <main><Field ref={[setA, pick()]} /></main>;
+}
+`;
+    expect(inlined(code)).toBe(code);
+  });
+
+  it('inlines the calls of an alias, and removes the alias with the component', () => {
+    const output = inlined(`function CardRoot(props) {
+  return <section class="card">{props.children}</section>;
+}
+const Card = CardRoot;
+export function App() {
+  return <main><Card>hi</Card></main>;
+}
+`);
+    expect(output).toContain('<main><section class="card">hi</section></main>');
+    expect(output).not.toContain('CardRoot');
+    expect(output).not.toContain('Card =');
+  });
+
+  it('keeps a component that an exported alias names', () => {
+    const output = inlined(`function CardRoot(props) {
+  return <section class="card">{props.children}</section>;
+}
+export const Card = CardRoot;
+export function App() {
+  return <main><Card>hi</Card></main>;
+}
+`);
+    expect(output).toContain('<main><section class="card">hi</section></main>');
+    expect(output).toContain('function CardRoot(props)');
+    expect(output).toContain('export const Card = CardRoot;');
+  });
+
+  it('inlines the components it is told to, whatever their size', () => {
+    const code = `
+function Field(props) {
+  const [focused, setFocused] = createSignal(false);
+  const [touched, setTouched] = createSignal(false);
+  return <label class={focused() ? 'field focused' : touched() ? 'field touched' : 'field'}>{props.label}<input onFocus={() => setFocused(true)} onBlur={() => setTouched(true)} placeholder="Type something here, then press enter to save it" /></label>;
+}
+export function App() {
+  return <form><Field label="a" /><Field label="b" /><Field label="c" /><Field label="d" /><Field label="e" /><Field label="f" /></form>;
+}
+`;
+    expect(inlined(code)).toContain('<Field label="a" />');
+    const forced = optimize(code, { fold: false, alwaysInlineComponents: ['Field'] });
+    expect(forced).not.toContain('<Field');
+    expect(forced).not.toContain('function Field');
+  });
+
   it('stores a static prop that is read more than once', () => {
     const code = `
 function Button(props) {
@@ -256,9 +402,9 @@ export function Home() {
   it('inlines a TypeScript component with expression statements', () => {
     // TypeScript's AST marks every expression statement with `directive: null`.
     const code = `
-import { onMount } from 'solid-js';
+import { onSettled } from 'solid-js';
 function Box(props: { label: string }) {
-  onMount(() => log(props.label));
+  onSettled(() => log(props.label));
   return <div>{props.label}</div>;
 }
 export function App() {
@@ -322,9 +468,10 @@ export const App = () => <div><Title text="a" /><Other text="b" /></div>;
       `function A({ x }) { return <div>{x}</div>; }\nexport const App = () => <A x={1} />;`,
       // A prop is written.
       `function A(props) { props.x = 2; return <div />; }\nexport const App = () => <A x={1} />;`,
-      // The call site spreads props or passes a ref.
+      // The call site spreads props, or passes a ref the component does more with than forward.
       `function A(props) { return <div>{props.x}</div>; }\nexport const App = () => <A {...rest} />;`,
-      `function A(props) { return <div ref={props.ref} />; }\nexport const App = () => <A ref={el} />;`,
+      `function A(props) { return <div ref={props.ref} />; }\nexport const App = () => <A ref={make()} />;`,
+      `function A(props) { return <div ref={(e) => props.ref(e)} />; }\nexport const App = () => <A ref={el} />;`,
       // More than one return.
       `function A(props) { if (props.x) return <b />; return <i />; }\nexport const App = () => <A x={1} />;`,
       // The component renders itself.

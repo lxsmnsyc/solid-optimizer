@@ -1,0 +1,21 @@
+{
+  "name": "runtime-bench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node bench.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.0-rc.21",
+    "solid-js": "2.0.0-rc.21"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.50",
+    "@types/node": "^26.6.3",
+    "playwright": "^1.64.1",
+    "solid-optimizer": "workspace:*",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

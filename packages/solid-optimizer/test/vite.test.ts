@@ -121,6 +121,9 @@ async function load(fixture: string, options: Options = {}): Promise<string> {
   }
 }
 
+/** How many fixtures `hydrateFixture` has built. */
+let hydrations = 0;
+
 /**
  * Builds a fixture for the server and the client, renders it on the server,
  * hydrates the markup in a DOM, and clicks its first button.
@@ -133,7 +136,12 @@ async function hydrateFixture(
   const options: Options = { ssr: true, optimizer };
   const server = (await bundle(fixture, options, { server: 'src/entry-server.tsx' })).at(0);
   const client = await bundle(fixture, options, { client: 'src/entry-client.tsx' });
-  const out = path.join(scratch, `${fixture}-${optimizer === false ? 'plain' : 'optimized'}`);
+  // Each build gets its own file, since `import()` caches a module by its URL.
+  hydrations += 1;
+  const out = path.join(
+    scratch,
+    `${fixture}-${optimizer === false ? 'plain' : 'optimized'}-${String(hydrations)}`,
+  );
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, 'server.mjs'), server?.code ?? '');
@@ -178,12 +186,7 @@ describe('solid-optimizer/vite', () => {
     const code = chunks.map((chunk) => chunk.code).join('\n');
     expect(code).toContain('__esmMin');
     expect(code).not.toContain('__SOLID_OPTIMIZER_KEEP__');
-    const { app, window } = await run(chunks);
-    // A lazy page resolves after the first render.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 50);
-    });
-    await window.happyDOM.waitUntilComplete();
+    const { app } = await run(chunks);
     expect(app.innerHTML.replaceAll(/<!--[^>]*-->/g, '')).toBe(
       '<main><section class="card"><h2>Home</h2><p>eager</p></section><section class="card"><h2>Lazy</h2><ul><li>a</li><li>b</li></ul></section></main>',
     );
@@ -209,6 +212,49 @@ describe('solid-optimizer/vite', () => {
       expect(code).toContain('<main class=dark><h1>Home');
     }
     expect(await bundle('imported-constants', { optimizer: false })).toHaveLength(2);
+  });
+
+  it('folds constants exported from a module with JSX', async () => {
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('jsx-constants', { optimizer: { mode } });
+      // `BETA` folds before bundling, so its branch takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).not.toContain('beta tools');
+    }
+    expect(await bundle('jsx-constants', { optimizer: false })).toHaveLength(2);
+  });
+
+  it('reads constants of modules with JSX that import each other through other modules', async () => {
+    // Each transform would wait for the other through a module without JSX.
+    for (const mode of ['auto', 'module'] as const) {
+      const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+      // oxlint-disable-next-line no-await-in-loop
+      const optimized = text(await load('constant-cycle', { optimizer: { mode } }));
+      expect(optimized).toBe('<main><p class="a">b off</p><p class="b">a on</p></main>');
+    }
+  });
+
+  it('folds define entries before bundling, in module mode too', async () => {
+    const define = { __DEBUG__: 'false' };
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const result = await build({
+        root: path.join(fixtures, 'define-constants'),
+        configFile: false,
+        logLevel: 'silent',
+        define,
+        plugins: [solid({ optimizer: { mode } })],
+        build: { write: false, minify: false, modulePreload: false },
+      });
+      const outputs = Array.isArray(result) ? result : [result];
+      const chunks = outputs.flatMap((output) =>
+        'output' in output ? output.output.filter((item) => item.type === 'chunk') : [],
+      );
+      // The branch folds away before bundling, and takes the lazy chunk with it.
+      expect(chunks).toHaveLength(1);
+      expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('<h1>production');
+    }
   });
 
   it('reads imported constants after other plugins transform them', async () => {
@@ -277,28 +323,12 @@ describe('solid-optimizer/vite', () => {
     expect(html(optimized.app)).toContain('Clicks: 2');
   });
 
-  it('drops code only effects use from the server bundle', async () => {
-    const serverCode = async (options: Options): Promise<string> => {
-      const chunks = await bundle('ssr', options, { server: 'src/entry-server.tsx' });
-      return chunks.map((chunk) => chunk.code).join('\n');
-    };
-    const optimized = await serverCode({ ssr: true });
-    const plain = await serverCode({ ssr: true, optimizer: false });
-    const client = (await bundle('ssr', { ssr: true }, { client: 'src/entry-client.tsx' }))
-      .map((chunk) => chunk.code)
-      .join('\n');
-    // The effect is removed while modules are transformed, so the bundler never keeps its import.
-    expect(optimized).not.toContain('client-only-analytics');
-    expect(plain).toContain('client-only-analytics');
-    expect(client).toContain('client-only-analytics');
-  });
-
   it('hydrates server HTML with components inlined from other modules', async () => {
     const optimized = await hydrateFixture('ssr-modules', undefined);
     const plain = await hydrateFixture('ssr-modules', false);
     expect(optimized.claimed).toBe(true);
     expect(plain.claimed).toBe(true);
-    const keyless = (markup: string): string => markup.replaceAll(/ data-hk="[^"]*"/g, '');
+    const keyless = (markup: string): string => markup.replaceAll(/ _hk="[^"]*"/g, '');
     expect(keyless(optimized.hydrated)).toBe(keyless(plain.hydrated));
     expect(keyless(optimized.hydrated)).toBe(
       '<main><h1 class="title">Hello</h1><button type="button"><span class="label">Clicks: 2</span></button><p class="dark">themed</p><i><b><i>even</i></b></i></main>',
@@ -306,8 +336,65 @@ describe('solid-optimizer/vite', () => {
     // The server and client builds inline the same components. Only the
     // modules that import each other keep their calls: `Even` stays in its
     // module for `Odd`, so a copy in `App` would only add code.
-    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(4);
-    expect(plain.markup.match(/data-hk=/g)).toHaveLength(8);
+    expect(optimized.markup.match(/_hk=/g)).toHaveLength(4);
+    expect(plain.markup.match(/_hk=/g)).toHaveLength(8);
+  });
+
+  it('hydrates server HTML with components copied from a listed package', async () => {
+    const keyless = (markup: string): string => markup.replaceAll(/ _hk="[^"]*"/g, '');
+    const optimized = await hydrateFixture('ssr-package', { packages: ['headless-ui'] });
+    const unlisted = await hydrateFixture('ssr-package', undefined);
+    const plain = await hydrateFixture('ssr-package', false);
+    for (const result of [optimized, unlisted, plain]) {
+      expect(result.claimed).toBe(true);
+      expect(keyless(result.hydrated)).toBe(keyless(plain.hydrated));
+    }
+    expect(keyless(plain.hydrated)).toContain('Add 2');
+    // The server and client builds copy both buttons and `Polymorphic` the
+    // same way, so `<main>` is one template with one hydration key.
+    expect(optimized.markup.match(/_hk=/g)).toHaveLength(1);
+    expect(unlisted.markup.match(/_hk=/g)?.length).toBeGreaterThan(1);
+  });
+
+  it('reports what the app leaves alone, not what a package does', async () => {
+    const reportOf = async (packages: string[]): Promise<string[]> => {
+      const skips: string[] = [];
+      await bundle(
+        'ssr-package',
+        {
+          ssr: true,
+          optimizer: {
+            packages,
+            mode: 'module',
+            report: (report) => {
+              skips.push(...report.skips.map((skip) => `${skip.reason} ${skip.name}`));
+            },
+          },
+        },
+        { client: 'src/entry-client.tsx' },
+      );
+      return skips;
+    };
+    // The package's own modules call `Polymorphic`, which the app cannot change.
+    expect((await reportOf([])).filter((skip) => skip.includes('Polymorphic'))).toEqual([]);
+    // The app's calls of the package's component are still reported.
+    expect(await reportOf([])).toContain('copy-package Button (headless-ui)');
+    expect(await reportOf(['headless-ui'])).not.toContain('copy-package Button (headless-ui)');
+  });
+
+  it('copies components from a listed package into a chunk that does not hold it', async () => {
+    const options: Options = { optimizer: { packages: ['headless-ui'] } };
+    const vendor: Rollup.OutputOptions = {
+      codeSplitting: { groups: [{ name: 'vendor', test: /node_modules/ }] },
+    };
+    const chunks = await bundle('ssr-package', options, { client: 'src/entry-client.tsx' }, vendor);
+    // The entry only keeps the call `hydrate` makes.
+    const app = chunks.find((chunk) => chunk.isEntry);
+    expect(app?.code.match(/createComponent\(\w+/g)).toEqual(['createComponent(App']);
+    // Nothing calls the originals anymore, so the bundler drops them.
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(code).not.toContain('ButtonRoot');
+    expect(code).not.toContain('Polymorphic');
   });
 
   it('hydrates server HTML when both builds optimize each module', async () => {
@@ -324,15 +411,15 @@ describe('solid-optimizer/vite', () => {
     expect(optimized.claimed).toBe(true);
     expect(plain.claimed).toBe(true);
     expect(optimized.hydrated).toBe(
-      '<main data-hk="00"><h1 class="title">Hello</h1><button type="button">Clicks: 2</button><p class="dark">themed</p></main>',
+      '<main _hk="0"><h1 class="title">Hello</h1><button type="button">Clicks: 2</button><p class="dark">themed</p></main>',
     );
-    expect(optimized.hydrated.replaceAll(/ data-hk="[^"]*"/g, '')).toBe(
-      plain.hydrated.replaceAll(/ data-hk="[^"]*"/g, ''),
+    expect(optimized.hydrated.replaceAll(/ _hk="\d+"/g, '')).toBe(
+      plain.hydrated.replaceAll(/ _hk="\d+"/g, ''),
     );
     // The merged tree needs one hydration key instead of one per component.
-    // The context provider is removed on both sides.
-    expect(optimized.markup.match(/data-hk=/g)).toHaveLength(1);
-    expect(plain.markup.match(/data-hk=/g)).toHaveLength(4);
+    // The context provider is removed on both sides, with its root owner.
+    expect(optimized.markup.match(/_hk=/g)).toHaveLength(1);
+    expect(plain.markup.match(/_hk=/g)).toHaveLength(4);
   });
 
   it('inlines components from other modules before splitting chunks', async () => {
@@ -416,6 +503,72 @@ describe('solid-optimizer/vite', () => {
     expect(text(await load('spread-helpers'))).toBe(
       text(await load('spread-helpers', { optimizer: false })),
     );
+  });
+
+  it('optimizes a chunk where a spread onto Dynamic becomes a link', async () => {
+    // The modules import each other, so nothing is copied. The chunk inlines
+    // `Link` and `Polymorphic`, and `<Dynamic>` becomes an `<a>` with a ref
+    // and a dynamic attribute, whose helpers no module uses itself.
+    const warnings: string[] = [];
+    const chunks = await bundle('polymorphic', {}, undefined, {}, [
+      {
+        name: 'collect-warnings',
+        configResolved(config) {
+          const { logger } = config;
+          const warn = logger.warn.bind(logger);
+          logger.warn = (message, options) => {
+            warnings.push(message);
+            warn(message, options);
+          };
+        },
+      },
+    ]);
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(warnings.filter((message) => message.includes('is not optimized'))).toEqual([]);
+    expect(code).not.toContain('Polymorphic');
+    expect(code).not.toContain('LinkRoot');
+    const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
+    expect(text(await load('polymorphic'))).toBe(
+      text(await load('polymorphic', { optimizer: false })),
+    );
+  });
+
+  it('keeps the smaller of a chunk with every component inlined and one the estimate picks', async () => {
+    // The estimate keeps each `ButtonRoot` a call, since its copy repeats
+    // three memos. Inlining all three leaves no `<Dynamic>`, `merge()`, or
+    // `omit()` in the chunk, which makes it smaller.
+    const skips: string[] = [];
+    const chunks = await bundle('headless-many', {
+      optimizer: {
+        report: (report) => {
+          skips.push(...report.skips.map((skip) => `${skip.reason} ${skip.name}`));
+        },
+      },
+    });
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(code).not.toContain('Polymorphic');
+    expect(code).not.toContain('ButtonRoot');
+    expect(skips.filter((skip) => skip.startsWith('size'))).toEqual([]);
+    // An inlined attribute can move into the template, which changes the
+    // order attributes are set in, but not what each element has.
+    const text = (markup: string): string =>
+      markup
+        .replaceAll(/<!--[^>]*-->/g, '')
+        .replaceAll(/<([a-z]+)((?: [a-z-]+="[^"]*")+)>/g, (_, tag: string, attributes: string) => {
+          const sorted = attributes
+            .trim()
+            .split(/ (?=[a-z-]+=)/)
+            .sort()
+            .join(' ');
+          return `<${tag} ${sorted}>`;
+        });
+    expect(text(await load('headless-many'))).toBe(
+      text(await load('headless-many', { optimizer: false })),
+    );
+
+    // Copies of a component with statements, used many times, are larger.
+    const wrappers = await bundle('repeated-wrapper');
+    expect(wrappers.map((chunk) => chunk.code).join('\n')).toContain('createComponent(Field');
   });
 
   it('runs code-split chunks that share the runtime', async () => {

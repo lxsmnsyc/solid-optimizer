@@ -1,13 +1,4 @@
-import { render } from "solid-js/web";
-import { Router } from "@solidjs/router";
+import { render } from "@solidjs/web";
+import { Router } from "./routes";
 
-import routes from "./routes";
-
-render(
-  () => (
-    <Router routes={routes}>
-      {routes}
-    </Router>
-  ),
-  document.body
-);
+render(() => <Router />, document.body);

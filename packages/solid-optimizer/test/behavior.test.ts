@@ -10,7 +10,7 @@ function app(
   imports = "import { createSignal } from 'solid-js';",
 ): Record<string, string> {
   return {
-    'main.tsx': `import { render } from 'solid-js/web';
+    'main.tsx': `import { render } from '@solidjs/web';
 ${imports}
 ${body}
 render(() => <App />, document.getElementById('app')!);
@@ -46,9 +46,9 @@ function App() {
   return (
     <main>
       <Label />
-      <Theme.Provider value="dark">
+      <Theme value="dark">
         <div><Label /></div>
-      </Theme.Provider>
+      </Theme>
     </main>
   );
 }`,
@@ -57,7 +57,7 @@ function App() {
     );
     // The consumer outside the provider reads the default. The one inside
     // moves out with the provider's value, and the provider is removed.
-    expect(code).toContain('const theme$1 = useContext(Theme);');
+    expect(code).toMatch(/const theme\$\d+ = useContext\(Theme\);/);
     expect(code).not.toContain('createComponent(Label');
     expect(code).not.toContain('createComponent(Theme');
   });
@@ -68,7 +68,7 @@ function App() {
       app(
         `const Theme = createContext('light');
 function ThemeProvider(props) {
-  return <Theme.Provider value={props.theme}>{props.children}</Theme.Provider>;
+  return <Theme value={props.theme}>{props.children}</Theme>;
 }
 function Label() {
   const theme = useContext(Theme);
@@ -101,8 +101,8 @@ function App() {
   return (
     <main>
       <Label />
-      <Theme.Provider value="dark"><Label /></Theme.Provider>
-      <Theme.Provider value="blue"><Theme.Provider value="red"><Label /></Theme.Provider></Theme.Provider>
+      <Theme value="dark"><Label /></Theme>
+      <Theme value="blue"><Theme value="red"><Label /></Theme></Theme>
     </main>
   );
 }`,
@@ -131,7 +131,7 @@ function App() {
   return (
     <main>
       <button type="button" onClick={() => setCount(count() + 1)}>+</button>
-      <Count.Provider value={count}><Panel /></Count.Provider>
+      <Count value={count}><Panel /></Count>
     </main>
   );
 }`,
@@ -188,6 +188,210 @@ describe('refs', () => {
       ),
       ['#read'],
     );
+  });
+
+  it('sets a ref forwarded through a component the same once inlined', async () => {
+    const code = await expectSameBehavior(
+      'forwarded-ref',
+      app(
+        `function Field(props) {
+  return <input id="field" value="a" ref={props.ref} />;
+}
+function App() {
+  let el;
+  const [seen, setSeen] = createSignal('none');
+  const [called, setCalled] = createSignal('no');
+  return (
+    <main>
+      <Field ref={el} />
+      <Field ref={(node) => setCalled(node.tagName)} />
+      <button id="read" onClick={() => setSeen(el ? el.tagName + ':' + el.value : 'none')} />
+      <p>{seen()} {called()}</p>
+    </main>
+  );
+}`,
+      ),
+      ['#read'],
+    );
+    expect(code).not.toContain('createComponent(Field');
+  });
+});
+
+describe('constant lists', () => {
+  it('renders an unrolled <For> the same, with stateful rows', async () => {
+    const code = await expectSameBehavior(
+      'for-constant-list',
+      app(
+        `const LINKS = [
+  { href: '/', label: 'Home' },
+  { href: '/docs', label: 'Docs' },
+];
+function App() {
+  const [active, setActive] = createSignal('/');
+  return (
+    <nav>
+      <For each={LINKS}>
+        {(link, index) => (
+          <a
+            href={link.href}
+            data-index={index()}
+            class={active() === link.href ? 'active' : ''}
+            onClick={(event) => {
+              event.preventDefault();
+              setActive(link.href);
+            }}
+          >
+            {link.label}
+          </a>
+        )}
+      </For>
+    </nav>
+  );
+}`,
+        "import { createSignal, For } from 'solid-js';",
+      ),
+      ['a[data-index="1"]', 'a[data-index="0"]'],
+    );
+    expect(code).not.toContain('mapArray');
+  });
+});
+
+describe('children helper', () => {
+  it('renders children resolved by the helper the same once it is inlined', async () => {
+    const code = await expectSameBehavior(
+      'children-helper',
+      app(
+        `function Box(props) {
+  const resolved = children(() => props.children);
+  return <section class="box">{resolved()}</section>;
+}
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <Box>
+        <button onClick={() => setCount(count() + 1)}>{count()}</button>
+      </Box>
+    </main>
+  );
+}`,
+        "import { children, createSignal } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('children(');
+  });
+});
+
+describe('dynamic', () => {
+  it('renders a known component through <Dynamic> the same as a call', async () => {
+    const code = await expectSameBehavior(
+      'dynamic-component',
+      app(
+        `function Counter(props) {
+  const [count, setCount] = createSignal(props.start);
+  return (
+    <button onClick={() => setCount(count() + 1)}>
+      {props.label} {count()}
+    </button>
+  );
+}
+function App() {
+  const [label, setLabel] = createSignal('a');
+  return (
+    <main>
+      <i id="rename" onClick={() => setLabel('b')} />
+      <Dynamic component={Counter} label={label()} start={1} />
+    </main>
+  );
+}`,
+        "import { createSignal } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';",
+      ),
+      ['button', '#rename', 'button'],
+    );
+    expect(code).not.toContain('Dynamic');
+  });
+});
+
+describe('callback hosts', () => {
+  it('keeps each row its own state when a stateful component inlines into <For>', async () => {
+    const code = await expectSameBehavior(
+      'for-row-state',
+      app(
+        `function Row(props) {
+  const [on, setOn] = createSignal(false);
+  return (
+    <li class={on() ? 'on' : 'off'} onClick={() => setOn(!on())}>
+      {props.name}
+    </li>
+  );
+}
+function App() {
+  const [items, setItems] = createSignal(['a', 'b']);
+  return (
+    <main>
+      <button id="add" onClick={() => setItems([...items(), 'c'])} />
+      <button id="drop" onClick={() => setItems(items().slice(1))} />
+      <ul>
+        <For each={items()}>{(item) => <Row name={item} />}</For>
+      </ul>
+    </main>
+  );
+}`,
+        "import { createSignal, For } from 'solid-js';",
+      ),
+      ['li:nth-child(2)', '#add', 'li:nth-child(3)', '#drop', 'li:nth-child(1)'],
+    );
+    expect(code).not.toContain('createComponent(Row');
+  });
+});
+
+describe('statement order', () => {
+  // A copy's statements run before the JSX of the function they move into.
+  // A component whose statements write outside itself stays a call, so JSX
+  // that reads the value still sees each write in order.
+  it('keeps a component that writes outside itself', async () => {
+    const code = await expectSameBehavior(
+      'statement-order',
+      app(`let mounts = 0;
+function Row() {
+  mounts += 1;
+  return <li data-mount={mounts} />;
+}
+function App() {
+  return (
+    <ul>
+      <li data-mount={mounts} />
+      <Row />
+      <Row />
+    </ul>
+  );
+}`),
+    );
+    expect(code).toContain('createComponent(Row');
+  });
+
+  it('keeps a component that writes outside itself in an unrolled list', async () => {
+    const code = await expectSameBehavior(
+      'statement-order-list',
+      app(
+        `const ROWS = ['a', 'b'];
+let mounts = 0;
+function Row(props) {
+  mounts += 1;
+  return <li data-mount={mounts}>{props.name}</li>;
+}
+function App() {
+  return (
+    <ul>
+      <For each={ROWS}>{(row) => <Row name={row} />}</For>
+    </ul>
+  );
+}`,
+        "import { For } from 'solid-js';",
+      ),
+    );
+    expect(code).toContain('createComponent(Row');
   });
 });
 
@@ -261,9 +465,12 @@ function App() {
       ),
     );
     // A function read twice is stored once, so both calls share it.
-    expect(code).toMatch(/const children\$1 = \(side\) =>/);
-    expect(code).toContain('children$1("left")');
-    expect(code).toContain('children$1("right")');
+    const stored = /const (children\$\d+) = \(side\$\d+\) =>/.exec(code)?.[1];
+    expect(stored).toBeDefined();
+    expect(code).toContain(`${stored ?? ''}("left")`);
+    expect(code).toContain(`${stored ?? ''}("right")`);
+    // A function called once with a constant becomes its JSX, which joins the template.
+    expect(code).not.toContain('(42)');
   });
 
   it('passes children through control flow', async () => {
@@ -450,7 +657,7 @@ describe('createMemo', () => {
         `function App() {
   const [name, setName] = createSignal('a');
   const badge = createMemo(() => <b>{name()}</b>);
-  const length = createMemo(() => name().length, undefined, { equals: false });
+  const length = createMemo(() => name().length, { equals: false });
   return (
     <main>
       <button type="button" onClick={() => setName(name() + 'b')}>grow</button>
@@ -489,13 +696,13 @@ describe('createMemo', () => {
   });
 });
 
-describe('mergeProps() and splitProps()', () => {
+describe('merge() and omit()', () => {
   it('renders defaults and reactive props the same', async () => {
     const code = await expectSameBehavior(
       'views-merge',
       app(
         `function Badge(props) {
-  const merged = mergeProps({ tone: 'plain', label: 'none' }, props);
+  const merged = merge({ tone: 'plain', label: 'none' }, props);
   return <span class={merged.tone}>{merged.label}</span>;
 }
 function App() {
@@ -509,7 +716,7 @@ function App() {
     </main>
   );
 }`,
-        "import { createSignal, mergeProps } from 'solid-js';",
+        "import { createSignal, merge } from 'solid-js';",
       ),
       ['button', 'button'],
     );
@@ -521,8 +728,8 @@ function App() {
       'views-omit',
       app(
         `function Action(props) {
-  const [local, rest] = splitProps(props, ['tone']);
-  return <button type="button" class={local.tone} {...rest} />;
+  const rest = omit(props, 'tone');
+  return <button type="button" class={props.tone} {...rest} />;
 }
 function App() {
   const [count, setCount] = createSignal(0);
@@ -534,11 +741,57 @@ function App() {
     </main>
   );
 }`,
-        "import { createSignal, splitProps } from 'solid-js';",
+        "import { createSignal, omit } from 'solid-js';",
       ),
       ['button', 'button'],
     );
     expect(code).not.toContain('Action');
-    expect(code).not.toContain('splitProps(');
+    expect(code).not.toContain('omit(');
+  });
+});
+
+describe('headless components', () => {
+  it('renders a component through Dynamic, an alias, and a ref array', async () => {
+    const code = await expectSameBehavior(
+      'polymorphic',
+      app(
+        `function Polymorphic(props) {
+  const others = omit(props, 'as');
+  if (!untrack(() => props.as)) throw new Error('Polymorphic needs an \`as\` prop.');
+  return <Dynamic {...others} component={props.as} />;
+}
+function ButtonRoot(props) {
+  const [ref, setRef] = createSignal(undefined, { ownedWrite: true });
+  const merged = merge({ type: 'button' }, props);
+  const others = omit(merged, 'ref', 'type');
+  return (
+    <Polymorphic
+      as="button"
+      ref={[setRef, untrack(() => merged.ref)]}
+      type={merged.type}
+      data-ready={ref() ? '' : undefined}
+      {...others}
+    />
+  );
+}
+const Button = ButtonRoot;
+function App() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <Button class="primary" onClick={() => setCount(count() + 1)}>
+        Clicks: {count()}
+      </Button>
+    </main>
+  );
+}`,
+        `import { createSignal, merge, omit, untrack } from 'solid-js';
+import { Dynamic } from '@solidjs/web';`,
+      ),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('Polymorphic');
+    expect(code).not.toContain('ButtonRoot');
+    expect(code).not.toContain('Dynamic');
   });
 });

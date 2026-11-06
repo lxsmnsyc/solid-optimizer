@@ -1,0 +1,6 @@
+default plain chunks=17 min=643820 gzip=208606
+default optimized chunks=17 min=642566 gzip=207909
+vendor plain chunks=16 min=642039 gzip=199651
+vendor optimized chunks=16 min=640649 gzip=199230
+single plain chunks=1 min=648287 gzip=200695
+single optimized chunks=1 min=643589 gzip=198180

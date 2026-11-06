@@ -1,4 +1,4 @@
-import { render } from 'solid-js/web';
+import { render } from '@solidjs/web';
 import { lazy, Show } from 'solid-js';
 import { ADMIN, THEME } from './config';
 

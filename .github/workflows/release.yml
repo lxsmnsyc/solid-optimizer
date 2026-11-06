@@ -3,6 +3,9 @@ name: Release
 # Every push to `main` either opens or updates a "Version Packages" pull request
 # from the pending changesets. Once that pull request is merged, the next push
 # publishes the versions that are not on npm yet.
+#
+# While Changesets is in pre mode, versions are prereleases like `1.0.0-next.0`,
+# published under the `next` tag. Solid 1 fixes release from the `0.x` branch.
 on:
   push:
     branches:

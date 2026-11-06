@@ -1,0 +1,231 @@
+{
+  "round": 1,
+  "claims": {
+    "J1": {
+      "id": "J1",
+      "by": "judge",
+      "kind": "fact",
+      "axis": "device",
+      "text": "App code plus compiler output is 15% of the Solid 2 demo and Hacker News, and 23% of Solid 1 Hacker News and solid-ui. The Solid runtime is 85%, 57%, 51% and 6%.",
+      "evidence": {
+        "type": "measured",
+        "source": "debates/v0.5.0/evidence/byte-split.ts",
+        "detail": "debates/v0.5.0/evidence/byte-split-default.txt"
+      },
+      "round": 1
+    },
+    "J2": {
+      "id": "J2",
+      "by": "judge",
+      "kind": "fact",
+      "axis": "device",
+      "text": "Unused DOM walks cost 26-44 B gzip per app. A hand-written Solid 2 user page is 47 B (7.5%) smaller than the compiler's output.",
+      "evidence": {
+        "type": "measured",
+        "source": "debates/v0.5.0/evidence/ceiling.ts, user-hand.js",
+        "detail": "debates/v0.5.0/room.md section 2"
+      },
+      "round": 1
+    },
+    "J3": {
+      "id": "J3",
+      "by": "judge",
+      "kind": "fact",
+      "axis": "device",
+      "text": "@solidjs/signals is 12.3 of the Solid 2 demo's 17.8 kB. The core read and recompute path calls the async, transition and error-status code, so those ship in every app.",
+      "evidence": {
+        "type": "measured",
+        "source": "top-level declaration sizes in the demo's signals regions",
+        "detail": "debates/v0.5.0/room.md section 3"
+      },
+      "round": 1
+    },
+    "J4": {
+      "id": "J4",
+      "by": "judge",
+      "kind": "fact",
+      "axis": "time",
+      "text": "JSX lowering is upstream on both lines: @solidjs/compiler 2.0.0-rc.16 on Solid 2 and babel-preset-solid on Solid 1. The optimizer runs it in renderChunk in chunk mode.",
+      "evidence": {
+        "type": "source",
+        "source": "packages/solid-optimizer/package.json; git show main:packages/solid-optimizer/package.json",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "J5": {
+      "id": "J5",
+      "by": "judge",
+      "kind": "fact",
+      "axis": "device",
+      "text": "T1 (earlier debate): copying @kobalte/core saved 0 B. The copies are refused as copy-props-use 91, copy-call-spread 39, copy-call-ref 25 and copy-shape 70.",
+      "evidence": {
+        "type": "measured",
+        "source": "proof T1 in debates/v0.5.0",
+        "detail": "debates/v0.5.0/evidence/T1-summary.txt"
+      },
+      "round": 1
+    },
+    "P1": {
+      "id": "P1",
+      "by": "proponent",
+      "kind": "proposal",
+      "text": "Solid 1: port the rule that moves component statements into untracked callbacks (<For>/<Index>, <Show>/<Match> with a parameter, render), with runtime tests.",
+      "estimate": {
+        "value": 1.5,
+        "unit": "hours"
+      },
+      "evidence": {
+        "type": "prior-art",
+        "source": "debates/v0.5.0/debate.md settled structure",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "P2": {
+      "id": "P2",
+      "by": "proponent",
+      "kind": "proposal",
+      "text": "Both lines: clean the code JSX lowering leaves in chunk mode. Drop unused DOM walks, turn functions called at once around one element into statements, and read a shared dynamic part once.",
+      "estimate": {
+        "value": "1-2",
+        "unit": "% of app code, 26-47 B per page measured"
+      },
+      "evidence": {
+        "type": "measured",
+        "source": "J2",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "P3": {
+      "id": "P3",
+      "by": "proponent",
+      "kind": "proposal",
+      "text": "Both lines: inline a component when its call site passes a spread or a ref, using Solid's mergeProps in the output (roadmap item 2 step 3). This is the only lever that reaches Kobalte and the icon wrappers.",
+      "estimate": {
+        "value": "unknown",
+        "unit": "bytes"
+      },
+      "evidence": {
+        "type": "measured",
+        "source": "J5; debates/v0.5.0/evidence/main-solid-ui-reasons.txt (call-spread 68)",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "P4": {
+      "id": "P4",
+      "by": "proponent",
+      "kind": "proposal",
+      "text": "Solid 2: runtime feature flags. Solid ships flags for async, transitions and error boundaries, and the optimizer sets them off when the app provably does not use the feature.",
+      "estimate": {
+        "value": "several",
+        "unit": "kB on small apps, unmeasured"
+      },
+      "evidence": {
+        "type": "prior-art",
+        "source": "Vue __VUE_OPTIONS_API__ feature flags; J3",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "P5": {
+      "id": "P5",
+      "by": "proponent",
+      "kind": "proposal",
+      "text": "Solid 2: roadmap item 1 step 3. Wrap statements of a component in a <Show> child or fallback in untrack(() => ...), when the estimate says it is smaller.",
+      "estimate": {
+        "value": "tens",
+        "unit": "B"
+      },
+      "evidence": {
+        "type": "source",
+        "source": "roadmap.md item 1",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "A1": {
+      "id": "A1",
+      "by": "proponent",
+      "kind": "alternative",
+      "text": "Fix the lowering leftovers of P2 upstream, in @solidjs/compiler and dom-expressions, so every Solid app gets them, not only optimizer users.",
+      "evidence": {
+        "type": "source",
+        "source": "J4",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "O1": {
+      "id": "O1",
+      "by": "opponent",
+      "kind": "cost",
+      "axis": "time",
+      "severity": "medium",
+      "answers": [
+        "P2"
+      ],
+      "text": "P2 rewrites output of an upstream compiler after the fact. Every lowering change upstream can break the pattern match, and module mode (hydrating, server) would not get it.",
+      "evidence": {
+        "type": "source",
+        "source": "J4; build-phases.md two modes table",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "O2": {
+      "id": "O2",
+      "by": "opponent",
+      "kind": "cost",
+      "axis": "time",
+      "severity": "high",
+      "answers": [
+        "P3"
+      ],
+      "text": "P3 is unmeasured, and T1 shows props-use refusals (91) outnumber spread (39) and ref (25) refusals on Kobalte. Fixing spreads alone leaves most Kobalte copies refused. Roadmap item 2 also says chunk-mode passes do not know mergeProps' local name.",
+      "evidence": {
+        "type": "measured",
+        "source": "J5; roadmap.md item 2",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "O3": {
+      "id": "O3",
+      "by": "opponent",
+      "kind": "risk",
+      "axis": "time",
+      "severity": "high",
+      "answers": [
+        "P4"
+      ],
+      "text": "P4 needs a design change in @solidjs/signals, which is at 2.0.0-rc.16. Its timeline is not in this repo's control, so it cannot gate a 0.5.0 release.",
+      "evidence": {
+        "type": "source",
+        "source": "J3; node_modules @solidjs/signals version",
+        "detail": ""
+      },
+      "round": 1
+    },
+    "O4": {
+      "id": "O4",
+      "by": "opponent",
+      "kind": "cost",
+      "axis": "device",
+      "severity": "low",
+      "answers": [
+        "P1",
+        "P5"
+      ],
+      "text": "P1 and P5 are each worth tens of bytes. The same rule moved the Solid 2 demo by 12 B, and the demo's Home in a fallback is one call.",
+      "evidence": {
+        "type": "prior-art",
+        "source": "roadmap.md item 1 results; debates/v0.5.0 O1, O2",
+        "detail": ""
+      },
+      "round": 1
+    }
+  }
+}

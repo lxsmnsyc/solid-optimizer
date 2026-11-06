@@ -1,4 +1,4 @@
-import { render } from 'solid-js/web';
+import { render } from '@solidjs/web';
 import { Show } from 'solid-js';
 import { Counter } from './Counter';
 import { Title } from './Title';

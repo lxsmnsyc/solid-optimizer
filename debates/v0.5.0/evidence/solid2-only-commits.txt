@@ -1,0 +1,50 @@
+2ba96f4 chore: version packages (next)
+147b4c4 perf: do not copy a component that only wraps one from its module
+5842543 fix: keep a chunk optimized when an inlined spread becomes attributes
+edf3c70 docs: drop the call-site spread step from the roadmap
+ae553db feat: inline a component that forwards a ref
+3bf005e feat: inline a component that spreads its props
+4424b21 perf: measure copies with the module's constant data
+a79c057 feat: fold define and import.meta.env in every build
+e59c432 feat: fold constants exported from modules with JSX
+e866a0c docs: move package copying below hydrating constants
+016ae6a feat: unroll <For> over a constant list
+18f7712 docs: drop .map() from the constant list item
+40b96eb feat: reduce a JSX arrow called with constants
+af97878 feat: inline the children helper over JSX read once
+06da641 feat: fold <Dynamic> with a known component into a call
+ff1bf8a feat: replace a constant memo with its value
+632fb35 feat: move component statements into Solid's untracked callbacks
+8d171e2 feat: report what the optimizer leaves alone
+da19257 docs: port the Hacker News example to Solid 2
+95baf27 chore: update Solid to 2.0.0-rc.16
+08262af docs: add the optimizer roadmap
+3093c0a fix: keep a ref's variable written through bundling
+e98bee6 fix: skip formatting changesets in pre mode
+31cb0a1 perf: parse less and skip unneeded source maps
+d3bdd5d feat: benchmark bundle size and build time
+b7340c5 chore: release Solid 2 versions as prereleases under next
+554220a docs: explain the build phases
+a9d6e6d feat: credit each user's share of a component copied everywhere
+7b31e75 fix: count the calls inlining enables, and read HTML entries
+a85033c feat: inline components only where it makes the output smaller
+366f9bc test: build modules with no code
+a00bfc8 fix: keep providers around values built from props
+132c6eb feat: inline components from other modules in hydrating builds
+35f4a99 feat: inline components from other modules in chunk mode
+40bc474 feat: inline components that read props through merge() and omit()
+e9e42f0 feat: remove context providers whose readers are all visible
+e072246 fix: load imported constants through the bundler
+20f5dac ci: build before lint and type-check
+0699d19 test: fix escaped backticks in a comment
+7513ded feat: fold constants imported from other modules
+e9c96d6 docs: stress test Rolldown chunking in the demo
+be542ae fix: keep chunk mode working across Rolldown chunk layouts
+8f71b22 feat: fold before bundling and mark lazy() as pure
+87d51d5 fix: inline TypeScript components with expression statements
+f9dfb39 add: createMemo inlining
+ea130b0 test: check context and children behavior at runtime
+a47081f docs: add a demo app and a comparison image
+4e0bcb3 fix: handle nested call sites, type imports, and child fragments
+cc7ad74 feat: add solid-optimizer/vite
+383f572 feat!: rewrite as an oxc-based JSX optimizer for Solid 2.0

@@ -1,8 +1,8 @@
-import { createAsync } from "@solidjs/router";
+import { Show, createMemo } from "solid-js";
 import { getUser } from "./[id].data";
 
 export default function User(props) {
-  const user = createAsync(() => getUser(props.params.id));
+  const user = createMemo(() => getUser(props.params.id));
   return (
     <div class="user-view">
       <Show when={user()}>

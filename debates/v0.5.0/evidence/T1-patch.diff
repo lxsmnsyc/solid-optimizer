@@ -1,0 +1,97 @@
+diff --git a/packages/solid-optimizer/src/vite/index.ts b/packages/solid-optimizer/src/vite/index.ts
+index df0f9f8..3e25d46 100644
+--- a/packages/solid-optimizer/src/vite/index.ts
++++ b/packages/solid-optimizer/src/vite/index.ts
+@@ -823,32 +823,67 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
+     const skip = (reason: string): void => {
+       state.skips?.push({ pass: 'inline', reason, name: `${imported} (${source})` });
+     };
+-    const resolved = await context.resolve(source, id);
++    let resolved = await context.resolve(source, id);
+     if (!resolved || resolved.external) {
+       skip('copy-external');
+       return undefined;
+     }
+-    if (resolved.id.includes('/node_modules/')) {
+-      skip('copy-package');
+-      return undefined;
+-    }
+-    if (resolved.id === id) {
+-      return undefined;
+-    }
+-    if (!isJSXModule(resolved.id)) {
+-      skip('copy-not-jsx');
+-      return undefined;
++    let hops = 0;
++    let loaded: string | undefined;
++    // THROWAWAY: follow `import {a as b} from 'x'; export {b as c}` barrels.
++    for (;;) {
++      if (resolved.id.includes('/node_modules/') && !/\/@kobalte\/core\//.test(resolved.id)) {
++        skip('copy-package');
++        return undefined;
++      }
++      if (resolved.id === id) {
++        return undefined;
++      }
++      if (!isJSXModule(resolved.id)) {
++        skip('copy-not-jsx');
++        return undefined;
++      }
++      // eslint-disable-next-line no-await-in-loop
++      loaded = await state.load(resolved.id);
++      if (loaded === undefined) {
++        state.excluded.add(`${resolved.id}\0${imported}`);
++        skip('copy-cycle');
++        return undefined;
++      }
++      if (hops >= 3 || !resolved.id.includes('/node_modules/')) {
++        break;
++      }
++      let local: string | undefined;
++      for (const m of loaded.matchAll(/export\s*\{([^}]*)\}\s*;?/g)) {
++        for (const part of (m[1] ?? '').split(',')) {
++          const [a, b] = part.trim().split(/\s+as\s+/);
++          if ((b ?? a) === imported && a) local = a;
++        }
++      }
++      if (local === undefined) break;
++      let from: string | undefined;
++      let orig: string | undefined;
++      for (const m of loaded.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)) {
++        for (const part of (m[1] ?? '').split(',')) {
++          const [a, b] = part.trim().split(/\s+as\s+/);
++          if ((b ?? a) === local && a) {
++            from = m[2];
++            orig = a;
++          }
++        }
++      }
++      if (from === undefined || orig === undefined) break;
++      // eslint-disable-next-line no-await-in-loop
++      const next = await context.resolve(from, resolved.id);
++      if (!next || next.external) break;
++      resolved = next;
++      imported = orig;
++      hops += 1;
+     }
+     const key = `${resolved.id}\0${imported}`;
+     if (state.excluded.has(key)) {
+       return undefined;
+     }
+-    const loaded = await state.load(resolved.id);
+-    if (loaded === undefined) {
+-      state.excluded.add(key);
+-      skip('copy-cycle');
+-      return undefined;
+-    }
+     const component = readExportedComponent(
+       loaded,
+       stripQuery(resolved.id),
+@@ -857,6 +892,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
+     );
+     if (!component) {
+       state.excluded.add(key);
++      if (process.env.SO_DEBUG) console.error('SHAPE', imported, resolved.id.split('/').slice(-2).join('/'), loaded.includes('__so_local$'), /export\s*\{[^}]*\bas\b/.test(loaded), new RegExp('export (function|const) ' + imported + '\\b').test(loaded), new RegExp('export \\{[^}]*\\b' + imported + '\\b').test(loaded));
+       skip('copy-shape');
+       return undefined;
+     }

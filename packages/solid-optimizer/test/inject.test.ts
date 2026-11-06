@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exposeLocals, readExportedComponent } from '../src/vite/inject';
+import { exposeLocals, readExportedComponent, readReexport } from '../src/vite/inject';
 
 const SOURCES = ['solid-js', '@solidjs/web'];
 
@@ -75,24 +75,63 @@ export default () => <p />;`;
     ).toBeUndefined();
   });
 
+  it('reads a component exported under an alias', () => {
+    const component = readExportedComponent(
+      `function ButtonRoot(props) {\n  return <button>{props.children}</button>;\n}\nconst Button = ButtonRoot;\nexport { Button as t };`,
+      'a.jsx',
+      't',
+      SOURCES,
+    );
+    expect(component?.copy('Button$1', new Map())).toBe(
+      'function Button$1(props) {\n  return <button>{props.children}</button>;\n}',
+    );
+  });
+
   it('skips an export that is not a function', () => {
     expect(readExportedComponent('export const A = 1;', 'a.jsx', 'A', SOURCES)).toBeUndefined();
   });
 
   it('tells whether a component only wraps another component of its module', () => {
-    const icons = `import { Glyph } from './Glyph';
+    const icons = `import { createContext } from 'solid-js';
+import { Glyph } from './Glyph';
 const Icon = (props) => <svg {...props} />;
 export function IconBell(props) {
   return <Icon {...props}><path d="M1 1" /></Icon>;
 }
 export const IconStar = (props) => <Glyph {...props} />;
 export const Panel = () => <section><Icon /></section>;
-export { Icon as __so_local$Icon };`;
+const Theme = createContext();
+export const ThemeProvider = (props) => <Theme value={props.theme}>{props.children}</Theme>;
+export { Icon as __so_local$Icon, Theme as __so_local$Theme };`;
     const wraps = (name: string): boolean | undefined =>
       readExportedComponent(icons, 'icons.jsx', name, SOURCES)?.wrapsLocal;
     expect(wraps('IconBell')).toBe(true);
     // An imported component's copy can still inline it.
     expect(wraps('IconStar')).toBe(false);
     expect(wraps('Panel')).toBe(false);
+    // The provider pass can remove a provider from the copy.
+    expect(wraps('ThemeProvider')).toBe(false);
+  });
+});
+
+describe('readReexport', () => {
+  const code = `export { t as Button, r as Root } from './button.jsx';
+export type { Props } from './types';
+export const local = 1;`;
+
+  it('finds the module and name an export is re-exported from', () => {
+    expect(readReexport(code, 'index.tsx', 'Button')).toEqual({
+      source: './button.jsx',
+      imported: 't',
+    });
+    expect(readReexport(code, 'index.tsx', 'Root')).toEqual({
+      source: './button.jsx',
+      imported: 'r',
+    });
+  });
+
+  it('skips an export the module declares, or does not have', () => {
+    expect(readReexport(code, 'index.tsx', 'local')).toBeUndefined();
+    expect(readReexport(code, 'index.tsx', 'Missing')).toBeUndefined();
   });
 });

@@ -52,6 +52,24 @@ export const A = () => <main><Box id="a" /><Pair a="x" /><Later /><Maybe /><Self
     ]);
   });
 
+  it('turns down a component whose statements write outside it', () => {
+    expect(
+      reasons(`let count = 0;
+const cache = {};
+function Counted() { count++; return <i />; }
+function Cached(props) { cache[props.key] = true; return <b />; }
+function Titled() { document.title = 'x'; return <u />; }
+function Handler() { const reset = () => { count = 0; }; return <s onClick={reset} />; }
+function Local() { let n = 0; n += 1; const box = { n }; box.n = 2; return <p>{n}{box.n}</p>; }
+export const A = () => <main><Counted /><Cached key="a" /><Titled /><Handler /><Local /></main>;`),
+    ).toEqual([
+      'inline:component-write:Counted',
+      'inline:component-write:Cached',
+      'inline:component-write:Titled',
+      'inline:component-write:Handler',
+    ]);
+  });
+
   it('gives the reason a call site is turned down', () => {
     expect(
       reasons(`function Title(props) { return <h1>{props.label}</h1>; }
@@ -59,8 +77,8 @@ function Field(props) { return <input ref={props.ref} />; }
 function Row(props) { const [on] = createSignal(false); return <li>{on()}{props.name}</li>; }
 export const A = (p) => { let el; return <main>
   <Title {...p} />
-  <Field ref={el} />
-  <For each={p.items}>{(item) => <Row name={item.name} />}</For>
+  <Field ref={make()} />
+  <div onClick={() => <Row name="a" />} />
 </main>; };`),
     ).toEqual(['inline:call-spread:Title', 'inline:call-ref:Field', 'inline:no-host:Row']);
   });
@@ -83,7 +101,7 @@ export function A() { const Inner = () => <i />; return <main><Ext /><Inner /></
   it('leaves out built-ins and providers', () => {
     expect(
       reasons(`const Ctx = createContext();
-export const A = (p) => <main><For each={p.items}>{(item) => <i>{item}</i>}</For><Ctx.Provider value={p.v}>{p.children}</Ctx.Provider></main>;`),
+export const A = (p) => <main><For each={p.items}>{(item) => <i>{item}</i>}</For><Ctx value={p.v}>{p.children}</Ctx></main>;`),
     ).toEqual(['contexts:provider-undefined:Ctx']);
   });
 
@@ -92,9 +110,9 @@ export const A = (p) => <main><For each={p.items}>{(item) => <i>{item}</i>}</For
       reasons(`const Ctx = createContext();
 class Api {}
 export const A = (p) => <main>
-  <Ctx.Provider value={new Api()}><i>{useContext(Ctx)}</i></Ctx.Provider>
-  <Ctx.Provider value={{ a: 1 }} extra><i /></Ctx.Provider>
-  <Ctx.Provider value={{ a: 1 }}><i>{p.run()}</i></Ctx.Provider>
+  <Ctx value={new Api()}><i>{useContext(Ctx)}</i></Ctx>
+  <Ctx value={{ a: 1 }} extra><i /></Ctx>
+  <Ctx value={{ a: 1 }}><i>{p.run()}</i></Ctx>
 </main>;`),
     ).toEqual([
       'contexts:provider-value:Ctx',
@@ -107,9 +125,10 @@ export const A = (p) => <main>
     expect(
       reasons(`export function A(p) {
   const constant = createMemo(() => 3);
+  use(constant);
   const twice = createMemo(() => ({ a: p.a }));
   const late = createMemo(() => ({ a: p.a }));
-  const block = createMemo(() => { return { a: p.a }; }, undefined, { equals: (a, b) => a === b });
+  const block = createMemo(() => { return { a: p.a }; }, { equals: (a, b) => a === b });
   const equal = createMemo(() => p.a);
   return <p onClick={() => late()}>{constant()}{twice()}{twice()}{block()}{equal()}</p>;
 }`),

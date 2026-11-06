@@ -1,9 +1,9 @@
-import { createAsync } from "@solidjs/router";
+import { For, Show, createMemo } from "solid-js";
 import { getStory } from "./[id].data";
 import Comment from "../../components/comment";
 
 export default function Story(props) {
-  const story = createAsync(() => getStory(props.params.id));
+  const story = createMemo(() => getStory(props.params.id));
   return (
     <Show when={story()}>
       <div class="item-view">

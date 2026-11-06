@@ -7,9 +7,8 @@
  * branch, and the branch joins the surrounding template instead of paying for
  * a component call, a memo, and an insert.
  *
- * It follows the `optimize` option of Solid 2.0's `@solidjs/compiler`
- * (https://github.com/solidjs/solid/pull/3231), applied to Solid 1's
- * control-flow components.
+ * This is a port of the `optimize` option of `@solidjs/compiler`
+ * (https://github.com/solidjs/solid/pull/3231).
  *
  * # What folds
  *
@@ -19,13 +18,19 @@
  * - Statements a constant condition makes unreachable: `if`/`else` branches,
  *   `while (false)` loops, and anything after a `return`, `throw`, `break`,
  *   or `continue`.
- * - `<Show when>`, `<For each>`, `<Index each>`, `<Switch>`/`<Match when>`,
- *   and `<Dynamic component>` with a static intrinsic tag name.
+ * - A call of an arrow function whose body is JSX, with constant arguments,
+ *   as an element's child. The call becomes the JSX with the arguments in
+ *   place of the parameters, so it joins the template around it.
+ * - `<For>` over a constant list, which becomes one copy of its row per
+ *   item when the copies are no larger than the loop.
+ * - `<Show when>`, `<For each>`, `<Repeat count>`, `<Switch>`/`<Match when>`,
+ *   and `<Dynamic component>` with a static intrinsic tag name or a
+ *   component declared at the top level that nothing reassigns.
  *
  * # What does not fold
  *
- * `<Portal>`, `<Suspense>`, `<SuspenseList>`, and `<ErrorBoundary>` exist for
- * a runtime condition no static analysis can decide. A control-flow component with a
+ * `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` exist for a runtime
+ * condition no static analysis can decide. A control-flow component with a
  * spread attribute is left alone, since the spread can supply or override the
  * prop the fold reads. Function children also stop a fold, since the runtime
  * decides from their arity whether to call them.
@@ -35,15 +40,18 @@ import type {
   ConditionalExpression,
   Directive,
   Expression,
+  IdentifierReference,
   IfStatement,
   JSXChild,
   JSXElement,
+  JSXEmptyExpression,
   JSXFragment,
   LogicalExpression,
   Node,
   Statement,
   WhileStatement,
 } from 'oxc-parser';
+import MagicString from 'magic-string';
 import type { Parents } from './ast';
 import {
   forEachChild,
@@ -52,11 +60,12 @@ import {
   isJSXChild,
   isPrimary,
   needsParensAt,
+  parse,
   startsLikeStatement,
 } from './ast';
 import type { PassContext } from './context';
 import { ConstantTable } from './constants';
-import { solidExport, textOf } from './context';
+import { isConstantDeclaration, solidExport, textOf } from './context';
 import type { Piece } from './jsx';
 import {
   findAttribute,
@@ -68,7 +77,10 @@ import {
   splicePiece,
   writePieces,
 } from './jsx';
-import type { ConstantLookup } from './value';
+import type { Binding } from './scope';
+import { lookup, scopeAt } from './scope';
+import { SizeEstimator, compactLength } from './size';
+import type { Const, ConstantLookup } from './value';
 import {
   arrayLiteralLength,
   effectfulParts,
@@ -83,7 +95,7 @@ import {
  * The control-flow components this pass resolves.
  * `Match` is absent: it only has meaning inside a `<Switch>`, which folds it.
  */
-const FOLDABLE_FLOW = new Set(['Show', 'For', 'Index', 'Switch', 'Dynamic']);
+const FOLDABLE_FLOW = new Set(['Show', 'For', 'Repeat', 'Switch', 'Dynamic']);
 
 /**
  * What a resolved control-flow element renders in its place.
@@ -198,6 +210,78 @@ function continuesPreviousStatement(text: string): boolean {
   return /^[([`+\-/]/.test(text);
 }
 
+/** The name a property key or a computed member's string literal gives. */
+function keyName(node: Node): string | undefined {
+  if (node.type === 'Identifier') {
+    return node.name;
+  }
+  return node.type === 'Literal' && typeof node.value === 'string' ? node.value : undefined;
+}
+
+type ConstantItem =
+  | { readonly kind: 'primitive'; readonly text: string }
+  | { readonly kind: 'object'; readonly keys: ReadonlyMap<string, string> };
+
+/**
+ * The text of an expression that always gives the same primitive: a literal
+ * other than a regular expression, a template literal without expressions,
+ * or a negated number.
+ */
+function primitiveText(context: PassContext, node: Expression): string | undefined {
+  let expression: Expression = node;
+  while (expression.type === 'ParenthesizedExpression') {
+    expression = expression.expression;
+  }
+  switch (expression.type) {
+    case 'Literal':
+      return 'regex' in expression ? undefined : textOf(context, expression);
+    case 'TemplateLiteral':
+      return expression.expressions.length === 0 ? textOf(context, expression) : undefined;
+    case 'UnaryExpression':
+      return expression.operator === '-' &&
+        expression.argument.type === 'Literal' &&
+        typeof expression.argument.value === 'number'
+        ? textOf(context, expression)
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Whether a child of `parent` is inserted into its template, not passed as a prop. */
+function joinsTemplate(parent: JSXElement | JSXFragment): boolean {
+  if (parent.type === 'JSXFragment') {
+    return true;
+  }
+  const { name } = parent.openingElement;
+  return name.type === 'JSXIdentifier' && isIntrinsicTag(name.name);
+}
+
+/**
+ * Whether JSX holds a `ref` or a spread, which run while the JSX is made.
+ */
+function hasRefOrSpread(root: Node): boolean {
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) {
+      return;
+    }
+    if (
+      node.type === 'JSXSpreadAttribute' ||
+      node.type === 'JSXSpreadChild' ||
+      (node.type === 'JSXAttribute' &&
+        node.name.type === 'JSXIdentifier' &&
+        node.name.name === 'ref')
+    ) {
+      found = true;
+      return;
+    }
+    forEachChild(node, visit);
+  };
+  visit(root);
+  return found;
+}
+
 class Folder {
   changed = false;
 
@@ -267,6 +351,7 @@ class Folder {
         break;
       case 'CallExpression':
         this.annotatePure(node);
+        this.foldUntrack(node);
         break;
       default:
         break;
@@ -316,11 +401,39 @@ class Folder {
     this.changed = true;
   }
 
-  private foldConstant(node: Node): void {
+  /**
+   * `untrack(() => value)` is the value, when the value is a constant.
+   * Nothing is read, so there is nothing to untrack. A component inlined
+   * with a literal prop leaves this, like Kobalte's `untrack(() => props.as)`.
+   */
+  private foldUntrack(call: CallExpression): void {
+    if (call.callee.type !== 'Identifier' || call.arguments.length !== 1) {
+      return;
+    }
+    const binding = this.context.scopes.references.get(call.callee);
+    const identity = binding ? solidExport(binding, this.context.options) : undefined;
+    const callback = call.arguments.at(0);
+    if (
+      identity !== 'untrack' ||
+      callback?.type !== 'ArrowFunctionExpression' ||
+      callback.async ||
+      callback.params.length > 0 ||
+      !callback.expression ||
+      callback.body.type === 'BlockStatement'
+    ) {
+      return;
+    }
+    const value = evaluate(callback.body, this.lookup);
+    if (value) {
+      this.foldConstant(call, value);
+    }
+  }
+
+  private foldConstant(node: Node, known?: Const): void {
     if (isLiteralForm(node)) {
       return;
     }
-    const value = evaluate(node, this.lookup);
+    const value = known ?? evaluate(node, this.lookup);
     if (!value) {
       return;
     }
@@ -446,6 +559,50 @@ class Folder {
     return identity;
   }
 
+  /**
+   * The name of the component an identifier refers to, when it is a
+   * capitalized top-level binding nothing reassigns, holding a function or a
+   * `lazy` component. A JSX tag with that name calls the same component. An
+   * import could hold anything, such as a tag name string, so it is left out.
+   */
+  private componentName(identifier: IdentifierReference): string | undefined {
+    const binding = this.context.scopes.references.get(identifier);
+    if (
+      !binding ||
+      binding.mutated ||
+      binding.scope.parent !== undefined ||
+      !/^[A-Z]/.test(binding.name)
+    ) {
+      return undefined;
+    }
+    const { declaration } = binding;
+    if (declaration.type === 'FunctionDeclaration') {
+      return declaration.async || declaration.generator ? undefined : binding.name;
+    }
+    if (
+      declaration.type !== 'VariableDeclarator' ||
+      declaration.id !== binding.identifier ||
+      !declaration.init ||
+      !isConstantDeclaration(binding, this.context.options)
+    ) {
+      return undefined;
+    }
+    let init: Expression = declaration.init;
+    while (init.type === 'ParenthesizedExpression') {
+      init = init.expression;
+    }
+    if (init.type === 'ArrowFunctionExpression' || init.type === 'FunctionExpression') {
+      return init.async || init.generator ? undefined : binding.name;
+    }
+    if (init.type === 'CallExpression' && init.callee.type === 'Identifier') {
+      const callee = this.context.scopes.references.get(init.callee);
+      return callee && solidExport(callee, this.context.options) === 'lazy'
+        ? binding.name
+        : undefined;
+    }
+    return undefined;
+  }
+
   private flowTag(element: JSXElement): string | undefined {
     const tag = this.builtInTag(element);
     return tag !== undefined && FOLDABLE_FLOW.has(tag) ? tag : undefined;
@@ -460,8 +617,9 @@ class Folder {
       case 'Show':
         return this.foldShow(element);
       case 'For':
-      case 'Index':
         return this.foldFor(element);
+      case 'Repeat':
+        return this.foldRepeat(element);
       case 'Switch':
         return this.foldSwitch(element);
       case 'Dynamic':
@@ -562,11 +720,361 @@ class Folder {
     }
     const { expression } = each.value;
     // `each={[]}` renders the fallback, and so does a statically falsy `each`,
-    // which `mapArray` and `indexArray` treat as an empty list. Either way the expression is
+    // which `mapArray` treats as an empty list. Either way the expression is
     // dropped, so it has to be skippable.
     const empty =
       arrayLiteralLength(expression) === 0 || truthiness(expression, this.lookup) === false;
-    if (!empty || !isSideEffectFree(expression)) {
+    if (!empty) {
+      return this.unrollFor(element, expression);
+    }
+    if (!isSideEffectFree(expression)) {
+      return undefined;
+    }
+    return this.fallback(element);
+  }
+
+  /**
+   * Unrolls `<For>` over a constant list into one copy of its row per item.
+   *
+   * The list is an array literal, or a binding of one that only `<For>`
+   * reads, so nothing can change it. Each item is a primitive literal, or an
+   * object literal of them. The row is an arrow function whose body is JSX,
+   * and reads the item as `item.key`, or as itself when it is a primitive.
+   * Each row ran once, untracked, under its own owner. A copy is made with
+   * the JSX around it instead, which runs untracked too, and the JSX
+   * transform gives every dynamic part its own effect. A `ref` or a spread
+   * would run while the copy is made, so either one keeps the loop.
+   */
+  private unrollFor(element: JSXElement, expression: Expression): Fold | undefined {
+    if (
+      element.openingElement.attributes.some(
+        (attribute) =>
+          attribute.type === 'JSXAttribute' &&
+          attribute.name.type === 'JSXIdentifier' &&
+          attribute.name.name === 'keyed' &&
+          !(
+            attribute.value?.type === 'JSXExpressionContainer' &&
+            attribute.value.expression.type === 'Literal' &&
+            attribute.value.expression.value === false
+          ),
+      )
+    ) {
+      return undefined;
+    }
+    const byIndex = findAttribute(element, 'keyed') !== undefined;
+    const list = this.constantList(expression);
+    if (!list) {
+      return undefined;
+    }
+    const significant = element.children.filter((child) => !isInsignificant(child));
+    const only = significant.at(0);
+    if (significant.length !== 1 || only?.type !== 'JSXExpressionContainer') {
+      return undefined;
+    }
+    let row: Node = only.expression;
+    while (row.type === 'ParenthesizedExpression') {
+      row = row.expression;
+    }
+    if (
+      row.type !== 'ArrowFunctionExpression' ||
+      row.async ||
+      !row.expression ||
+      row.params.length > 2
+    ) {
+      return undefined;
+    }
+    let body: Node = row.body;
+    while (body.type === 'ParenthesizedExpression') {
+      body = body.expression;
+    }
+    if ((body.type !== 'JSXElement' && body.type !== 'JSXFragment') || hasRefOrSpread(body)) {
+      return undefined;
+    }
+    // A fold inside the row in this pass would be lost, so it waits for the next pass.
+    if (
+      this.context.s.slice(body.start, body.end) !== this.context.code.slice(body.start, body.end)
+    ) {
+      return undefined;
+    }
+    const scope = this.context.scopes.scopes.get(row);
+    if (!scope) {
+      return undefined;
+    }
+    const params: Binding[] = [];
+    for (const param of row.params) {
+      const binding = param.type === 'Identifier' ? scope.bindings.get(param.name) : undefined;
+      if (!binding || binding.mutated) {
+        return undefined;
+      }
+      params.push(binding);
+    }
+    const itemParam = params.at(0);
+    const indexParam = params.at(1);
+    const rows: string[] = [];
+    for (const [index, item] of list.items.entries()) {
+      const copy = new MagicString(this.context.code);
+      // With `keyed={false}` the item is an accessor and the index a number, and the other way around otherwise.
+      if (
+        (itemParam && !this.substituteItem(copy, itemParam, item, byIndex)) ||
+        (indexParam && !this.substituteIndex(copy, indexParam, index, !byIndex))
+      ) {
+        return undefined;
+      }
+      rows.push(copy.slice(body.start, body.end));
+    }
+    const text = `<>${rows.join('')}</>`;
+    if (!this.unrollingPays(element, text, list.declaration)) {
+      return undefined;
+    }
+    return { kind: 'jsx', text };
+  }
+
+  /**
+   * The items of a constant list, and the declaration that goes once no
+   * `<For>` reads it.
+   */
+  private constantList(
+    expression: Expression,
+  ): { items: ConstantItem[]; declaration: Node | undefined } | undefined {
+    let node: Expression = expression;
+    while (node.type === 'ParenthesizedExpression') {
+      node = node.expression;
+    }
+    let declaration: Node | undefined;
+    if (node.type === 'Identifier') {
+      const binding = this.context.scopes.references.get(node);
+      if (
+        binding?.declaration.type !== 'VariableDeclarator' ||
+        binding.declaration.id !== binding.identifier ||
+        !binding.declaration.init ||
+        !isConstantDeclaration(binding, this.context.options)
+      ) {
+        return undefined;
+      }
+      // Any other use could change the list, and an export can be changed by another module.
+      const statement = this.context.parents.get(binding.declaration);
+      const owner = statement ? this.context.parents.get(statement) : undefined;
+      if (
+        owner?.type === 'ExportNamedDeclaration' ||
+        !binding.references.every((reference) => this.isForEach(reference))
+      ) {
+        return undefined;
+      }
+      node = binding.declaration.init;
+      while (node.type === 'ParenthesizedExpression') {
+        node = node.expression;
+      }
+      declaration =
+        binding.references.length === 1 &&
+        statement?.type === 'VariableDeclaration' &&
+        statement.declarations.length === 1
+          ? statement
+          : undefined;
+    }
+    if (node.type !== 'ArrayExpression') {
+      return undefined;
+    }
+    const items: ConstantItem[] = [];
+    for (const element of node.elements) {
+      const item =
+        element && element.type !== 'SpreadElement' ? this.constantItem(element) : undefined;
+      if (!item) {
+        return undefined;
+      }
+      items.push(item);
+    }
+    return { items, declaration };
+  }
+
+  /** Whether a reference is the whole `each` of a Solid `<For>`. */
+  private isForEach(reference: Node): boolean {
+    const container = this.context.parents.get(reference);
+    const attribute = container ? this.context.parents.get(container) : undefined;
+    const opening = attribute ? this.context.parents.get(attribute) : undefined;
+    const element = opening ? this.context.parents.get(opening) : undefined;
+    return (
+      container?.type === 'JSXExpressionContainer' &&
+      attribute?.type === 'JSXAttribute' &&
+      attribute.name.type === 'JSXIdentifier' &&
+      attribute.name.name === 'each' &&
+      element?.type === 'JSXElement' &&
+      this.builtInTag(element) === 'For'
+    );
+  }
+
+  /** A list item whose value is known: a primitive literal, or an object literal of them. */
+  private constantItem(node: Expression): ConstantItem | undefined {
+    const primitive = primitiveText(this.context, node);
+    if (primitive !== undefined) {
+      return { kind: 'primitive', text: primitive };
+    }
+    if (node.type !== 'ObjectExpression') {
+      return undefined;
+    }
+    const keys = new Map<string, string>();
+    for (const property of node.properties) {
+      if (
+        property.type !== 'Property' ||
+        property.kind !== 'init' ||
+        property.method ||
+        property.computed
+      ) {
+        return undefined;
+      }
+      const key = keyName(property.key);
+      const value = primitiveText(this.context, property.value);
+      if (key === undefined || value === undefined || key === '__proto__') {
+        return undefined;
+      }
+      keys.set(key, value);
+    }
+    return { kind: 'object', keys };
+  }
+
+  /**
+   * Writes an item's value over each read of the row's item parameter.
+   * `false` when a read is not one the value can take the place of.
+   */
+  private substituteItem(
+    copy: MagicString,
+    param: Binding,
+    item: ConstantItem,
+    accessor: boolean,
+  ): boolean {
+    for (const reference of param.references) {
+      let read: Node = reference;
+      if (accessor) {
+        const call = this.context.parents.get(reference);
+        if (
+          call?.type !== 'CallExpression' ||
+          call.callee !== reference ||
+          call.arguments.length > 0
+        ) {
+          return false;
+        }
+        read = call;
+      }
+      if (item.kind === 'primitive') {
+        copy.overwrite(read.start, read.end, this.valueAt(read, item.text));
+        continue;
+      }
+      const member = this.context.parents.get(read);
+      if (
+        member?.type !== 'MemberExpression' ||
+        member.object !== read ||
+        isWriteTarget(member, this.context.parents)
+      ) {
+        return false;
+      }
+      // `item[name]` reads a variable key, so only a string literal counts when computed.
+      let key: string | undefined;
+      if (!member.computed) {
+        key = member.property.type === 'Identifier' ? member.property.name : undefined;
+      } else if (member.property.type === 'Literal') {
+        key = keyName(member.property);
+      }
+      // A call would run with the item as `this`, and a missing key could be on the prototype.
+      const parent = this.context.parents.get(member);
+      if (
+        key === undefined ||
+        (parent?.type === 'CallExpression' && parent.callee === member) ||
+        !item.keys.has(key)
+      ) {
+        return false;
+      }
+      copy.overwrite(
+        member.start,
+        member.end,
+        this.valueAt(member, item.keys.get(key) ?? 'void 0'),
+      );
+    }
+    return true;
+  }
+
+  /** A value's text in place of `node`, with parentheses unless it fills a JSX container. */
+  private valueAt(node: Node, text: string): string {
+    return this.context.parents.get(node)?.type === 'JSXExpressionContainer' ? text : `(${text})`;
+  }
+
+  /** Writes an item's index over each read of the row's index parameter. */
+  private substituteIndex(
+    copy: MagicString,
+    param: Binding,
+    index: number,
+    accessor: boolean,
+  ): boolean {
+    for (const reference of param.references) {
+      let read: Node = reference;
+      if (accessor) {
+        const call = this.context.parents.get(reference);
+        if (
+          call?.type !== 'CallExpression' ||
+          call.callee !== reference ||
+          call.arguments.length > 0
+        ) {
+          return false;
+        }
+        read = call;
+      }
+      copy.overwrite(read.start, read.end, String(index));
+    }
+    return true;
+  }
+
+  /**
+   * Whether the copies are estimated to be no larger, once lowered, than
+   * the loop and the list it no longer needs.
+   */
+  private unrollingPays(element: JSXElement, text: string, declaration: Node | undefined): boolean {
+    const inTemplate = this.joinsParentTemplate(element);
+    const loop =
+      new SizeEstimator(this.context.code).jsx(element, inTemplate) +
+      (declaration
+        ? compactLength(this.context.code.slice(declaration.start, declaration.end))
+        : 0);
+    const code = `const __so_rows__ = ${text};`;
+    const program = parse(this.context.filename, code);
+    const statement = program.body.at(0);
+    const init =
+      statement?.type === 'VariableDeclaration' ? statement.declarations.at(0)?.init : undefined;
+    if (init?.type !== 'JSXFragment') {
+      return false;
+    }
+    // In an element, the rows splice into its template. Elsewhere they are a fragment of templates.
+    const estimator = new SizeEstimator(code);
+    const unrolled = inTemplate
+      ? init.children.reduce(
+          (size, child) =>
+            size +
+            (child.type === 'JSXElement' ? estimator.jsx(child, true) : estimator.node(child)),
+          0,
+        )
+      : estimator.jsx(init, false);
+    return unrolled <= loop;
+  }
+
+  /** Whether an element sits directly in an element or fragment whose template it joins. */
+  private joinsParentTemplate(element: JSXElement): boolean {
+    const parent = this.context.parents.get(element);
+    return (
+      (parent?.type === 'JSXElement' && joinsTemplate(parent)) || parent?.type === 'JSXFragment'
+    );
+  }
+
+  private foldRepeat(element: JSXElement): Fold | undefined {
+    const count = findAttribute(element, 'count');
+    if (
+      count?.value?.type !== 'JSXExpressionContainer' ||
+      count.value.expression.type === 'JSXEmptyExpression'
+    ) {
+      return undefined;
+    }
+    const value = evaluate(count.value.expression, this.lookup);
+    if (typeof value?.value !== 'number') {
+      return undefined;
+    }
+    // Written this way so `NaN` counts as empty, like `repeat` does.
+    if (value.value >= 1) {
       return undefined;
     }
     return this.fallback(element);
@@ -627,6 +1135,12 @@ class Folder {
    * `<Dynamic component="div">` is just `<div>`, which the JSX transform can
    * put in a template instead of creating the element at runtime.
    */
+  /**
+   * `<Dynamic component="div">` becomes `<div>`. `<Dynamic component={Card}>`
+   * becomes `<Card>` when `Card` is a component declared at the top level
+   * that nothing reassigns. `<Dynamic>` then only renders `Card` with the
+   * other props, through a memo that never changes.
+   */
   private foldDynamic(element: JSXElement): Fold | undefined {
     const component = findAttribute(element, 'component');
     if (!component?.value) {
@@ -635,17 +1149,26 @@ class Folder {
     let tag: string | undefined;
     const { value } = component;
     if (value.type === 'Literal') {
-      tag = value.value;
+      tag = isIntrinsicTag(value.value) ? value.value : undefined;
     } else if (
       value.type === 'JSXExpressionContainer' &&
       value.expression.type !== 'JSXEmptyExpression'
     ) {
-      const result = evaluate(value.expression, this.lookup);
-      if (typeof result?.value === 'string') {
-        tag = result.value;
+      const expression =
+        value.expression.type === 'ParenthesizedExpression'
+          ? value.expression.expression
+          : value.expression;
+      if (expression.type === 'Identifier') {
+        tag = this.componentName(expression);
+      }
+      if (tag === undefined) {
+        const result = evaluate(value.expression, this.lookup);
+        if (typeof result?.value === 'string' && isIntrinsicTag(result.value)) {
+          tag = result.value;
+        }
       }
     }
-    if (tag === undefined || !isIntrinsicTag(tag)) {
+    if (tag === undefined) {
       return undefined;
     }
     const attributes = element.openingElement.attributes
@@ -713,6 +1236,15 @@ class Folder {
         pieces.push(splicePiece(this.context.s, child, child.children));
         continue;
       }
+      const reduced =
+        child.type === 'JSXExpressionContainer' && joinsTemplate(parent)
+          ? this.reducedCall(child.expression)
+          : undefined;
+      if (reduced !== undefined) {
+        folded = true;
+        pieces.push(replacedPiece(child, reduced));
+        continue;
+      }
       const resolved = child.type === 'JSXElement' ? this.foldFlow(child) : undefined;
       if (!resolved) {
         pieces.push(keptPiece(child));
@@ -736,6 +1268,105 @@ class Folder {
     }
     if (folded && writePieces(this.context.s, pieces)) {
       this.changed = true;
+    }
+  }
+
+  /**
+   * The JSX a call like `((n) => <li>{n}</li>)(1)` makes, with each
+   * argument in place of its parameter, or `undefined` when that could
+   * behave differently.
+   *
+   * The child is inserted by an effect that makes the JSX. The JSX
+   * transform wraps every dynamic part of JSX in an effect of its own, so
+   * making it reads nothing the outer effect tracks, and the outer effect
+   * runs once. A `ref` runs while the JSX is made, and a spread reads its
+   * object there, so either one keeps the call. Each argument has to be a
+   * constant or a binding nothing reassigns, so reading it again where the
+   * parameter was gives the same value.
+   */
+  private reducedCall(expression: Expression | JSXEmptyExpression): string | undefined {
+    if (expression.type !== 'CallExpression' || expression.optional) {
+      return undefined;
+    }
+    let callee: Expression = expression.callee;
+    while (callee.type === 'ParenthesizedExpression') {
+      callee = callee.expression;
+    }
+    if (callee.type !== 'ArrowFunctionExpression' || callee.async || !callee.expression) {
+      return undefined;
+    }
+    let body: Node = callee.body;
+    while (body.type === 'ParenthesizedExpression') {
+      body = body.expression;
+    }
+    if (body.type !== 'JSXElement' && body.type !== 'JSXFragment') {
+      return undefined;
+    }
+    const { params } = callee;
+    const args = expression.arguments;
+    if (params.length !== args.length || hasRefOrSpread(body)) {
+      return undefined;
+    }
+    // A fold inside the body in this pass would be lost, so it waits for the next pass.
+    if (
+      this.context.s.slice(body.start, body.end) !== this.context.code.slice(body.start, body.end)
+    ) {
+      return undefined;
+    }
+    const scope = this.context.scopes.scopes.get(callee);
+    if (!scope) {
+      return undefined;
+    }
+    const copy = new MagicString(this.context.code);
+    for (const [index, param] of params.entries()) {
+      const arg = args.at(index);
+      if (param.type !== 'Identifier' || !arg || arg.type === 'SpreadElement') {
+        return undefined;
+      }
+      const binding = scope.bindings.get(param.name);
+      const text = this.argumentText(arg);
+      if (!binding || binding.mutated || text === undefined) {
+        return undefined;
+      }
+      for (const reference of binding.references) {
+        // A binding argument has to mean the same where the parameter was read.
+        if (
+          arg.type === 'Identifier' &&
+          lookup(scopeAt(this.context.scopes, this.context.parents, reference), arg.name) !==
+            this.context.scopes.references.get(arg)
+        ) {
+          return undefined;
+        }
+        const parent = this.context.parents.get(reference);
+        const shorthand =
+          parent?.type === 'Property' && parent.shorthand && parent.value === reference;
+        copy.overwrite(reference.start, reference.end, shorthand ? `${param.name}: ${text}` : text);
+      }
+    }
+    return copy.slice(body.start, body.end);
+  }
+
+  /** The text of an argument that reads the same wherever it is copied. */
+  private argumentText(arg: Expression): string | undefined {
+    let node: Expression = arg;
+    while (node.type === 'ParenthesizedExpression') {
+      node = node.expression;
+    }
+    switch (node.type) {
+      case 'Literal':
+        return 'regex' in node ? undefined : textOf(this.context, node);
+      case 'TemplateLiteral':
+        return node.expressions.length === 0 ? textOf(this.context, node) : undefined;
+      case 'UnaryExpression':
+        return node.operator === '-' && node.argument.type === 'Literal'
+          ? `(${textOf(this.context, node)})`
+          : undefined;
+      case 'Identifier': {
+        const binding = this.context.scopes.references.get(node);
+        return binding && !binding.mutated ? node.name : undefined;
+      }
+      default:
+        return undefined;
     }
   }
 

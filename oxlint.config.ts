@@ -12,7 +12,8 @@ export default defineConfig({
     'examples/showcase/App.jsx',
     // The Hacker News app is untyped JavaScript from another repository, kept as it was written.
     'examples/hackernews/src/**',
-    'examples/solid-ui/src/**',
+    // Debate evidence is raw build output and throwaway measuring scripts, kept as they ran.
+    'debates/*/evidence/**',
   ],
   rules: {
     // Modules use named exports, even when they have one export.
@@ -21,7 +22,8 @@ export default defineConfig({
   overrides: [
     {
       // Example components return JSX, and spelling out the return type adds noise to the demos.
-      files: ['examples/**'],
+      // The runtime benchmark's app is built from the demo's components.
+      files: ['examples/**', 'benchmarks/*/src/**'],
       rules: {
         'typescript/explicit-function-return-type': 'off',
         'typescript/explicit-module-boundary-types': 'off',

@@ -1,4 +1,4 @@
-import { cache } from "@solidjs/router";
+import { query } from "@solidjs/router";
 import fetchAPI from "../lib/api";
 
 const mapStories = {
@@ -9,7 +9,7 @@ const mapStories = {
   job: "jobs"
 };
 
-export const getStories = cache(
+export const getStories = query(
   (type, page) => fetchAPI(`${mapStories[type]}?page=${page}`),
   "stories"
 );

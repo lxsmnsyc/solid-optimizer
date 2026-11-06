@@ -10,7 +10,6 @@ import type { PassContext, ResolvedOptions, Skip } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
-import { simplifyServer } from './server';
 import { removeProviders } from './provider';
 import type { ScopeAnalysis } from './scope';
 import { analyzeScopes } from './scope';
@@ -38,19 +37,6 @@ export interface CompileOptions {
    */
   inline?: boolean;
   /**
-   * Compile for the server: remove `createEffect` and `onMount`, and reduce
-   * `untrack`, `batch`, `startTransition`, `createDeferred`, `getListener`,
-   * `createMemo`, `createRenderEffect`, and `createComputed` to what they do
-   * on the server.
-   *
-   * This runs once, after the other passes. The server and client build
-   * make the same folding and inlining decisions from the same code, so the
-   * server renders the tree the client hydrates.
-   *
-   * @default false
-   */
-  server?: boolean;
-  /**
    * Remove context providers whose reads are all visible, and give each
    * read the provider's value.
    *
@@ -68,14 +54,14 @@ export interface CompileOptions {
    * The names of Solid's built-in components. A tag only folds when it is
    * one of these, and an empty list turns control-flow folding off.
    *
-   * @default ['For', 'Show', 'Switch', 'Match', 'Suspense', 'SuspenseList', 'Portal', 'Index', 'Dynamic', 'ErrorBoundary']
+   * @default ['For', 'Show', 'Switch', 'Match', 'Loading', 'Reveal', 'Portal', 'Repeat', 'Dynamic', 'Errored']
    */
   builtIns?: readonly string[];
   /**
    * The modules that export Solid's built-in components. A tag imported from
    * anywhere else is a different component.
    *
-   * @default ['solid-js', 'solid-js/web']
+   * @default ['solid-js', '@solidjs/web']
    */
   moduleSources?: readonly string[];
   /**
@@ -98,6 +84,12 @@ export interface CompileOptions {
    */
   importedConstants?: ImportedConstants;
   /**
+   * Values of global names and paths that fold like constants, such as the
+   * `define` entries of a bundler: `{ __DEV__: false, 'import.meta.env.MODE': 'production' }`.
+   * A path starts at `import.meta` or at a name the module does not declare.
+   */
+  globalConstants?: Readonly<Record<string, Primitive>>;
+  /**
    * The exports of imported modules that are contexts made by Solid's
    * `createContext`, keyed by the import specifier as the code writes it.
    * A provider of an imported context can be removed like a local one.
@@ -119,6 +111,12 @@ export interface CompileOptions {
    * @default false
    */
   alwaysInline?: boolean;
+  /**
+   * Top-level components to inline wherever they can be, like
+   * `alwaysInline` does for every component. The Vite plugin lists the
+   * copies of components from `optimizer.packages` here.
+   */
+  alwaysInlineComponents?: readonly string[];
   /**
    * The most passes to run. One pass can expose work for the next, such as
    * an inlined component whose props now fold. Compilation stops early once
@@ -158,15 +156,15 @@ const DEFAULT_BUILT_INS = [
   'Show',
   'Switch',
   'Match',
-  'Suspense',
-  'SuspenseList',
+  'Loading',
+  'Reveal',
   'Portal',
-  'Index',
+  'Repeat',
   'Dynamic',
-  'ErrorBoundary',
+  'Errored',
 ];
 
-const DEFAULT_MODULE_SOURCES = ['solid-js', 'solid-js/web'];
+const DEFAULT_MODULE_SOURCES = ['solid-js', '@solidjs/web'];
 
 function resolveOptions(options: CompileOptions): ResolvedOptions {
   return {
@@ -175,6 +173,7 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
     builtInAliases: new Map(Object.entries(options.builtInAliases ?? {})),
     constantVars: options.constantVars ?? false,
     importedConstants: resolveImportedConstants(options.importedConstants),
+    globalConstants: new Map(Object.entries(options.globalConstants ?? {})),
     importedContexts: new Map(
       Object.entries(options.importedContexts ?? {}).map(([source, names]) => [
         source,
@@ -183,6 +182,7 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
     ),
     sharedComponents: new Map(Object.entries(options.sharedComponents ?? {})),
     alwaysInline: options.alwaysInline ?? false,
+    alwaysInlineComponents: new Set(options.alwaysInlineComponents ?? []),
   };
 }
 
@@ -298,23 +298,6 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     }
   }
 
-  if (options.server ?? false) {
-    const result = runPass(
-      parsedCurrent(),
-      filename,
-      resolved,
-      sourceMap,
-      simplifyServer,
-      undefined,
-    );
-    if (result) {
-      current = result.code;
-      if (result.map !== undefined) {
-        maps.push(result.map);
-      }
-    }
-  }
-
   const report = skipped ? { skipped } : {};
   if (maps.length === 0) {
     return { code: current, map: null, ...report };
@@ -341,11 +324,11 @@ export interface ModuleConstants {
  * Reads what a module imports and the constants it exports, so that
  * `compile` can fold them in the modules that import it.
  *
- * Only `filename` and `importedConstants` of the options are used.
+ * Only `filename`, `importedConstants`, and `globalConstants` of the options are used.
  */
 export function readModuleConstants(
   code: string,
-  options: Pick<CompileOptions, 'filename' | 'importedConstants'> = {},
+  options: Pick<CompileOptions, 'filename' | 'importedConstants' | 'globalConstants'> = {},
 ): ModuleConstants {
   const program = parse(options.filename ?? 'input.jsx', code);
   const scopes = analyzeScopes(program);

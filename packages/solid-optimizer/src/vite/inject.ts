@@ -95,6 +95,68 @@ function functionOf(binding: Binding): TopLevelFunction | undefined {
 }
 
 /**
+ * The binding a top-level alias like `const Button = ButtonRoot` names, or
+ * the binding itself when it is not one. Libraries often export a component
+ * under such a second name.
+ */
+function aliasedBinding(binding: Binding): Binding {
+  let current = binding;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const { declaration } = current;
+    if (
+      declaration.type !== 'VariableDeclarator' ||
+      current.kind !== 'const' ||
+      current.mutated ||
+      declaration.id !== current.identifier ||
+      !declaration.init
+    ) {
+      return current;
+    }
+    const init = unwrap(declaration.init);
+    const target = init.type === 'Identifier' ? current.scope.bindings.get(init.name) : undefined;
+    if (!target || target === current || target.mutated) {
+      return current;
+    }
+    current = target;
+  }
+  return current;
+}
+
+/**
+ * Where a module re-exports `exportName` from, like
+ * `export { t as Separator } from './chunk.jsx'`, or `undefined` when it
+ * does not re-export it by name.
+ */
+export function readReexport(
+  code: string,
+  filename: string,
+  exportName: string,
+): { source: string; imported: string } | undefined {
+  const program = parse(filename, code);
+  for (const statement of program.body) {
+    if (
+      statement.type !== 'ExportNamedDeclaration' ||
+      !statement.source ||
+      statement.exportKind === 'type'
+    ) {
+      continue;
+    }
+    for (const specifier of statement.specifiers) {
+      const exported =
+        specifier.exported.type === 'Identifier'
+          ? specifier.exported.name
+          : specifier.exported.value;
+      const local =
+        specifier.local.type === 'Identifier' ? specifier.local.name : specifier.local.value;
+      if (exported === exportName && specifier.exportKind !== 'type') {
+        return { source: statement.source.value, imported: local };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * The names a module exports, each with the top-level binding it exports.
  */
 function exportsOf(program: Program, scopes: ScopeAnalysis): Map<string, Binding> {
@@ -222,9 +284,14 @@ export interface ExportedComponent {
 
 /**
  * Whether a function returns JSX whose root calls a component declared at
- * the top of its own module.
+ * the top of its own module. A context's provider does not count, since the
+ * provider pass can remove it from a copy.
  */
-function returnsLocalCall(fn: TopLevelFunction['fn'], scopes: ScopeAnalysis): boolean {
+function returnsLocalCall(
+  fn: TopLevelFunction['fn'],
+  scopes: ScopeAnalysis,
+  moduleSources: readonly string[],
+): boolean {
   if (
     fn.type !== 'FunctionDeclaration' &&
     fn.type !== 'FunctionExpression' &&
@@ -251,7 +318,12 @@ function returnsLocalCall(fn: TopLevelFunction['fn'], scopes: ScopeAnalysis): bo
     return false;
   }
   const binding = scopes.references.get(inner.openingElement.name);
-  return binding !== undefined && binding.scope === scopes.root && binding.kind !== 'import';
+  return (
+    binding !== undefined &&
+    binding.scope === scopes.root &&
+    binding.kind !== 'import' &&
+    !isContext(binding, scopes, moduleSources)
+  );
 }
 
 /**
@@ -268,7 +340,8 @@ export function readExportedComponent(
   const program = parse(filename, code);
   const scopes = analyzeScopes(program);
   const exports = exportsOf(program, scopes);
-  const binding = exports.get(exportName);
+  const named = exports.get(exportName);
+  const binding = named ? aliasedBinding(named) : undefined;
   const component = binding ? functionOf(binding) : undefined;
   if (!binding || !component) {
     return undefined;
@@ -346,5 +419,5 @@ export function readExportedComponent(
     }
     return `const ${name} = ${s.slice(component.fn.start, component.fn.end)};`;
   };
-  return { dependencies, copy, wrapsLocal: returnsLocalCall(component.fn, scopes) };
+  return { dependencies, copy, wrapsLocal: returnsLocalCall(component.fn, scopes, moduleSources) };
 }

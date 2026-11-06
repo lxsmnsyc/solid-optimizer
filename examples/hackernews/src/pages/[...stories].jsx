@@ -1,11 +1,11 @@
-import { createAsync } from "@solidjs/router";
+import { For, Show, createMemo } from "solid-js";
 import { getStories } from "./[...stories].data";
 import Story from "../components/story";
 
 export default function Stories(props) {
   const page = () => +(props.location.query.page || 1),
     type = () => props.params.stories || "top",
-    stories = createAsync(() => getStories(type(), page()));
+    stories = createMemo(() => getStories(type(), page()));
   return (
     <div class="news-view">
       <div class="news-list-nav">
