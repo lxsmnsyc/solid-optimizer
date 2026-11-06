@@ -173,7 +173,7 @@ In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the 
 
 A signal whose setter is left out of the pattern, or never referenced, always returns its initial value. When that value is a literal and the call has no options, every call of the getter becomes the literal, as with a constant memo. Options stay, since `unobserved` runs code and `ownedWrite` changes where writes may come from.
 
-In rc.21, `createSignal` with a value that is not a function creates a node with no owner and no hydration id, on the client and the server. So removing it does not shift the hydration keys, and it works the same outside a function. An exported getter stays, since other modules can read it.
+In rc.21, `createSignal` with a value that is not a function creates a node with no owner and no hydration id, on the client and the server. See `signal()` in `@solidjs/signals`' `core/core.ts`, and `createSignal` in `solid-js`'s `server.js`, which only wraps the function form for hydration. So removing it does not shift the hydration keys, and it works the same outside a function. An exported getter stays, since other modules can read it.
 
 ### Accepted differences
 

@@ -215,13 +215,15 @@ describe('signals that are never written', () => {
   it('replaces every read of a signal with no setter', () => {
     const output = memos(
       component(
-        "const [size] = createSignal(3);\n  const [label, setLabel] = createSignal('big');",
-        '<p title={label()} onClick={() => log(size())}>{size() * 2}</p>',
+        "const [size] = createSignal(3);\n  const [label, setLabel] = createSignal('big');\n  const [offset] = createSignal(-1);\n  const [unit] = createSignal(`px`);",
+        '<p title={label()} onClick={() => log(size())}>{size() * 2}{offset()}{unit()}</p>',
         imports,
       ),
     );
     expect(output).not.toContain('createSignal(');
-    expect(output).toContain("return <p title={'big'} onClick={() => log(3)}>{(3) * 2}</p>;");
+    expect(output).toContain(
+      "return <p title={'big'} onClick={() => log(3)}>{(3) * 2}{-1}{`px`}</p>;",
+    );
   });
 
   it('replaces reads of a signal at module scope', () => {
@@ -252,6 +254,7 @@ export const View = () => <main class={'dark'} />;
       ),
       // Not a literal, or given options.
       component('const [size] = createSignal(initial);', '<p>{size()}</p>', imports),
+      component('const [size] = createSignal(undefined);', '<p>{size()}</p>', imports),
       component('const [size] = createSignal({ n: 1 });', '<p>{size().n}</p>', imports),
       component(
         "const [size] = createSignal(3, { unobserved: () => log('gone') });",
