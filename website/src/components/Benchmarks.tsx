@@ -164,7 +164,7 @@ function Bar(props: {
     <div class="bench-bar" tabindex="0" aria-label={`${props.chart.title}, ${props.name}: ${text}`}>
       <span
         class={`bench-fill ${props.variant}`}
-        style={{ width: `${String(Math.max(props.share * 100, 1))}%` }}
+        style={{ width: `calc((100% - 84px) * ${String(Math.max(props.share, 0.01))})` }}
       />
       <span class="bench-value">{text}</span>
       <span class="bench-tip" role="tooltip">

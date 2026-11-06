@@ -1274,7 +1274,6 @@ pre {
 
 .bench-fill {
   flex: none;
-  max-width: calc(100% - 84px);
   height: 12px;
   border-radius: 0 4px 4px 0;
   transition: filter 0.15s;
