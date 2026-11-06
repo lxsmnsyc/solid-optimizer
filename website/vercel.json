@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter solid-optimizer build && pnpm build",
-  "outputDirectory": "dist",
+  "outputDirectory": "dist/client",
   "ignoreCommand": "bash scripts/ignore-build.sh",
   "headers": [
     {

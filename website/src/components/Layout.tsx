@@ -80,6 +80,17 @@ export function Footer(): JSX.Element {
         <span>solid-optimizer</span>
       </a>
       <span>MIT © lxsmnsyc</span>
+      <span class="footer-note">
+        This site is prerendered and built with{' '}
+        <a
+          href={`${REPOSITORY}/blob/main/website/vite.config.ts`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          solid-optimizer
+        </a>
+        .
+      </span>
       <nav>
         <a href="/docs/">Docs</a>
         <a href="/repl/">REPL</a>
