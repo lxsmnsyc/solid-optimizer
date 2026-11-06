@@ -10,6 +10,8 @@ export const APPS = {
   demo: 'The app is the demo with every page rendered at once and none lazy (`src/demo/App.tsx`).',
   hackernews:
     "The app is Hacker News's two story lists and a story's comments, from its fixtures, without the router (`src/hackernews/App.tsx`).",
+  tracker:
+    "The app is the tracker's layout with its 40 issues read at once instead of loaded, and no issue selected (`src/tracker/App.tsx`).",
 } as const;
 export type App = keyof typeof APPS;
 
