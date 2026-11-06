@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { appCode, runBoth } from './harness';
+import { compile } from '../src';
 import { lower, optimize } from './utils';
 
 function lowered(code: string): string {
@@ -69,9 +70,51 @@ describe('the JSX it writes', () => {
     ['a component with other children', '<Card><Show when={p.a}><i /></Show><b /></Card>'],
     ['an attribute', '<Card title={<Show when={p.a}><i /></Show>} />'],
     ['a JSX expression', '<div>{p.b && <Show when={p.a}><i /></Show>}</div>'],
+    ['a child that could be a function', '<div><Show when={p.a}>{p.render}</Show></div>'],
+    ['a function among other children', '<div><Show when={p.a}><b />{() => p.n}</Show></div>'],
+    ['a repeated prop', '<div><Show when={p.a} when={p.b}><i /></Show></div>'],
   ])('keeps <Show> with %s', (_, jsx) => {
     const code = `import { Show } from "solid-js";\nconst view = (p) => ${jsx};`;
     expect(lowered(code)).toBe(code);
+  });
+
+  it('writes a container in a namespaced element', () => {
+    expect(
+      lowered(
+        'import { Show } from "solid-js";\nconst view = (p) => <svg:g><Show when={p.a}><i /></Show></svg:g>;',
+      ),
+    ).toBe(
+      'import { Show } from "solid-js";\nconst view = (p) => <svg:g>{(p.a) ? <><i /></> : undefined}</svg:g>;',
+    );
+  });
+
+  it('lowers a value among other children, which <Show> gets as an array', () => {
+    expect(
+      lowered(
+        'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.a}>by {p.user}</Show></div>;',
+      ),
+    ).toBe(
+      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.a) ? <>by {p.user}</> : undefined}</div>;',
+    );
+  });
+
+  it('keeps children whose values are never functions', () => {
+    expect(
+      lowered(
+        'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.a}>{" "}{`n: ${p.n}`}{p.n + 1}</Show></div>;',
+      ),
+    ).toBe(
+      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.a) ? <>{" "}{`n: ${p.n}`}{p.n + 1}</> : undefined}</div>;',
+    );
+  });
+
+  it('lowers TypeScript and keeps a source map', () => {
+    const result = compile(
+      'import { Show } from "solid-js";\nconst view = (p: { a?: string }) => <div><Show when={p.a!}><i /></Show></div>;',
+      { filename: 'view.tsx', inline: false },
+    );
+    expect(result.code).toContain('<div>{(p.a!) ? <><i /></> : undefined}</div>');
+    expect(result.map?.sources).toEqual(['view.tsx']);
   });
 
   it('keeps a <Show> that is not Solid’s', () => {

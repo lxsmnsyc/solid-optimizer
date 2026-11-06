@@ -8,10 +8,10 @@
  * three memos.
  */
 import type { JSXAttribute, JSXChild, JSXElement, Node } from 'oxc-parser';
-import { forEachChild, isFunctionNode, isInsignificant, isIntrinsicTag } from './ast';
+import { forEachChild, isFunctionNode, isInsignificant, isIntrinsicTag, unwrap } from './ast';
 import type { PassContext } from './context';
 import { solidExport } from './context';
-import { findAttribute, hasCallbackChild } from './jsx';
+import { findAttribute } from './jsx';
 
 /**
  * How a lowered `<Show>` is written where it stands.
@@ -79,7 +79,11 @@ function formAt(context: PassContext, element: JSXElement): Form | undefined {
       return 'container';
     case 'JSXElement': {
       const { name } = parent.openingElement;
-      if (name.type === 'JSXIdentifier' && isIntrinsicTag(name.name)) {
+      // A namespaced tag like `svg:g` is an element too.
+      if (
+        name.type === 'JSXNamespacedName' ||
+        (name.type === 'JSXIdentifier' && isIntrinsicTag(name.name))
+      ) {
         return 'container';
       }
       // A component's children are one prop. Only a sole child keeps that prop a memo.
@@ -123,19 +127,40 @@ function isSoleChild(children: readonly JSXChild[], element: JSXElement): boolea
  * need the component.
  */
 function lowered(context: PassContext, element: JSXElement, form: Form): string | undefined {
-  // Only `when` and `fallback` are supported. `keyed` and spreads change what the children get.
+  // Only `when` and `fallback` are supported, once each. `keyed` and spreads
+  // change what the children get, and a repeated prop takes its last value.
+  const seen = new Set<string>();
   for (const attribute of element.openingElement.attributes) {
     if (
       attribute.type !== 'JSXAttribute' ||
       attribute.name.type !== 'JSXIdentifier' ||
-      (attribute.name.name !== 'when' && attribute.name.name !== 'fallback')
+      (attribute.name.name !== 'when' && attribute.name.name !== 'fallback') ||
+      seen.has(attribute.name.name)
     ) {
       return undefined;
     }
+    seen.add(attribute.name.name);
   }
-  // A callback child receives the narrowed value, which a ternary has no way to pass.
-  if (hasCallbackChild(element.children)) {
+  // A function child receives the narrowed value, which a ternary has no way
+  // to pass. A sole child that could hold a function, like `{render}`, counts
+  // too. Several children are an array, which `<Show>` renders as it is.
+  const significant = significantChildren(element.children);
+  const sole = significant.length === 1 ? significant[0] : undefined;
+  if (
+    sole?.type === 'JSXExpressionContainer' &&
+    sole.expression.type !== 'JSXEmptyExpression' &&
+    !isNeverFunction(sole.expression)
+  ) {
     return undefined;
+  }
+  for (const child of significant) {
+    if (
+      child.type === 'JSXExpressionContainer' &&
+      child.expression.type !== 'JSXEmptyExpression' &&
+      isFunctionNode(unwrap(child.expression))
+    ) {
+      return undefined;
+    }
   }
 
   const when = expressionText(context, findAttribute(element, 'when'));
@@ -149,19 +174,45 @@ function lowered(context: PassContext, element: JSXElement, form: Form): string 
   const inner = closingElement
     ? context.s.slice(element.openingElement.end, closingElement.start)
     : '';
-  const children = hasContent(element.children) ? `<>${inner}</>` : 'undefined';
+  const children = significant.length > 0 ? `<>${inner}</>` : 'undefined';
 
   const ternary = `${when} ? ${children} : ${fallback ?? 'undefined'}`;
   return form === 'container' ? `{${ternary}}` : `<>{${ternary}}</>`;
 }
 
-function hasContent(children: readonly JSXChild[]): boolean {
+/**
+ * Whether an expression's value can never be a function: a literal, JSX, or
+ * an operator that returns a string, number, or boolean.
+ */
+function isNeverFunction(node: Node): boolean {
+  switch (node.type) {
+    case 'Literal':
+    case 'TemplateLiteral':
+    case 'JSXElement':
+    case 'JSXFragment':
+    case 'BinaryExpression':
+    case 'UnaryExpression':
+    case 'UpdateExpression':
+      return true;
+    case 'ParenthesizedExpression':
+      return isNeverFunction(node.expression);
+    case 'ConditionalExpression':
+      return isNeverFunction(node.consequent) && isNeverFunction(node.alternate);
+    case 'LogicalExpression':
+      return isNeverFunction(node.left) && isNeverFunction(node.right);
+    default:
+      return false;
+  }
+}
+
+function significantChildren(children: readonly JSXChild[]): JSXChild[] {
+  const result: JSXChild[] = [];
   for (const child of children) {
     if (!isInsignificant(child)) {
-      return true;
+      result.push(child);
     }
   }
-  return false;
+  return result;
 }
 
 /**

@@ -344,7 +344,11 @@ The position decides how the ternary is written:
 - **A child of a fragment.** The same container, which the JSX transform wraps in a memo.
 - **The sole child of a component, or an expression outside JSX**, such as a return value or a `<For>` callback's body. `<>{when ? children : fallback}</>`, which compiles to a memo. A ternary alone as a component's child would compile to a `children` getter that reads it again each time, with no memo.
 
-A `<Show>` stays when it has a callback child, `keyed`, a spread, another prop, or a string `fallback`, or when it is an attribute's value or part of an expression in a JSX container.
+A `<Show>` stays when:
+
+- It has a function child, or a sole child that could hold a function, like `{render}`. `<Show>` calls a function child with the narrowed value. Several children are an array, which it renders as it is.
+- It has `keyed`, a spread, a prop other than `when` and `fallback`, a repeated prop, or a string `fallback`.
+- It is an attribute's value, or part of an expression in a JSX container.
 
 The pass runs once the other passes stop changing the code. Memo inlining reads `when` as a tracked place, and a ternary's condition is not one.
 
