@@ -44,6 +44,18 @@
  *
  * becomes `<div><b>x</b></div>`.
  *
+ * A signal that nothing writes is a constant too. When its setter is left
+ * out or never referenced, and its initial value is a literal, every read
+ * becomes the literal:
+ *
+ * ```jsx
+ * const [size] = createSignal(3);
+ * return <p>{size()}</p>;
+ * ```
+ *
+ * becomes `<p>{3}</p>`. A signal with a value that is not a function takes no
+ * owner and no hydration id, so removing it changes nothing else.
+ *
  * # Accepted differences
  *
  * - The computation first runs when its reader first runs, instead of when
@@ -225,7 +237,7 @@ class MemoInliner {
   }
 
   /**
-   * Replaces every read of a memo whose computation is a literal with the
+   * Replaces every read of a memo or signal whose value is a literal with the
    * literal. Each reference has to be a call after the declaration, since a
    * call before it would throw.
    */
@@ -233,10 +245,11 @@ class MemoInliner {
     declarator: VariableDeclarator,
     binding: Binding,
     text: string,
+    kind: 'memo' | 'signal' = 'memo',
   ): true | undefined {
     const statement = this.context.parents.get(declarator);
     if (statement?.type !== 'VariableDeclaration' || statement.declarations.length !== 1) {
-      this.reason = 'memo-declaration';
+      this.reason = `${kind}-declaration`;
       return undefined;
     }
     const calls: CallExpression[] = [];
@@ -248,7 +261,7 @@ class MemoInliner {
         call.arguments.length > 0 ||
         call.start < declarator.end
       ) {
-        this.reason = 'memo-constant';
+        this.reason = `${kind}-constant`;
         return undefined;
       }
       calls.push(call);
@@ -516,20 +529,76 @@ class MemoInliner {
     return true;
   }
 
+  /**
+   * The literal a signal always holds: `const [get] = createSignal(literal)`,
+   * or `const [get, set] = ...` with nothing referencing `set`. Options can
+   * change what a read does, such as `unobserved`, so a signal with options
+   * stays.
+   */
+  private signalConstant(declarator: VariableDeclarator, binding: Binding): string | undefined {
+    const pattern = declarator.id;
+    const init = declarator.init ? unwrap(declarator.init) : undefined;
+    if (
+      pattern.type !== 'ArrayPattern' ||
+      pattern.elements.at(0) !== binding.identifier ||
+      pattern.elements.length > 2 ||
+      init?.type !== 'CallExpression' ||
+      init.callee.type !== 'Identifier' ||
+      init.arguments.length !== 1
+    ) {
+      return undefined;
+    }
+    const callee = this.context.scopes.references.get(init.callee);
+    if (!callee || solidExport(callee, this.context.options) !== 'createSignal') {
+      return undefined;
+    }
+    const value = init.arguments.at(0);
+    if (!value || value.type === 'SpreadElement') {
+      return undefined;
+    }
+    // Other modules can read an exported getter.
+    const statement = this.context.parents.get(declarator);
+    if (statement && this.context.parents.get(statement)?.type === 'ExportNamedDeclaration') {
+      return undefined;
+    }
+    const setter = pattern.elements.at(1);
+    if (setter) {
+      const setterBinding =
+        setter.type === 'Identifier' ? binding.scope.bindings.get(setter.name) : undefined;
+      if (setterBinding?.identifier !== setter || setterBinding.references.length > 0) {
+        return undefined;
+      }
+    }
+    return constantText(this.context, value);
+  }
+
+  private tryInlineSignal(declarator: VariableDeclarator, binding: Binding): void {
+    const text = this.signalConstant(declarator, binding);
+    if (text === undefined) {
+      return;
+    }
+    this.reason = '';
+    if (this.inlineConstant(declarator, binding, text, 'signal') === undefined) {
+      recordSkip(this.context, 'memos', this.reason, binding.name);
+    }
+  }
+
   run(): void {
     for (const scope of new Set(this.context.scopes.scopes.values())) {
-      // A memo outside any function has no owner, and disposes differently.
-      if (scope.parent === undefined) {
-        continue;
-      }
       for (const binding of scope.bindings.values()) {
         const { declaration } = binding;
         if (
-          binding.kind === 'const' &&
-          !binding.mutated &&
-          declaration.type === 'VariableDeclarator' &&
-          declaration.id === binding.identifier
+          binding.kind !== 'const' ||
+          binding.mutated ||
+          declaration.type !== 'VariableDeclarator'
         ) {
+          continue;
+        }
+        if (declaration.id.type === 'ArrayPattern') {
+          // A signal takes no owner, so one outside any function works the same.
+          this.tryInlineSignal(declaration, binding);
+        } else if (declaration.id === binding.identifier && scope.parent !== undefined) {
+          // A memo outside any function has no owner, and disposes differently.
           this.tryInline(declaration, binding);
         }
       }

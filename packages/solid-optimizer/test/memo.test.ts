@@ -208,3 +208,72 @@ describe('memo inlining', () => {
     expect(memos(code)).toBe(code);
   });
 });
+
+describe('signals that are never written', () => {
+  const imports = "import { createSignal } from 'solid-js';";
+
+  it('replaces every read of a signal with no setter', () => {
+    const output = memos(
+      component(
+        "const [size] = createSignal(3);\n  const [label, setLabel] = createSignal('big');",
+        '<p title={label()} onClick={() => log(size())}>{size() * 2}</p>',
+        imports,
+      ),
+    );
+    expect(output).not.toContain('createSignal(');
+    expect(output).toContain("return <p title={'big'} onClick={() => log(3)}>{(3) * 2}</p>;");
+  });
+
+  it('replaces reads of a signal at module scope', () => {
+    const output = memos(`${imports}
+const [theme] = createSignal('dark');
+export const View = () => <main class={theme()} />;
+`);
+    expect(output).toBe(`${imports}
+
+export const View = () => <main class={'dark'} />;
+`);
+  });
+
+  it('folds what a constant signal leaves behind', () => {
+    const output = optimize(
+      component('const [size] = createSignal(1);', '<p>{size() + 1}</p>', imports),
+    );
+    expect(output).toContain('return <p>{2}</p>;');
+  });
+
+  it('keeps a signal that can change or that is read another way', () => {
+    const cases = [
+      // Written.
+      component(
+        'const [size, setSize] = createSignal(3);\n  setSize(4);',
+        '<p>{size()}</p>',
+        imports,
+      ),
+      // Not a literal, or given options.
+      component('const [size] = createSignal(initial);', '<p>{size()}</p>', imports),
+      component('const [size] = createSignal({ n: 1 });', '<p>{size().n}</p>', imports),
+      component(
+        "const [size] = createSignal(3, { unobserved: () => log('gone') });",
+        '<p>{size()}</p>',
+        imports,
+      ),
+      // The getter passed as a value.
+      component('const [size] = createSignal(3);\n  use(size);', '<p>{size()}</p>', imports),
+      // Not destructured, or with more than a getter and a setter.
+      component('const size = createSignal(3);', '<p>{size[0]()}</p>', imports),
+      component('const [size, , extra] = createSignal(3);', '<p>{size()}</p>', imports),
+      // Exported, so other modules can read it.
+      `${imports}\nexport const [size] = createSignal(3);\nexport const View = () => <p>{size()}</p>;\n`,
+      // Not Solid's.
+      component(
+        'const [size] = createSignal(3);',
+        '<p>{size()}</p>',
+        "import { createSignal } from './signals';",
+      ),
+    ];
+    for (const code of cases) {
+      expect(memos(code)).toBe(code);
+    }
+  });
+});

@@ -426,7 +426,8 @@ import { createSignal, Show } from 'solid-js';
 const Icon = (props) => <i class={props.name} />;
 const Button = (props) => <button><Icon name={props.icon} />{props.children}</button>;
 function Counter(props) {
-  const [count] = createSignal(props.start);
+  // Options keep the signal, so the body still has a statement.
+  const [count] = createSignal(props.start, { name: 'count' });
   return <p>{count()}<Button icon="plus">Add</Button></p>;
 }
 const Card = (props) => <section>{props.children}</section>;
@@ -440,7 +441,7 @@ export function App() {
     const output = inlined(code);
     expect(output).not.toContain('function Counter');
     expect(output).toContain('fallback={<Home />}');
-    expect(output).toContain('const [count$1] = createSignal(0);');
+    expect(output).toContain("const [count$1] = createSignal(0, { name: 'count' });");
     expect(output).toContain(
       '<section><p>{count$1()}<button><i class={"plus"} />Add</button></p></section>',
     );

@@ -169,6 +169,12 @@ return <p style={{ color: color() }} />;
 
 In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the same way it records the built-in components.
 
+### Signals that are never written
+
+A signal whose setter is left out of the pattern, or never referenced, always returns its initial value. When that value is a literal and the call has no options, every call of the getter becomes the literal, as with a constant memo. Options stay, since `unobserved` runs code and `ownedWrite` changes where writes may come from.
+
+In rc.21, `createSignal` with a value that is not a function creates a node with no owner and no hydration id, on the client and the server. So removing it does not shift the hydration keys, and it works the same outside a function. An exported getter stays, since other modules can read it.
+
 ### Accepted differences
 
 - The computation first runs when its reader first runs, instead of when the memo is created.
@@ -178,6 +184,7 @@ In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the 
 
 - Calls that always return a new value, such as `Array.from`, `.map`, or `.filter`. Knowing that needs the receiver's type, so they are not treated as new today. Spreading the result into an array literal, as in `[...list.map(fn)]`, makes it count.
 - A memo read once inside another computation, such as the compute function of `createMemo` or `createEffect`. The same rule applies when the read is that function's whole return value.
+- A store that nothing writes, like `const [state] = createStore({ open: false })`. A read of a nested object returns a store proxy, not the literal, so only primitive properties could become constants.
 - A memo with no reactive reads, other than one whose computation folds to a literal. Proving that a call reads nothing needs knowledge of every callee. A literal reads nothing, so every call of such a memo becomes the literal.
 
 ## Constants from other modules

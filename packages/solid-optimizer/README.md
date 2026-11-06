@@ -142,7 +142,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
 - A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from a package in `node_modules` that `optimizer.packages` does not list, `copy-cycle` means the two modules import each other, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
 
-The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps.
+The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps, and `signal-constant` for a signal that nothing writes but that is used other than by calling it.
 
 ### Limits
 
@@ -305,6 +305,8 @@ return <p style={style()} />;
 becomes `<p style={{ color: color() }} />`. See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy.md) for the exact rules.
 
 A memo whose computation folds to a literal never changes. Every call of it becomes the literal, however many there are, when each call comes after the declaration and nothing else uses the memo.
+
+So does a signal that nothing writes: `const [size] = createSignal(3)`, or one whose setter nothing references. With a literal and no options, every call of the getter becomes the literal, under the same conditions. This also works outside a function, since a signal takes no owner.
 
 ```jsx
 const size = createMemo(() => 1 + 2);
