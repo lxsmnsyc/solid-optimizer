@@ -98,6 +98,19 @@ export const App = () => <Box tone="dark"><p>hi</p></Box>;`),
     ).toMatch(/<div class=\{"dark"\}\s*><p>hi<\/p><\/div>/);
   });
 
+  it('renames the closing tag it adds for children passed through a spread', () => {
+    const code = optimize(`import { dynamic } from '@solidjs/web';
+${IMPORTS}function Alert(props) {
+  const rest = omit(props, 'as');
+  const Root = dynamic(() => props.as || 'div');
+  return <Root {...rest} role="alert" />;
+}
+export default function App() {
+  return <Alert class="alert">Saved</Alert>;
+}`);
+    expect(code).toMatch(/<(Root\$\d+) class=\{"alert"\} role="alert"\s*>Saved<\/\1>/);
+  });
+
   it('evaluates a static value once when a spread and a read share it', () => {
     const code = views(`function Box(props) {
   const rest = omit(props, 'x');

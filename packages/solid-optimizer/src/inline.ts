@@ -1900,7 +1900,8 @@ class Inliner {
       }
       if (children !== undefined) {
         const opening = spread.element.openingElement;
-        const tag = textOf(this.context, opening.name);
+        // Read the tag from the copy, which holds the renamed locals.
+        const tag = copy.slice(opening.name.start, opening.name.end);
         const close = this.context.code.lastIndexOf('/>', opening.end);
         copy.overwrite(close, opening.end, `>${children}</${tag}>`);
       }
