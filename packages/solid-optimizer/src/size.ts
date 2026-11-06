@@ -248,7 +248,12 @@ export class SizeEstimator {
         size += name.length + GETTER + this.jsx(value, false);
       }
     }
-    const significant = element.children.filter((child) => !isInsignificant(child));
+    const significant: JSXChild[] = [];
+    for (const child of element.children) {
+      if (!isInsignificant(child)) {
+        significant.push(child);
+      }
+    }
     if (significant.length > 0) {
       size += GETTER + 'children'.length + this.children(significant);
     }

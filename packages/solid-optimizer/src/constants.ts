@@ -26,7 +26,11 @@ export function resolveImportedConstants(
 ): ResolvedImportedConstants {
   const result = new Map<string, Map<string, Const>>();
   for (const [source, exports] of Object.entries(constants ?? {})) {
-    result.set(source, new Map(Object.entries(exports).map(([name, value]) => [name, { value }])));
+    const entries = new Map<string, Const>();
+    for (const [name, value] of Object.entries(exports)) {
+      entries.set(name, { value });
+    }
+    result.set(source, entries);
   }
   return result;
 }

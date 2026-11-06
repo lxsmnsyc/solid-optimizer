@@ -62,6 +62,24 @@ function freshName(scopes: ScopeAnalysis, base: string): string {
  * Whether an import specifier was added by Solid's JSX transform, which
  * names every helper it imports `_$name`.
  */
+function isAllGenerated(specifiers: readonly ImportDeclarationSpecifier[]): boolean {
+  for (const specifier of specifiers) {
+    if (!isGeneratedSpecifier(specifier)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasStatement(functions: readonly { statement: Node }[], statement: Node): boolean {
+  for (const entry of functions) {
+    if (entry.statement === statement) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isGeneratedSpecifier(specifier: ImportDeclarationSpecifier): boolean {
   return specifier.type === 'ImportSpecifier' && specifier.local.name.startsWith('_$');
 }
@@ -194,7 +212,12 @@ export function addMarker(
   }
   const call = `${MARKER}({ ${entries.join(', ')} })`;
   const s = new MagicString(code);
-  const functions = topLevelFunctions(program).filter(({ fn }) => containsJSX(fn));
+  const functions: { statement: Node; fn: Node }[] = [];
+  for (const entry of topLevelFunctions(program)) {
+    if (containsJSX(entry.fn)) {
+      functions.push(entry);
+    }
+  }
   for (const { fn } of functions) {
     if (
       fn.type !== 'FunctionDeclaration' &&
@@ -214,10 +237,13 @@ export function addMarker(
       s.appendLeft(body.end, '; }');
     }
   }
-  const outside = program.body.some(
-    (statement) =>
-      !functions.some((entry) => entry.statement === statement) && containsJSX(statement),
-  );
+  let outside = false;
+  for (const statement of program.body) {
+    if (!hasStatement(functions, statement) && containsJSX(statement)) {
+      outside = true;
+      break;
+    }
+  }
   s.append(
     `\nimport { ${specifiers.join(', ')} } from ${JSON.stringify(options.moduleName)};\n` +
       (outside ? `${call};\n` : ''),
@@ -353,7 +379,7 @@ export function linkHelpers(
     if (
       statement.type !== 'ImportDeclaration' ||
       statement.source.value !== moduleName ||
-      !statement.specifiers.every(isGeneratedSpecifier)
+      !isAllGenerated(statement.specifiers)
     ) {
       continue;
     }

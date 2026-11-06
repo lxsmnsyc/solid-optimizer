@@ -167,6 +167,12 @@ const DEFAULT_BUILT_INS = [
 const DEFAULT_MODULE_SOURCES = ['solid-js', '@solidjs/web'];
 
 function resolveOptions(options: CompileOptions): ResolvedOptions {
+  // Each module's context names become a set.
+  const importedContexts = new Map<string, Set<string>>();
+  for (const [source, names] of Object.entries(options.importedContexts ?? {})) {
+    importedContexts.set(source, new Set(names));
+  }
+
   return {
     builtIns: new Set(options.builtIns ?? DEFAULT_BUILT_INS),
     moduleSources: options.moduleSources ?? DEFAULT_MODULE_SOURCES,
@@ -174,12 +180,7 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
     constantVars: options.constantVars ?? false,
     importedConstants: resolveImportedConstants(options.importedConstants),
     globalConstants: new Map(Object.entries(options.globalConstants ?? {})),
-    importedContexts: new Map(
-      Object.entries(options.importedContexts ?? {}).map(([source, names]) => [
-        source,
-        new Set(names),
-      ]),
-    ),
+    importedContexts,
     sharedComponents: new Map(Object.entries(options.sharedComponents ?? {})),
     alwaysInline: options.alwaysInline ?? false,
     alwaysInlineComponents: new Set(options.alwaysInlineComponents ?? []),

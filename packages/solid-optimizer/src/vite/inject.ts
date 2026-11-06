@@ -156,6 +156,22 @@ export function readReexport(
   return undefined;
 }
 
+function addDeclared(
+  exports: Map<string, Binding>,
+  declarators: readonly { id: { type: string; name?: string } }[],
+  bindings: ReadonlyMap<string, Binding>,
+): void {
+  for (const declarator of declarators) {
+    const binding =
+      declarator.id.type === 'Identifier' && declarator.id.name !== undefined
+        ? bindings.get(declarator.id.name)
+        : undefined;
+    if (binding !== undefined) {
+      exports.set(binding.name, binding);
+    }
+  }
+}
+
 /**
  * The names a module exports, each with the top-level binding it exports.
  */
@@ -171,12 +187,7 @@ function exportsOf(program: Program, scopes: ScopeAnalysis): Map<string, Binding
           exports.set(declaration.id.name, binding);
         }
       } else if (declaration?.type === 'VariableDeclaration') {
-        const declared = declaration.declarations.map((declarator) =>
-          declarator.id.type === 'Identifier' ? bindings.get(declarator.id.name) : undefined,
-        );
-        for (const binding of declared.filter((item) => item !== undefined)) {
-          exports.set(binding.name, binding);
-        }
+        addDeclared(exports, declaration.declarations, bindings);
       }
       for (const specifier of statement.specifiers) {
         const local = specifier.local.type === 'Identifier' ? specifier.local.name : undefined;
@@ -253,9 +264,10 @@ export function exposeLocals(code: string, filename: string): EditResult | undef
     return undefined;
   }
   const s = new MagicString(code);
-  const specifiers = [...needed].map(
-    (binding) => `${binding.name} as ${LOCAL_EXPORT}${binding.name}`,
-  );
+  const specifiers: string[] = [];
+  for (const binding of needed) {
+    specifiers.push(`${binding.name} as ${LOCAL_EXPORT}${binding.name}`);
+  }
   s.append(`\nexport { ${specifiers.join(', ')} };\n`);
   return { code: s.toString(), map: generateMap(s, filename) };
 }

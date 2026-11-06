@@ -33,17 +33,22 @@ export function summarizeSkips(skips: readonly Skip[]): ReasonSummary[] {
     group.names.set(skip.name, (group.names.get(skip.name) ?? 0) + 1);
     groups.set(key, group);
   }
-  return [...groups.values()]
-    .map(({ pass, reason, names }) => ({
+  const summaries: ReasonSummary[] = [];
+  for (const { pass, reason, names } of groups.values()) {
+    let count = 0;
+    for (const times of names.values()) {
+      count += times;
+    }
+    summaries.push({
       pass,
       reason,
-      count: [...names.values()].reduce((sum, count) => sum + count, 0),
+      count,
       names: [...names].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
-    }))
-    .sort(
-      (a, b) =>
-        b.count - a.count || a.pass.localeCompare(b.pass) || a.reason.localeCompare(b.reason),
-    );
+    });
+  }
+  return summaries.sort(
+    (a, b) => b.count - a.count || a.pass.localeCompare(b.pass) || a.reason.localeCompare(b.reason),
+  );
 }
 
 /** The most names listed for a reason. */
@@ -58,11 +63,15 @@ export function formatReport(report: OptimizerReport): string {
   if (summaries.length === 0) {
     lines.push('  nothing');
   }
-  const reasonWidth = Math.max(0, ...summaries.map((summary) => summary.reason.length));
+  let reasonWidth = 0;
   for (const summary of summaries) {
-    const shown = summary.names
-      .slice(0, NAMES_SHOWN)
-      .map(([name, count]) => (count > 1 ? `${name}×${String(count)}` : name));
+    reasonWidth = Math.max(reasonWidth, summary.reason.length);
+  }
+  for (const summary of summaries) {
+    const shown: string[] = [];
+    for (const [name, count] of summary.names.slice(0, NAMES_SHOWN)) {
+      shown.push(count > 1 ? `${name}×${String(count)}` : name);
+    }
     if (summary.names.length > NAMES_SHOWN) {
       shown.push(`${String(summary.names.length - NAMES_SHOWN)} more`);
     }

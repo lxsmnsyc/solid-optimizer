@@ -278,8 +278,13 @@ function isAccessor(context: PassContext, binding: Binding): boolean {
   if (id.type !== 'ArrayPattern' || callee === undefined || !ACCESSOR_PAIRS.has(callee)) {
     return false;
   }
-  const index = id.elements.findIndex((element) => element === binding.identifier);
-  return index === 0 || index === 1;
+  // Only the first two slots of the pair are accessors.
+  for (const [index, element] of id.elements.entries()) {
+    if (element === binding.identifier) {
+      return index === 0 || index === 1;
+    }
+  }
+  return false;
 }
 
 export interface ClosedOptions {
@@ -457,17 +462,20 @@ function isOwnView(
   if (callee !== 'merge' && callee !== 'omit') {
     return false;
   }
-  return call.arguments.every((argument) => {
+  for (const argument of call.arguments) {
     if (argument.type === 'SpreadElement') {
       return false;
     }
     const inner = unwrap(argument);
-    return (
-      inner.type === 'ObjectExpression' ||
-      (inner.type === 'Literal' && typeof inner.value === 'string') ||
-      isOwnView(context, inner, props, depth + 1)
-    );
-  });
+    if (
+      inner.type !== 'ObjectExpression' &&
+      !(inner.type === 'Literal' && typeof inner.value === 'string') &&
+      !isOwnView(context, inner, props, depth + 1)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isVisibleElement(
@@ -601,17 +609,19 @@ function isVisibleMethod(
     return false;
   }
   const object = objectLiteralOf(context, member.object, options, 0);
-  if (!object || object.properties.some((property) => property.type !== 'Property')) {
+  if (!object) {
     return false;
   }
   const { name } = member.property;
-  const matches = object.properties.filter(
-    (property) =>
-      property.type === 'Property' &&
-      !property.computed &&
-      property.key.type === 'Identifier' &&
-      property.key.name === name,
-  );
+  const matches: typeof object.properties = [];
+  for (const property of object.properties) {
+    if (property.type !== 'Property') {
+      return false;
+    }
+    if (!property.computed && property.key.type === 'Identifier' && property.key.name === name) {
+      matches.push(property);
+    }
+  }
   const property = matches.at(0);
   if (matches.length !== 1 || property?.type !== 'Property' || property.kind !== 'init') {
     return false;
@@ -754,9 +764,13 @@ class ProviderRemover {
       // A provider inside one removed in this pass waits for the next pass,
       // so their edits do not overlap.
       const { element } = provider;
-      const overlaps = this.removed.some(
-        (other) => element.start < other.end && other.start < element.end,
-      );
+      let overlaps = false;
+      for (const other of this.removed) {
+        if (element.start < other.end && other.start < element.end) {
+          overlaps = true;
+          break;
+        }
+      }
       if (overlaps) {
         continue;
       }
@@ -809,20 +823,28 @@ class ProviderRemover {
     const { element } = provider;
     const children = element.children;
     let reason = 'open-other';
-    const closed = children.every((child) =>
-      isClosed(this.context, child, {
-        component: () => false,
-        contextValue: (target) => (target === provider.context ? provider.value : undefined),
-        onOpen: (open) => {
-          reason = open;
-        },
-      }),
-    );
+    const closure: ClosedOptions = {
+      component: () => false,
+      contextValue: (target) => (target === provider.context ? provider.value : undefined),
+      onOpen: (open) => {
+        reason = open;
+      },
+    };
+    let closed = true;
+    for (const child of children) {
+      if (!isClosed(this.context, child, closure)) {
+        closed = false;
+        break;
+      }
+    }
     if (!closed) {
       this.skip(provider, reason);
       return false;
     }
-    const reads = children.flatMap((child) => contextReads(this.context, child, provider.context));
+    const reads: ReturnType<typeof contextReads> = [];
+    for (const child of children) {
+      reads.push(...contextReads(this.context, child, provider.context));
+    }
     const texts: string[] = [];
     for (const read of reads) {
       const text = stableValueText(this.context, provider, read);

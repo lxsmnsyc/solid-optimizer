@@ -73,6 +73,7 @@
  */
 import MagicString from 'magic-string';
 import type {
+  ArrayExpressionElement,
   ArrowFunctionExpression,
   CallExpression,
   Expression,
@@ -85,8 +86,10 @@ import type {
   JSXSpreadAttribute,
   MemberExpression,
   Node,
+  ObjectPropertyKind,
   ReturnStatement,
   Statement,
+  VariableDeclarator,
 } from 'oxc-parser';
 import {
   forEachChild,
@@ -222,14 +225,12 @@ function inBodyOrder(sites: readonly CallSite[]): CallSite[] {
   const pending = [...sites];
   const ordered: CallSite[] = [];
   while (pending.length > 0) {
-    const ready = pending.filter(
-      (site) =>
-        !pending.some(
-          (other) =>
-            other !== site &&
-            (isWithin(other.element, site.component.fn) || isWithin(other.element, site.element)),
-        ),
-    );
+    const ready: CallSite[] = [];
+    for (const site of pending) {
+      if (!hasPendingDependency(pending, site)) {
+        ready.push(site);
+      }
+    }
     // A cycle cannot happen, since a component that renders itself is not
     // inlined, but falling back to the original order keeps this finite.
     const next = ready.length > 0 ? ready : pending;
@@ -507,12 +508,7 @@ function isDataDeclaration(statement: Node): boolean {
     declaration?.type === 'VariableDeclaration' &&
     !declaration.declare &&
     (declaration.kind === 'const' || declaration.kind === 'var') &&
-    declaration.declarations.every(
-      (declarator) =>
-        declarator.id.type === 'Identifier' &&
-        declarator.init !== null &&
-        isDataLiteral(declarator.init),
-    )
+    areDataDeclarators(declaration.declarations)
   );
 }
 
@@ -530,18 +526,9 @@ function isDataLiteral(node: Expression): boolean {
     case 'TSSatisfiesExpression':
       return isDataLiteral(node.expression);
     case 'ArrayExpression':
-      return node.elements.every(
-        (element) => element !== null && element.type !== 'SpreadElement' && isDataLiteral(element),
-      );
+      return areDataElements(node.elements);
     case 'ObjectExpression':
-      return node.properties.every(
-        (property) =>
-          property.type === 'Property' &&
-          property.kind === 'init' &&
-          !property.method &&
-          !property.computed &&
-          isDataLiteral(property.value),
-      );
+      return areDataProperties(node.properties);
     default:
       return false;
   }
@@ -571,10 +558,12 @@ function isForwardableRef(context: PassContext, attribute: JSXAttribute): boolea
   const isTarget = (node: Expression, inArray: boolean): boolean => {
     const inner = unwrap(node);
     if (inner.type === 'ArrayExpression') {
-      return inner.elements.every(
-        (element) =>
-          element !== null && element.type !== 'SpreadElement' && isTarget(element, true),
-      );
+      for (const element of inner.elements) {
+        if (element === null || element.type === 'SpreadElement' || !isTarget(element, true)) {
+          return false;
+        }
+      }
+      return true;
     }
     if (inArray && isVoidZero(inner)) {
       return true;
@@ -878,7 +867,13 @@ class Inliner {
       }
       props.push(read);
     }
-    statements = statements.filter((statement) => !views.declarations.includes(statement));
+    const kept: typeof statements = [];
+    for (const statement of statements) {
+      if (!views.declarations.includes(statement)) {
+        kept.push(statement);
+      }
+    }
+    statements = kept;
 
     const locals: Binding[] = [];
     const seen = new Set<Scope>();
@@ -1109,9 +1104,13 @@ class Inliner {
       }
       return binding ? views.get(binding)?.sources : undefined;
     };
-    const involved = call.arguments.some(
-      (argument) => argument.type !== 'SpreadElement' && sourcesOf(unwrap(argument)) !== undefined,
-    );
+    let involved = false;
+    for (const argument of call.arguments) {
+      if (argument.type !== 'SpreadElement' && sourcesOf(unwrap(argument)) !== undefined) {
+        involved = true;
+        break;
+      }
+    }
     if (!involved) {
       return null;
     }
@@ -1135,12 +1134,14 @@ class Inliner {
         return undefined;
       }
       args.add(target);
-      return {
-        sources: base.map((source) => ({
+      const hiddenSources: ViewSource[] = [];
+      for (const source of base) {
+        hiddenSources.push({
           defaults: source.defaults,
           hidden: new Set([...source.hidden, ...hidden]),
-        })),
-      };
+        });
+      }
+      return { sources: hiddenSources };
     }
 
     const sources: ViewSource[] = [];
@@ -1244,7 +1245,7 @@ class Inliner {
     if (element?.type !== 'JSXElement') {
       return false;
     }
-    const significant = element.children.filter((child) => !isInsignificant(child));
+    const significant = getSignificantChildren(element.children);
     if (significant.length !== 1 || significant.at(0) !== parent) {
       return false;
     }
@@ -1296,7 +1297,7 @@ class Inliner {
           return undefined;
         }
         const child = node;
-        if (!parent.children.some((item) => item === child)) {
+        if (!hasChild(parent.children, child)) {
           return undefined;
         }
       } else if (parent.type === 'ReturnStatement') {
@@ -1331,10 +1332,10 @@ class Inliner {
     snapshots: string[],
   ): PropValue | undefined {
     const { children } = element;
-    if (children.some((child) => child.type === 'JSXSpreadChild')) {
+    if (hasSpreadChild(children)) {
       return undefined;
     }
-    const significant = children.filter((child) => !isInsignificant(child));
+    const significant = getSignificantChildren(children);
     const only = significant.at(0);
     if (only === undefined) {
       return { kind: 'children', children: [], text: 'void 0', primary: false };
@@ -1526,7 +1527,7 @@ class Inliner {
       this.reason = callSiteReason(element);
       return undefined;
     }
-    const hasChildren = element.children.some((child) => !isInsignificant(child));
+    const hasChildren = getSignificantChildren(element.children).length > 0;
     if (hasChildren && attributes.has('children')) {
       this.reason = 'call-children';
       return undefined;
@@ -1702,7 +1703,10 @@ class Inliner {
     components: readonly Component[],
     sites: readonly CallSite[],
   ): Component[] {
-    const byBinding = new Map(components.map((component) => [component.binding, component]));
+    const byBinding = new Map<Binding, Component>();
+    for (const component of components) {
+      byBinding.set(component.binding, component);
+    }
     // Whether a subtree under `provider` only runs visible code, where each
     // component is one this pass inlines and is visible too.
     const closedUnder = (provider: Provider): ((node: Node) => boolean) => {
@@ -1735,14 +1739,18 @@ class Inliner {
     const changed: Component[] = [];
     for (const provider of findProviders(this.context)) {
       const { element } = provider;
-      const inside = sites.some(
-        (site) => isWithin(site.element, element) && site.element !== element,
-      );
+      const inside = hasSiteInside(sites, element);
       if (!inside) {
         continue;
       }
       const isClosedNode = closedUnder(provider);
-      const closed = element.children.every((child) => isClosedNode(child));
+      let closed = true;
+      for (const child of element.children) {
+        if (!isClosedNode(child)) {
+          closed = false;
+          break;
+        }
+      }
       if (!closed) {
         continue;
       }
@@ -1826,7 +1834,10 @@ class Inliner {
       const order: string[] = [];
       for (const source of spread.view.sources) {
         const keys = source.defaults ? [...source.defaults.keys()] : callKeys;
-        for (const key of keys.filter((name) => !source.hidden.has(name))) {
+        for (const key of keys) {
+          if (source.hidden.has(key)) {
+            continue;
+          }
           const index = order.indexOf(key);
           if (index !== -1) {
             order.splice(index, 1);
@@ -1989,10 +2000,11 @@ class Inliner {
       copy.overwrite(read.member.start, read.member.end, bare ? value.text : `(${value.text})`);
     }
     for (const [parent, pieces] of spliced) {
-      writePieces(
-        copy,
-        parent.children.map((child) => pieces.get(child) ?? keptPiece(child)),
-      );
+      const children: Piece[] = [];
+      for (const child of parent.children) {
+        children.push(pieces.get(child) ?? keptPiece(child));
+      }
+      writePieces(copy, children);
     }
   }
 
@@ -2051,19 +2063,18 @@ class Inliner {
     try {
       const copiesOf = new Map<Component, Map<JSXElement, PreparedSite | undefined>>();
       for (const [component, elements] of byComponent) {
-        copiesOf.set(
-          component,
-          new Map(elements.map((element) => [element, this.prepare(component, element)])),
-        );
+        const prepared = new Map<JSXElement, PreparedSite | undefined>();
+        for (const element of elements) {
+          prepared.set(element, this.prepare(component, element));
+        }
+        copiesOf.set(component, prepared);
       }
       this.sites = sites;
       this.otherUses = otherUses;
       this.blocked = new Map();
       for (const [inner, byElement] of copiesOf) {
         for (const [element, copy] of byElement) {
-          const outer = copy
-            ? undefined
-            : this.components.find((item) => item !== inner && isWithin(element, item.fn));
+          const outer = copy ? undefined : findOuterComponent(this.components, inner, element);
           if (outer) {
             const list = this.blocked.get(outer) ?? [];
             list.push(inner);
@@ -2072,7 +2083,7 @@ class Inliner {
         }
       }
       for (const [component, byElement] of copiesOf) {
-        const copies = [...byElement.values()].filter((copy) => copy !== undefined);
+        const copies = collectPrepared(byElement.values());
         if (copies.length === 0) {
           continue;
         }
@@ -2105,7 +2116,7 @@ class Inliner {
     if (
       component.declaration === undefined ||
       otherUses.get(component) !== 0 ||
-      [...copies.values()].some((copy) => copy === undefined)
+      hasMissingCopy(copies.values())
     ) {
       return 0;
     }
@@ -2124,7 +2135,10 @@ class Inliner {
     copiesOf: ReadonlyMap<Component, ReadonlyMap<JSXElement, PreparedSite | undefined>>,
     otherUses: ReadonlyMap<Component, number>,
   ): number {
-    const elements = copies.map((copy) => copy.element);
+    const elements: JSXElement[] = [];
+    for (const copy of copies) {
+      elements.push(copy.element);
+    }
     this.assumedHosts = new Set(elements);
     let gain = 0;
     try {
@@ -2135,7 +2149,7 @@ class Inliner {
         const enabled = new Map(byElement);
         let changed = false;
         for (const [element, copy] of byElement) {
-          if (!copy && elements.some((outer) => isWithin(element, outer))) {
+          if (!copy && isWithinAny(element, elements)) {
             const next = this.prepare(other, element);
             enabled.set(element, next);
             changed ||= next !== undefined;
@@ -2144,8 +2158,8 @@ class Inliner {
         if (!changed) {
           continue;
         }
-        const now = [...byElement.values()].filter((copy) => copy !== undefined);
-        const then = [...enabled.values()].filter((copy) => copy !== undefined);
+        const now = collectPrepared(byElement.values());
+        const then = collectPrepared(enabled.values());
         const before = now.length > 0 ? Math.max(0, this.inliningGain(other, now, 0)) : 0;
         const after = this.inliningGain(other, then, this.removedShare(other, enabled, otherUses));
         gain += Math.max(0, after - before);
@@ -2238,10 +2252,15 @@ class Inliner {
 
   /** Whether every call of `inner` is in `outer`, and nothing else uses it. */
   private onlyUsedWithin(inner: Component, outer: Component): boolean {
-    return (
-      this.otherUses?.get(inner) === 0 &&
-      this.sites.every((site) => site.component !== inner || isWithin(site.element, outer.fn))
-    );
+    if (this.otherUses?.get(inner) !== 0) {
+      return false;
+    }
+    for (const site of this.sites) {
+      if (site.component === inner && !isWithin(site.element, outer.fn)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -2312,11 +2331,12 @@ class Inliner {
     if (this.header === undefined) {
       // The imports, and the top-level constants made of literals, so a copy
       // folds with the values its call site passes by name, as it will once inlined.
-      const imports = this.context.program.body
-        .filter(
-          (statement) => statement.type === 'ImportDeclaration' || isDataDeclaration(statement),
-        )
-        .map((statement) => this.context.code.slice(statement.start, statement.end));
+      const imports: string[] = [];
+      for (const statement of this.context.program.body) {
+        if (statement.type === 'ImportDeclaration' || isDataDeclaration(statement)) {
+          imports.push(this.context.code.slice(statement.start, statement.end));
+        }
+      }
       const aliases = [...this.context.options.builtInAliases.keys()];
       if (aliases.length > 0) {
         imports.push(`var ${aliases.join(', ')};`);
@@ -2503,12 +2523,7 @@ class Inliner {
     // component stays until the next pass inlines it there too.
     const copied = [...inlined.keys()];
     for (const [component, elements] of inlined) {
-      const insideCopy = elements.some((element) =>
-        copied.some(
-          (other) =>
-            other !== component && element.start >= other.fn.start && element.end <= other.fn.end,
-        ),
-      );
+      const insideCopy = isInsideOtherCopy(component, elements, copied);
       if (component.declaration && otherUses.get(component) === 0 && !insideCopy) {
         this.context.s.remove(component.declaration.start, component.declaration.end);
         for (const alias of aliases.get(component) ?? []) {
@@ -2608,10 +2623,11 @@ class Inliner {
     for (const { host, texts } of this.hosts.values()) {
       if (host.kind === 'return') {
         const indent = this.indentationAt(host.statement.start);
-        this.context.s.prependRight(
-          host.statement.start,
-          texts.map((text) => `${text}\n${indent}`).join(''),
-        );
+        let written = '';
+        for (const text of texts) {
+          written += `${text}\n${indent}`;
+        }
+        this.context.s.prependRight(host.statement.start, written);
       } else {
         this.context.s.prependRight(host.body.start, `{ ${texts.join(' ')} return `);
         this.context.s.appendLeft(host.body.end, '; }');
@@ -2627,4 +2643,147 @@ export function inline(context: PassContext): boolean {
   const inliner = new Inliner(context);
   inliner.run();
   return inliner.changed;
+}
+
+/** Whether another pending site must be done before this one. */
+function hasPendingDependency(pending: readonly CallSite[], site: CallSite): boolean {
+  for (const other of pending) {
+    if (
+      other !== site &&
+      (isWithin(other.element, site.component.fn) || isWithin(other.element, site.element))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function areDataDeclarators(declarators: readonly VariableDeclarator[]): boolean {
+  for (const declarator of declarators) {
+    if (
+      declarator.id.type !== 'Identifier' ||
+      declarator.init === null ||
+      !isDataLiteral(declarator.init)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areDataElements(elements: readonly (ArrayExpressionElement | null)[]): boolean {
+  for (const element of elements) {
+    if (element === null || element.type === 'SpreadElement' || !isDataLiteral(element)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areDataProperties(properties: readonly ObjectPropertyKind[]): boolean {
+  for (const property of properties) {
+    if (
+      property.type !== 'Property' ||
+      property.kind !== 'init' ||
+      property.method ||
+      property.computed ||
+      !isDataLiteral(property.value)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getSignificantChildren(children: readonly JSXChild[]): JSXChild[] {
+  const significant: JSXChild[] = [];
+  for (const child of children) {
+    if (!isInsignificant(child)) {
+      significant.push(child);
+    }
+  }
+  return significant;
+}
+
+function hasSpreadChild(children: readonly JSXChild[]): boolean {
+  for (const child of children) {
+    if (child.type === 'JSXSpreadChild') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasSiteInside(sites: readonly CallSite[], element: JSXElement): boolean {
+  for (const site of sites) {
+    if (isWithin(site.element, element) && site.element !== element) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findOuterComponent(
+  components: readonly Component[],
+  inner: Component,
+  element: JSXElement,
+): Component | undefined {
+  for (const item of components) {
+    if (item !== inner && isWithin(element, item.fn)) {
+      return item;
+    }
+  }
+  return undefined;
+}
+
+function collectPrepared(copies: Iterable<PreparedSite | undefined>): PreparedSite[] {
+  const prepared: PreparedSite[] = [];
+  for (const copy of copies) {
+    if (copy !== undefined) {
+      prepared.push(copy);
+    }
+  }
+  return prepared;
+}
+
+function hasMissingCopy(copies: Iterable<PreparedSite | undefined>): boolean {
+  for (const copy of copies) {
+    if (copy === undefined) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isWithinAny(element: JSXElement, outers: readonly JSXElement[]): boolean {
+  for (const outer of outers) {
+    if (isWithin(element, outer)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isInsideOtherCopy(
+  component: Component,
+  elements: readonly JSXElement[],
+  copied: readonly Component[],
+): boolean {
+  for (const element of elements) {
+    for (const other of copied) {
+      if (other !== component && element.start >= other.fn.start && element.end <= other.fn.end) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasChild(children: readonly Node[], child: Node): boolean {
+  for (const item of children) {
+    if (item === child) {
+      return true;
+    }
+  }
+  return false;
 }

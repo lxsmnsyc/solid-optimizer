@@ -202,6 +202,54 @@ function containsHoistedDeclaration(statement: Node): boolean {
   return found;
 }
 
+/** The source text of each node. */
+function getTexts(context: PassContext, nodes: readonly Node[]): string[] {
+  const texts: string[] = [];
+  for (const node of nodes) {
+    texts.push(textOf(context, node));
+  }
+  return texts;
+}
+
+/** The children that are not whitespace-only text or an empty expression. */
+function getSignificant(children: readonly JSXChild[]): JSXChild[] {
+  const significant: JSXChild[] = [];
+  for (const child of children) {
+    if (!isInsignificant(child)) {
+      significant.push(child);
+    }
+  }
+  return significant;
+}
+
+/** Whether the element has a `keyed` attribute that is not `{false}`. */
+function hasEnabledKeyed(element: JSXElement): boolean {
+  for (const attribute of element.openingElement.attributes) {
+    if (
+      attribute.type === 'JSXAttribute' &&
+      attribute.name.type === 'JSXIdentifier' &&
+      attribute.name.name === 'keyed' &&
+      !(
+        attribute.value?.type === 'JSXExpressionContainer' &&
+        attribute.value.expression.type === 'Literal' &&
+        attribute.value.expression.value === false
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The summed size estimate of the children of a fragment spliced into a template. */
+function estimateChildren(estimator: SizeEstimator, children: readonly JSXChild[]): number {
+  let size = 0;
+  for (const child of children) {
+    size += child.type === 'JSXElement' ? estimator.jsx(child, true) : estimator.node(child);
+  }
+  return size;
+}
+
 /**
  * Whether a statement starting with `text` could join the statement before
  * it when that one has no semicolon.
@@ -479,7 +527,7 @@ class Folder {
       const text = textOf(this.context, value);
       return needsParensAt(target, value, this.context.parents) ? `(${text})` : text;
     }
-    const texts = parts.map((part) => textOf(this.context, part));
+    const texts = getTexts(this.context, parts);
     texts.push(textOf(this.context, value));
     return `(${texts.join(', ')})`;
   }
@@ -746,19 +794,7 @@ class Folder {
    * would run while the copy is made, so either one keeps the loop.
    */
   private unrollFor(element: JSXElement, expression: Expression): Fold | undefined {
-    if (
-      element.openingElement.attributes.some(
-        (attribute) =>
-          attribute.type === 'JSXAttribute' &&
-          attribute.name.type === 'JSXIdentifier' &&
-          attribute.name.name === 'keyed' &&
-          !(
-            attribute.value?.type === 'JSXExpressionContainer' &&
-            attribute.value.expression.type === 'Literal' &&
-            attribute.value.expression.value === false
-          ),
-      )
-    ) {
+    if (hasEnabledKeyed(element)) {
       return undefined;
     }
     const byIndex = findAttribute(element, 'keyed') !== undefined;
@@ -766,7 +802,7 @@ class Folder {
     if (!list) {
       return undefined;
     }
-    const significant = element.children.filter((child) => !isInsignificant(child));
+    const significant = getSignificant(element.children);
     const only = significant.at(0);
     if (significant.length !== 1 || only?.type !== 'JSXExpressionContainer') {
       return undefined;
@@ -854,10 +890,14 @@ class Folder {
       // Any other use could change the list, and an export can be changed by another module.
       const statement = this.context.parents.get(binding.declaration);
       const owner = statement ? this.context.parents.get(statement) : undefined;
-      if (
-        owner?.type === 'ExportNamedDeclaration' ||
-        !binding.references.every((reference) => this.isForEach(reference))
-      ) {
+      let onlyForEach = true;
+      for (const reference of binding.references) {
+        if (!this.isForEach(reference)) {
+          onlyForEach = false;
+          break;
+        }
+      }
+      if (owner?.type === 'ExportNamedDeclaration' || !onlyForEach) {
         return undefined;
       }
       node = binding.declaration.init;
@@ -1043,12 +1083,7 @@ class Folder {
     // In an element, the rows splice into its template. Elsewhere they are a fragment of templates.
     const estimator = new SizeEstimator(code);
     const unrolled = inTemplate
-      ? init.children.reduce(
-          (size, child) =>
-            size +
-            (child.type === 'JSXElement' ? estimator.jsx(child, true) : estimator.node(child)),
-          0,
-        )
+      ? estimateChildren(estimator, init.children)
       : estimator.jsx(init, false);
     return unrolled <= loop;
   }
@@ -1107,8 +1142,19 @@ class Folder {
       return undefined;
     }
 
-    const winner = matches.findIndex((item) => item.when === true);
-    if (winner !== -1 && matches.slice(0, winner).every((item) => item.when === false)) {
+    // Find the first true match, and whether every match before it is false.
+    let winner = -1;
+    let allFalse = true;
+    for (const [index, item] of matches.entries()) {
+      if (item.when === true) {
+        winner = index;
+        break;
+      }
+      if (item.when !== false) {
+        allFalse = false;
+      }
+    }
+    if (winner !== -1 && allFalse) {
       const match = matches.at(winner);
       if (!match || hasCallbackChild(match.element.children)) {
         return undefined;
@@ -1116,7 +1162,7 @@ class Folder {
       return { kind: 'children', children: match.element.children };
     }
 
-    if (matches.every((item) => item.when === false)) {
+    if (winner === -1 && allFalse) {
       return this.fallback(element);
     }
 
@@ -1171,9 +1217,12 @@ class Folder {
     if (tag === undefined) {
       return undefined;
     }
-    const attributes = element.openingElement.attributes
-      .filter((attribute) => attribute !== component)
-      .map((attribute) => textOf(this.context, attribute));
+    const attributes: string[] = [];
+    for (const attribute of element.openingElement.attributes) {
+      if (attribute !== component) {
+        attributes.push(textOf(this.context, attribute));
+      }
+    }
     const opening = [tag, ...attributes].join(' ');
     const text = element.closingElement
       ? `<${opening}>${innerText(this.context.s, element)}</${tag}>`
@@ -1201,7 +1250,7 @@ class Folder {
       case 'expression':
         return resolved.primary ? resolved.text : `(${resolved.text})`;
       default: {
-        const significant = resolved.children.filter((child) => !isInsignificant(child));
+        const significant = getSignificant(resolved.children);
         const only = significant.at(0);
         if (only === undefined) {
           return 'null';
@@ -1399,7 +1448,14 @@ class Folder {
     const unreachable = statements.slice(terminator + 1);
     const first = unreachable.at(0);
     const last = unreachable.at(-1);
-    if (first && last && !unreachable.some(containsHoistedDeclaration)) {
+    let hoists = false;
+    for (const statement of unreachable) {
+      if (containsHoistedDeclaration(statement)) {
+        hoists = true;
+        break;
+      }
+    }
+    if (first && last && !hoists) {
       this.context.s.remove(first.start, last.end);
       this.changed = true;
     }
@@ -1424,7 +1480,7 @@ class Folder {
     if (first === undefined) {
       return undefined;
     }
-    const text = parts.map((part) => textOf(this.context, part)).join(', ');
+    const text = getTexts(this.context, parts).join(', ');
     return startsLikeStatement(first) ? `(${text});` : `${text};`;
   }
 
