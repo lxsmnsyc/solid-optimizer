@@ -8,7 +8,9 @@
  * A component inlines when its shape keeps the result equivalent:
  *
  * - It is declared once at the top level of the module, with a capitalized
- *   name, as a function declaration or a `const` bound to a function.
+ *   name, as a function declaration or a `const` bound to a function. A
+ *   tag of an alias, like `const Separator = SeparatorRoot`, is renamed to
+ *   the component first. See `renameAliasTags`.
  * - It takes no parameter, or one identifier that is only read as `props.name`,
  *   or spread onto an element as `{...props}`.
  * - Its body is statements followed by one final `return` of JSX, or an arrow
@@ -264,6 +266,14 @@ type PropValue =
 
 const UNDEFINED: PropValue = { kind: 'expression', text: 'void 0', primary: false };
 
+/** The function a copy is wrapped in when it is measured. See `copy-size.ts`. */
+const COPY_WRAPPER = 'function SoSize$$(';
+
+/** Whether code has a JSX tag named `name`. */
+function hasTag(code: string, name: string): boolean {
+  return new RegExp(`<${name.replaceAll('$', String.raw`\$`)}[\\s/>]`).test(code);
+}
+
 function isCapitalized(name: string): boolean {
   return /^[A-Z]/.test(name);
 }
@@ -420,7 +430,10 @@ function functionOf(binding: Binding, options: ResolvedOptions): ComponentFuncti
 /**
  * The attributes of a call site by name, or `undefined` when one cannot be inlined.
  */
-function attributesOf(element: JSXElement): Map<string, JSXAttribute> | undefined {
+function attributesOf(
+  context: PassContext,
+  element: JSXElement,
+): Map<string, JSXAttribute> | undefined {
   const attributes = new Map<string, JSXAttribute>();
   for (const attribute of element.openingElement.attributes) {
     // A spread can supply any prop, and a namespaced attribute is something
@@ -428,7 +441,7 @@ function attributesOf(element: JSXElement): Map<string, JSXAttribute> | undefine
     if (
       attribute.type !== 'JSXAttribute' ||
       attribute.name.type !== 'JSXIdentifier' ||
-      (attribute.name.name === 'ref' && !isForwardableRef(attribute)) ||
+      (attribute.name.name === 'ref' && !isForwardableRef(context, attribute)) ||
       attributes.has(attribute.name.name)
     ) {
       return undefined;
@@ -500,17 +513,37 @@ function isMemberRead(read: ReadCount): read is PropRead {
  * assigned the element, so it has to stay the name itself. Anything else
  * would be evaluated when the element is made, outside the `untrack` the
  * component's `ref` runs it in.
+ *
+ * Inside an array, `void 0` and `untrack(() => target)` count too. Solid
+ * skips an empty entry of a ref array, and evaluates the whole `ref`
+ * untracked. They come from a component that forwards `props.ref` in an
+ * array, once a call site that passes no `ref` is inlined.
  */
-function isForwardableRef(attribute: JSXAttribute): boolean {
+function isForwardableRef(context: PassContext, attribute: JSXAttribute): boolean {
   const { value } = attribute;
   if (value?.type !== 'JSXExpressionContainer' || value.expression.type === 'JSXEmptyExpression') {
     return false;
   }
-  const isTarget = (node: Expression): boolean => {
+  const isTarget = (node: Expression, inArray: boolean): boolean => {
     const inner = unwrap(node);
     if (inner.type === 'ArrayExpression') {
       return inner.elements.every(
-        (element) => element !== null && element.type !== 'SpreadElement' && isTarget(element),
+        (element) =>
+          element !== null && element.type !== 'SpreadElement' && isTarget(element, true),
+      );
+    }
+    if (inArray && isVoidZero(inner)) {
+      return true;
+    }
+    if (inArray && inner.type === 'CallExpression' && solidCallee(context, inner) === 'untrack') {
+      const callback = inner.arguments.at(0);
+      return (
+        inner.arguments.length === 1 &&
+        callback?.type === 'ArrowFunctionExpression' &&
+        callback.expression &&
+        callback.params.length === 0 &&
+        callback.body.type !== 'BlockStatement' &&
+        isTarget(callback.body, true)
       );
     }
     return (
@@ -519,7 +552,17 @@ function isForwardableRef(attribute: JSXAttribute): boolean {
       inner.type === 'FunctionExpression'
     );
   };
-  return isTarget(value.expression);
+  return isTarget(value.expression, false);
+}
+
+/** Whether an expression is `void 0`. */
+function isVoidZero(node: Expression): boolean {
+  return (
+    node.type === 'UnaryExpression' &&
+    node.operator === 'void' &&
+    node.argument.type === 'Literal' &&
+    node.argument.value === 0
+  );
 }
 
 /**
@@ -1396,7 +1439,7 @@ class Inliner {
    * when it cannot be inlined there. Nothing is written until `commit`.
    */
   private prepare(component: Component, element: JSXElement): PreparedSite | undefined {
-    const attributes = attributesOf(element);
+    const attributes = attributesOf(this.context, element);
     if (!attributes) {
       this.reason = callSiteReason(element);
       return undefined;
@@ -1926,6 +1969,21 @@ class Inliner {
           new Map(elements.map((element) => [element, this.prepare(component, element)])),
         );
       }
+      this.sites = sites;
+      this.otherUses = otherUses;
+      this.blocked = new Map();
+      for (const [inner, byElement] of copiesOf) {
+        for (const [element, copy] of byElement) {
+          const outer = copy
+            ? undefined
+            : this.components.find((item) => item !== inner && isWithin(element, item.fn));
+          if (outer) {
+            const list = this.blocked.get(outer) ?? [];
+            list.push(inner);
+            this.blocked.set(outer, list);
+          }
+        }
+      }
       for (const [component, byElement] of copiesOf) {
         const copies = [...byElement.values()].filter((copy) => copy !== undefined);
         if (copies.length === 0) {
@@ -1940,6 +1998,8 @@ class Inliner {
       }
     } finally {
       this.scratchNames = undefined;
+      this.otherUses = undefined;
+      this.blocked = new Map();
     }
     return result;
   }
@@ -2023,18 +2083,78 @@ class Inliner {
     let calls =
       share > 0 && component.declaration ? share * estimator.node(component.declaration) : 0;
     let inlined = 0;
+    const blocked = this.blockedWithin(component);
+    // The blocked components that some copy still calls once measured.
+    const kept = new Set<Component>();
     for (const copy of copies) {
       const inTemplate = this.sitsInTemplate(copy.element);
       calls += estimator.jsx(copy.element, inTemplate);
+      const measured = { code: '' };
       inlined += copySize(
         this.context.filename,
         this.sizeHeader(),
         copy,
         inTemplate,
         this.context.options,
+        blocked.length > 0 ? { declarations: this.declarationsOf(blocked), inline } : undefined,
+        measured,
       );
+      const body = measured.code.slice(measured.code.lastIndexOf(COPY_WRAPPER));
+      for (const inner of blocked) {
+        if (hasTag(body, inner.binding.name)) {
+          kept.add(inner);
+        }
+      }
+    }
+    // A blocked component that inlines into every copy goes away with this
+    // one, when nothing else uses it.
+    if (share > 0) {
+      for (const inner of blocked) {
+        if (!kept.has(inner) && inner.declaration && this.onlyUsedWithin(inner, component)) {
+          calls += share * estimator.node(inner.declaration);
+        }
+      }
     }
     return calls - inlined;
+  }
+
+  /**
+   * The components whose calls in a component's body cannot be inlined
+   * there, but may be in a copy, once the call site resolves the props
+   * they are given. Those they call in turn count too.
+   */
+  private blockedWithin(component: Component): Component[] {
+    const found: Component[] = [];
+    const pending = [component];
+    for (let outer = pending.pop(); outer; outer = pending.pop()) {
+      for (const inner of this.blocked.get(outer) ?? []) {
+        if (inner !== component && !found.includes(inner)) {
+          found.push(inner);
+          pending.push(inner);
+        }
+      }
+    }
+    return found;
+  }
+
+  /** The declarations of components, for a copy measured on its own. */
+  private declarationsOf(components: readonly Component[]): string {
+    const texts: string[] = [];
+    for (const component of components) {
+      const statement = this.topLevelStatement(component.binding.declaration);
+      if (statement) {
+        texts.push(textOf(this.context, statement));
+      }
+    }
+    return texts.join('\n');
+  }
+
+  /** Whether every call of `inner` is in `outer`, and nothing else uses it. */
+  private onlyUsedWithin(inner: Component, outer: Component): boolean {
+    return (
+      this.otherUses?.get(inner) === 0 &&
+      this.sites.every((site) => site.component !== inner || isWithin(site.element, outer.fn))
+    );
   }
 
   /**
@@ -2066,6 +2186,37 @@ class Inliner {
 
   private header: string | undefined;
 
+  /** The components of the module this pass can inline. */
+  private readonly components: Component[] = [];
+
+  /** The call sites of those components. */
+  private sites: readonly CallSite[] = [];
+
+  /** How many times each component is used other than as a call, while estimating. */
+  private otherUses: ReadonlyMap<Component, number> | undefined;
+
+  /**
+   * The components called in each component's body where the call cannot
+   * be inlined as it is, while estimating.
+   */
+  private blocked = new Map<Component, Component[]>();
+
+  /** The top-level statement a node is part of, without an `export`. */
+  private topLevelStatement(node: Node): Node | undefined {
+    let current = node;
+    for (let parent = this.context.parents.get(current); parent;) {
+      if (parent.type === 'Program') {
+        return current.type === 'ExportNamedDeclaration' ||
+          current.type === 'ExportDefaultDeclaration'
+          ? (current.declaration ?? undefined)
+          : current;
+      }
+      current = parent;
+      parent = this.context.parents.get(current);
+    }
+    return undefined;
+  }
+
   /**
    * What a copy measured on its own needs to know: the module's imports,
    * and the names that alias Solid's exports.
@@ -2088,8 +2239,95 @@ class Inliner {
     return this.header;
   }
 
+  /**
+   * The component a top-level alias like `const Button = ButtonRoot` names,
+   * or `undefined` when the binding is not one.
+   */
+  private aliasTarget(binding: Binding): Binding | undefined {
+    const { declaration } = binding;
+    if (
+      !isCapitalized(binding.name) ||
+      !isConstantDeclaration(binding, this.context.options) ||
+      declaration.type !== 'VariableDeclarator' ||
+      declaration.id !== binding.identifier ||
+      !declaration.init
+    ) {
+      return undefined;
+    }
+    const init = unwrap(declaration.init);
+    if (init.type !== 'Identifier') {
+      return undefined;
+    }
+    const target = this.context.scopes.references.get(init);
+    return target &&
+      target !== binding &&
+      target.scope.parent === undefined &&
+      !target.mutated &&
+      isCapitalized(target.name)
+      ? target
+      : undefined;
+  }
+
+  /**
+   * The statement of an alias nothing uses that `reference` is the value
+   * of, like `const Separator = SeparatorRoot` once its tags are renamed.
+   * It does not keep the component, and goes away with it.
+   */
+  private unusedAlias(reference: Node): Node | undefined {
+    const declarator = this.context.parents.get(reference);
+    if (declarator?.type !== 'VariableDeclarator' || declarator.id.type !== 'Identifier') {
+      return undefined;
+    }
+    const alias = this.context.scopes.root.bindings.get(declarator.id.name);
+    const statement = this.context.parents.get(declarator);
+    return alias?.declaration === declarator &&
+      this.aliasTarget(alias) !== undefined &&
+      alias.references.length === 0 &&
+      statement?.type === 'VariableDeclaration' &&
+      statement.declarations.length === 1 &&
+      this.context.parents.get(statement)?.type === 'Program'
+      ? statement
+      : undefined;
+  }
+
+  /**
+   * Renames each tag of an alias to the component it names, where that name
+   * means the same. Libraries often export a component under a second name,
+   * like `const Separator = SeparatorRoot`. The next pass inlines the calls.
+   */
+  private renameAliasTags(): boolean {
+    let renamed = false;
+    for (const binding of this.context.scopes.root.bindings.values()) {
+      const target = this.aliasTarget(binding);
+      if (!target) {
+        continue;
+      }
+      for (const reference of binding.references) {
+        const parent = this.context.parents.get(reference);
+        if (
+          (parent?.type !== 'JSXOpeningElement' && parent?.type !== 'JSXClosingElement') ||
+          parent.name !== reference
+        ) {
+          continue;
+        }
+        const scope = scopeAt(this.context.scopes, this.context.parents, reference);
+        if (lookup(scope, target.name) !== target) {
+          continue;
+        }
+        this.context.s.overwrite(reference.start, reference.end, target.name);
+        renamed = true;
+      }
+    }
+    return renamed;
+  }
+
   run(): void {
-    const components: Component[] = [];
+    // The calls through an alias inline in the next pass, from the renamed tags.
+    if (this.renameAliasTags()) {
+      this.changed = true;
+      return;
+    }
+    const { components } = this;
     const rejected = new Map<Binding, string>();
     for (const binding of this.context.scopes.root.bindings.values()) {
       this.reason = 'not-a-function';
@@ -2109,6 +2347,8 @@ class Inliner {
 
     const sites: CallSite[] = [];
     const otherUses = new Map<Component, number>();
+    // The aliases nothing uses, which are removed with their component.
+    const aliases = new Map<Component, Node[]>();
     for (const component of components) {
       let uses = 0;
       for (const reference of component.binding.references) {
@@ -2117,8 +2357,11 @@ class Inliner {
           continue;
         }
         const element = parent ? this.context.parents.get(parent) : undefined;
+        const alias = this.unusedAlias(reference);
         if (parent?.type === 'JSXOpeningElement' && element?.type === 'JSXElement') {
           sites.push({ component, element });
+        } else if (alias) {
+          aliases.set(component, [...(aliases.get(component) ?? []), alias]);
         } else {
           uses += 1;
         }
@@ -2181,6 +2424,9 @@ class Inliner {
       );
       if (component.declaration && otherUses.get(component) === 0 && !insideCopy) {
         this.context.s.remove(component.declaration.start, component.declaration.end);
+        for (const alias of aliases.get(component) ?? []) {
+          this.context.s.remove(alias.start, alias.end);
+        }
       }
     }
   }

@@ -80,7 +80,7 @@ import {
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
 import { SizeEstimator, compactLength } from './size';
-import type { ConstantLookup } from './value';
+import type { Const, ConstantLookup } from './value';
 import {
   arrayLiteralLength,
   effectfulParts,
@@ -351,6 +351,7 @@ class Folder {
         break;
       case 'CallExpression':
         this.annotatePure(node);
+        this.foldUntrack(node);
         break;
       default:
         break;
@@ -400,11 +401,39 @@ class Folder {
     this.changed = true;
   }
 
-  private foldConstant(node: Node): void {
+  /**
+   * `untrack(() => value)` is the value, when the value is a constant.
+   * Nothing is read, so there is nothing to untrack. A component inlined
+   * with a literal prop leaves this, like Kobalte's `untrack(() => props.as)`.
+   */
+  private foldUntrack(call: CallExpression): void {
+    if (call.callee.type !== 'Identifier' || call.arguments.length !== 1) {
+      return;
+    }
+    const binding = this.context.scopes.references.get(call.callee);
+    const identity = binding ? solidExport(binding, this.context.options) : undefined;
+    const callback = call.arguments.at(0);
+    if (
+      identity !== 'untrack' ||
+      callback?.type !== 'ArrowFunctionExpression' ||
+      callback.async ||
+      callback.params.length > 0 ||
+      !callback.expression ||
+      callback.body.type === 'BlockStatement'
+    ) {
+      return;
+    }
+    const value = evaluate(callback.body, this.lookup);
+    if (value) {
+      this.foldConstant(call, value);
+    }
+  }
+
+  private foldConstant(node: Node, known?: Const): void {
     if (isLiteralForm(node)) {
       return;
     }
-    const value = evaluate(node, this.lookup);
+    const value = known ?? evaluate(node, this.lookup);
     if (!value) {
       return;
     }

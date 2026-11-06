@@ -396,8 +396,8 @@ const INLINE_REASONS: Reason[] = [
     codes: ['call-ref', 'ref-use'],
     text: (
       <>
-        The call’s <code>ref</code> is an expression other than a name or a function, or the
-        component uses <code>props.ref</code> other than as a <code>ref</code>.
+        The call’s <code>ref</code> is an expression other than a name, a function, or an array of
+        them, or the component uses <code>props.ref</code> other than as a <code>ref</code>.
       </>
     ),
   },
@@ -876,11 +876,14 @@ export function App() {
             <code>render</code>.
           </li>
           <li>Bindings declared in the component get fresh names in every copy.</li>
-          <li>A component nothing else uses is removed.</li>
+          <li>A component nothing else uses is removed, with any alias of it that nothing uses.</li>
         </ul>
         <h3>When a component inlines</h3>
         <ul>
-          <li>It is declared once at the top level, with a capitalized name.</li>
+          <li>
+            It is declared once at the top level, with a capitalized name. A call through an alias,
+            like <code>const Separator = SeparatorRoot</code>, is a call of the component it names.
+          </li>
           <li>
             Its parameter is one identifier that is only read as <code>props.name</code>, spread
             onto an element as <code>{'{...props}'}</code>, or passed to <code>merge()</code> and{' '}
@@ -896,7 +899,9 @@ export function App() {
           <li>The call site has no spread attribute and no namespaced attribute.</li>
           <li>
             A <code>ref</code> at the call site moves to the element the component gives{' '}
-            <code>props.ref</code> to, when its value is a name, a function, or an array of them.
+            <code>props.ref</code> to, when its value is a name, a function, or an array of them. In
+            an array, <code>void 0</code> and <code>untrack(() =&gt; ...)</code> around a name or a
+            function count too.
           </li>
         </ul>
         <h3>Props with defaults</h3>
@@ -1069,6 +1074,9 @@ return <p>{size() * 2}</p>;`}
             <code>&lt;Dynamic component={'{Card}'}&gt;</code> becomes <code>&lt;Card&gt;</code> when{' '}
             <code>Card</code> is a capitalized component declared at the top level that nothing
             reassigns.
+          </li>
+          <li>
+            <code>untrack(() =&gt; value)</code> becomes the value when the value is a constant.
           </li>
           <li>
             A call of an arrow function whose body is JSX, such as a render prop left by inlining,

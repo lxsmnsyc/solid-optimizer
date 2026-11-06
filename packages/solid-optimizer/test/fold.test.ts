@@ -354,6 +354,29 @@ describe('pure annotations', () => {
   });
 });
 
+describe('untrack', () => {
+  it('folds untrack() of a constant to the constant', () => {
+    const code = `import { untrack } from 'solid-js';
+const TAG = 'hr';
+export const a = untrack(() => 'span');
+export const b = untrack(() => TAG);
+export const c = untrack(() => read());
+if (!untrack(() => 'span')) throw new Error('missing');`;
+    expect(folded(code)).toBe(`import { untrack } from 'solid-js';
+const TAG = 'hr';
+export const a = "span";
+export const b = "hr";
+export const c = untrack(() => read());
+`);
+  });
+
+  it('leaves an untrack() from another module', () => {
+    const code = `import { untrack } from './untrack';
+export const a = untrack(() => 'span');`;
+    expect(folded(code)).toBe(code);
+  });
+});
+
 describe('constants', () => {
   it('folds constant expressions into attributes', () => {
     expect(folded('const view = <div id={"a" + "b"} tabindex={1 + 2} />;')).toBe(
