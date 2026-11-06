@@ -371,6 +371,31 @@ describe('pure annotations', () => {
     const other = "import { lazy } from './lazy';\nconst Page = lazy(() => import('./Page'));";
     expect(folded(other)).toBe(other);
   });
+
+  it('marks createSignal() and createStore() as pure when the first argument is a value', () => {
+    const code = `import { createSignal, createStore } from 'solid-js';
+const [count, setCount] = createSignal(0);
+const [empty] = createSignal();
+const [items] = createStore([]);
+const [state] = createStore({ open: false }, { name: 'state' });
+const [label] = createSignal((\`ready\`));`;
+    expect(folded(code)).toBe(`import { createSignal, createStore } from 'solid-js';
+const [count, setCount] = /* @__PURE__ */ createSignal(0);
+const [empty] = /* @__PURE__ */ createSignal();
+const [items] = /* @__PURE__ */ createStore([]);
+const [state] = /* @__PURE__ */ createStore({ open: false }, { name: 'state' });
+const [label] = /* @__PURE__ */ createSignal("ready");`);
+  });
+
+  it('leaves createSignal() and createStore() that could get a function', () => {
+    // A function argument makes a computation, which runs it.
+    const code = `import { createSignal, createStore } from 'solid-js';
+const [double] = createSignal(() => count() * 2);
+const [rows] = createStore((draft) => { draft.push(1); }, []);
+const [value] = createSignal(initial);
+const [spread] = createSignal(...args);`;
+    expect(folded(code)).toBe(code);
+  });
 });
 
 describe('untrack', () => {

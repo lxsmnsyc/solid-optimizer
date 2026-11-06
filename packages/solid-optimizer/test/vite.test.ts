@@ -208,6 +208,14 @@ describe('solid-optimizer/vite', () => {
     expect(plain).toHaveLength(2);
   });
 
+  it('drops a signal that only a folded branch used', async () => {
+    const optimized = await bundle('dead-signal');
+    const plain = await bundle('dead-signal', { optimizer: false });
+    // The fold pass marks `createSignal('admin mode')` as pure, so the bundler drops it.
+    expect(optimized.map((chunk) => chunk.code).join('\n')).not.toContain('admin mode');
+    expect(plain.map((chunk) => chunk.code).join('\n')).toContain('admin mode');
+  });
+
   it('folds constants imported from other modules before bundling', async () => {
     for (const mode of ['auto', 'module'] as const) {
       // oxlint-disable-next-line no-await-in-loop

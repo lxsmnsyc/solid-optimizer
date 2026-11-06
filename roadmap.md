@@ -306,6 +306,8 @@ Suggested order:
 
 ## 13. Mark Solid's factory calls as free of side effects
 
+Status: done. The fold pass marks `lazy` and `createContext`, and `createSignal` and `createStore` whose first argument is a literal, an object, or an array. In rc.21 those create a node with no owner and no hydration id. `createMemo`, and either call given a function, create a computation that runs at once, so they stay unmarked. Rolldown drops an unused marked call at module scope, even when destructured. Inside a function, its minifier drops `const s = createSignal(0)` but keeps `const [a, b] = createSignal(0)`. On the demo, Hacker News, Kobalte, and the tracker, sizes change by 5 B or less gzipped.
+
 Solid 2.0.0-rc.21's `solid.js` has three `__PURE__` annotations, all on its own internal values. `createContext`, `createSignal`, `createMemo`, and `lazy` have none. A bundler keeps a call it cannot prove free of side effects, even when nothing reads its result.
 
 The optimizer's own folding leaves such calls behind:

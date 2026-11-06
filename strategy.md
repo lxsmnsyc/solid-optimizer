@@ -26,7 +26,7 @@ To fold a constant imported from another module, the plugin resolves each import
 
 The helper marker only keeps the built-ins a module still uses after folding, so an import that folding left unused does not keep the export alive.
 
-A call to Solid's `lazy` is marked `/* @__PURE__ */`. It only creates a component and loads nothing until it renders, so the bundler can drop one a folded branch left unused, along with its dynamic import.
+A call to Solid's `lazy` is marked `/* @__PURE__ */`. It only creates a component and loads nothing until it renders, so the bundler can drop one a folded branch left unused, along with its dynamic import. `createContext` is marked too, and so are `createSignal` and `createStore` when their first argument is a literal, an object, or an array. Those only create a node, with no owner and no hydration id. Given a function, they create a computation that runs it, so they stay unmarked, and so does `createMemo`.
 
 Builds that hydrate run everything while modules are transformed, since the server and client build split chunks differently.
 

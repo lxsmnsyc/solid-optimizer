@@ -120,6 +120,15 @@ const EMPTY: Fold = { kind: 'empty' };
 const PURE_CALLS = new Set(['lazy', 'createContext']);
 
 /**
+ * Solid's calls that only create a value when their first argument is not a
+ * function. Given a function, they create a computation, which runs it.
+ */
+const PURE_VALUE_CALLS = new Set(['createSignal', 'createStore']);
+
+/** Expression types that are never a function. */
+const NOT_FUNCTION = new Set(['Literal', 'TemplateLiteral', 'ObjectExpression', 'ArrayExpression']);
+
+/**
  * The globals worth folding. They only apply to a reference that binds to
  * nothing, which is when the global is what runs.
  */
@@ -265,6 +274,15 @@ function keyName(node: Node): string | undefined {
     return node.name;
   }
   return node.type === 'Literal' && typeof node.value === 'string' ? node.value : undefined;
+}
+
+/** Whether a call has no first argument, or one that is never a function. */
+function isValueArgument(call: CallExpression): boolean {
+  if (call.arguments.length === 0) {
+    return true;
+  }
+  const first = call.arguments[0];
+  return first.type !== 'SpreadElement' && NOT_FUNCTION.has(unwrap(first).type);
 }
 
 type ConstantItem =
@@ -432,6 +450,10 @@ class Folder {
    * branch can leave it unused, and the annotation lets the bundler drop it
    * along with its dynamic import. `createContext` only creates the context,
    * which inlining can leave unused.
+   *
+   * `createSignal` and `createStore` with a first argument that is not a
+   * function only create a node. It takes no owner and no hydration id, so
+   * dropping an unused one changes nothing else.
    */
   private annotatePure(call: CallExpression): void {
     if (call.callee.type !== 'Identifier') {
@@ -439,7 +461,10 @@ class Folder {
     }
     const binding = this.context.scopes.references.get(call.callee);
     const identity = binding ? solidExport(binding, this.context.options) : undefined;
-    if (identity === undefined || !PURE_CALLS.has(identity)) {
+    if (identity === undefined) {
+      return;
+    }
+    if (!PURE_CALLS.has(identity) && !(PURE_VALUE_CALLS.has(identity) && isValueArgument(call))) {
       return;
     }
     const before = this.context.code.slice(0, call.start).trimEnd();
