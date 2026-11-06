@@ -27,7 +27,7 @@ What this changes:
 
 ## 1. Components with statements inside `<For>` and `<Show>`
 
-Status: steps 1, 2, and 4 are done. Step 3 is open.
+Status: steps 1, 2, and 4 are done. Step 3 is not planned. See below.
 
 A component with statements did not inline inside a `<For>` callback or a `<Show>` child. A component whose body is only JSX did.
 
@@ -54,7 +54,17 @@ Plan:
 
 1. Done. The reading above confirms it.
 2. Done. The callbacks of `<For>` and `<Repeat>`, the callbacks of `<Show>` and `<Match>` that take a parameter, and the callback given to `render` take statements. `hydrate` is left out, since the server build renders with `renderToString` and would not inline the same way.
-3. Open. A `<Show>` child or a `fallback` has no function to hold statements. `untrack(() => { ...statements; return <jsx />; })` keeps what `createComponent` does. The call is already the root of its own template there, so this only saves the component call. Only do it if the estimate says it is smaller. The demo's `Home` in a `fallback` is the case to measure.
+3. Not planned. A `<Show>` child or a `fallback` has no function to hold statements. `untrack(() => { ...statements; return <jsx />; })` keeps what `createComponent` does. The call is already the root of its own template there, so this only saves the component call. The demo's `Home` in a `fallback` was transformed by hand in the built output and measured with Vite's minifier:
+
+   | Chunking | `createComponent(() => {...})` | `untrack(() => {...})` |
+   | -------- | ------------------------------ | ---------------------- |
+   | default  | -17 B min, -10 B gzip          | -16 B min, -7 B gzip   |
+   | vendor   | -15 B min, -10 B gzip          | not possible           |
+   | single   | -16 B min, -2 B gzip           | -16 B min, -10 B gzip  |
+   - About 16 B minified per call. The demo has one such call and Hacker News has none, so it is not worth a new host in the inline pass, a size estimate, and tests.
+   - `untrack` is not imported by the app chunk in `vendor` mode, so that form needs a name the chunk does not have.
+   - `createComponent(() => { ...statements; return <jsx />; })` avoids that. `createComponent` is `untrack(() => Comp(props || {}))`, and the call site already imports it. Use this form if an app turns up with many such calls.
+
 4. Done for storing the value. A provider in a `<For>` callback stores its value in a `const` in the callback, and its readers inline. The provider itself still stays when its value reads the callback's item, since the item could hold a function that a child calls. That rule is not changed.
 
 Results: the demo's `App` now inlines into the callback given to `render`, and the default build is 12 B smaller. Hacker News does not change, since `Comment` renders itself.
@@ -294,3 +304,4 @@ These are known gaps that are not worth doing now.
 - **Destructured props and early returns that read props.** Both break reactivity in Solid, so idiomatic code does not use them. Early returns on a constant already fold away.
 - **Namespaced attributes on a component call, such as `on:click`.** Rare on components.
 - **A spread of an unknown object at a component call.** No app has a case. See item 2.
+- **Components with statements in a `<Show>` child or a `fallback`.** About 16 B minified per call. See item 1.
