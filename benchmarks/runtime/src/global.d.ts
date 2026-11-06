@@ -6,6 +6,8 @@ declare global {
     bench: {
       mount?: (element: HTMLElement) => () => void;
       hydrate?: (element: HTMLElement) => () => void;
+      /** What to click after hydration, and what has to change when it does. */
+      probe?: { click: string; watch: string };
     };
     /** Set by `instrument` in `page.ts`. */
     counts: { templatesCreated: number; nodesCloned: number };
