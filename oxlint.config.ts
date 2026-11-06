@@ -22,7 +22,8 @@ export default defineConfig({
   overrides: [
     {
       // Example components return JSX, and spelling out the return type adds noise to the demos.
-      files: ['examples/**'],
+      // The runtime benchmark's app is built from the demo's components.
+      files: ['examples/**', 'benchmarks/*/src/**'],
       rules: {
         'typescript/explicit-function-return-type': 'off',
         'typescript/explicit-module-boundary-types': 'off',
