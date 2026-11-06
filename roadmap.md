@@ -344,6 +344,8 @@ Plan:
 
 ## 15. Derived accessors that are plain arrows
 
+Status: done. With more than one call, the body is copied when `(calls - 1) × body ≤ 3 × calls + 13`, in minified characters. In chunk mode it also applies to library code: Hacker News's router has two such arrows, and its vendor chunk is 26 B smaller gzipped.
+
 `const double = () => count() * 2` read once in JSX can be replaced by its body. Memo inlining does this for `createMemo`. A plain arrow needs fewer rules, since it has no cache and no owner, and every call already runs its body again.
 
 ```jsx

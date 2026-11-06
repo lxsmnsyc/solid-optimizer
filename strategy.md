@@ -169,6 +169,16 @@ return <p style={{ color: color() }} />;
 
 In chunk mode, the Vite plugin records which chunk binding is `createMemo`, the same way it records the built-in components.
 
+### Derived arrows
+
+A `const` arrow with no parameters that only returns an expression is called like an accessor, but it has no cache and no owner. Every call already runs the body again, so a call with no arguments can become the body, in parentheses unless the body is primary or the call is the whole of a JSX container. The arrow is removed when:
+
+- every reference is such a call, after the declaration, and the arrow is not exported;
+- every name in the body means the same at each call, and the body uses no `this`, `arguments`, `await`, or `yield`;
+- with more than one call, the copies are no larger than the arrow and its calls, minified.
+
+An arrow that holds code another edit in the same round changed waits for the next round, since the body is copied from the source.
+
 ### Signals that are never written
 
 A signal whose setter is left out of the pattern, or never referenced, always returns its initial value. When that value is a literal and the call has no options, every call of the getter becomes the literal, as with a constant memo. Options stay, since `unobserved` runs code and `ownedWrite` changes where writes may come from.
