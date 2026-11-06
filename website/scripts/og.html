@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- The share image. `node scripts/og.ts` renders it to public/og.png at 1200 by 630. -->
+    <style>
+      @font-face {
+        font-family: 'Geist';
+        src: url('../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2')
+          format('woff2');
+        font-weight: 100 900;
+      }
+      @font-face {
+        font-family: 'Geist Mono';
+        src: url('../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2')
+          format('woff2');
+        font-weight: 100 900;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+      }
+      body {
+        position: relative;
+        padding: 72px 80px;
+        background: #060a13;
+        color: #e4ecf7;
+        font-family: 'Geist', sans-serif;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgb(118 179 225 / 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(118 179 225 / 0.06) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(ellipse at 70% 40%, black 20%, transparent 75%);
+      }
+      .glow {
+        position: absolute;
+        width: 720px;
+        height: 720px;
+        right: -160px;
+        top: -260px;
+        background: radial-gradient(circle, rgb(79 136 198 / 0.35), transparent 65%);
+      }
+      .brand,
+      main,
+      footer {
+        position: relative;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-family: 'Geist Mono', monospace;
+        font-size: 28px;
+        font-weight: 500;
+      }
+      .brand svg {
+        width: 52px;
+        height: 52px;
+      }
+      h1 {
+        font-size: 92px;
+        font-weight: 700;
+        line-height: 1.02;
+        letter-spacing: -0.035em;
+      }
+      .gradient {
+        background: linear-gradient(120deg, #c8e0f4 0%, #76b3e1 35%, #4f88c6 70%, #335d92 100%);
+        background-clip: text;
+        color: transparent;
+      }
+      p {
+        margin-top: 24px;
+        max-width: 760px;
+        font-size: 30px;
+        line-height: 1.35;
+        color: #93a4bd;
+      }
+      footer {
+        display: flex;
+        gap: 14px;
+        font-family: 'Geist Mono', monospace;
+        font-size: 22px;
+        color: #93a4bd;
+      }
+      footer span {
+        padding: 8px 16px;
+        border: 1px solid rgb(118 179 225 / 0.24);
+        border-radius: 999px;
+        background: rgb(11 18 32 / 0.8);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid"></div>
+    <div class="glow"></div>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#76b3e1" />
+            <stop offset="1" stop-color="#2c4f7c" />
+          </linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="8" fill="#0b1324" />
+        <path d="M8 9h16l-4 4H8z" fill="#446b9e" />
+        <path d="M8 15h16l-4 4H8z" fill="#4f88c6" />
+        <path d="M8 21h16l-4 4H8z" fill="url(#g)" />
+      </svg>
+      solid-optimizer
+    </div>
+    <main>
+      <h1>Fewer templates.<br /><span class="gradient">Same app.</span></h1>
+      <p>
+        A compile-time optimizer for SolidJS 2.0 that inlines components before the JSX transform
+        runs.
+      </p>
+    </main>
+    <footer>
+      <span>Vite plugin</span>
+      <span>SolidJS 2.0</span>
+      <span>npm i solid-optimizer@next</span>
+    </footer>
+  </body>
+</html>

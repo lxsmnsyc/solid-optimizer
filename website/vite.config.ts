@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import solid from 'solid-optimizer/vite';
+import type { HtmlTagDescriptor, Plugin } from 'vite';
 import { defineConfig } from 'vite';
 
 const require = createRequire(import.meta.url);
@@ -18,9 +19,65 @@ const ISOLATION_HEADERS = {
 // dependency of this site, not of the parser, so point the name at it.
 const OXC_BINDING = path.dirname(require.resolve('@oxc-parser/binding-wasm32-wasi/package.json'));
 
+// Link previews need absolute URLs. Vercel sets the production domain at
+// build time. `SITE_URL` overrides it, for a preview or another host.
+const SITE_URL =
+  process.env.SITE_URL ??
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : 'https://solid-optimizer.vercel.app');
+
+/** Reads the text of the first match of `pattern` in a page. */
+function readMatch(html: string, pattern: RegExp, page: string): string {
+  const match = pattern.exec(html);
+  if (!match) {
+    throw new Error(`${page} has no ${pattern.source}`);
+  }
+  return match[1];
+}
+
+/**
+ * Adds Open Graph and Twitter card tags to every page, from the page's own
+ * `<title>` and description. The image is `public/og.png`, made by
+ * `scripts/og.ts`.
+ */
+function openGraph(): Plugin {
+  return {
+    name: 'open-graph',
+    transformIndexHtml(html, context) {
+      const title = readMatch(html, /<title>([^<]*)<\/title>/, context.path);
+      const description = readMatch(
+        html,
+        /<meta\s+name="description"\s+content="([^"]*)"/,
+        context.path,
+      );
+      const url = new URL(context.path.replace(/index\.html$/, ''), SITE_URL).href;
+      const tags: Record<string, string> = {
+        'og:type': 'website',
+        'og:site_name': 'solid-optimizer',
+        'og:title': title,
+        'og:description': description,
+        'og:url': url,
+        'og:image': new URL('/og.png', SITE_URL).href,
+        'og:image:width': '1200',
+        'og:image:height': '630',
+        'og:image:alt': 'solid-optimizer: Fewer templates. Same app.',
+        'twitter:card': 'summary_large_image',
+      };
+      const result: HtmlTagDescriptor[] = [];
+      for (const [key, content] of Object.entries(tags)) {
+        const attribute = key.startsWith('twitter:') ? 'name' : 'property';
+        result.push({ tag: 'meta', attrs: { [attribute]: key, content }, injectTo: 'head' });
+      }
+      result.push({ tag: 'link', attrs: { rel: 'canonical', href: url }, injectTo: 'head' });
+      return result;
+    },
+  };
+}
+
 export default defineConfig({
   // The site is built with the optimizer it shows.
-  plugins: [solid()],
+  plugins: [solid(), openGraph()],
   resolve: {
     alias: [
       {
