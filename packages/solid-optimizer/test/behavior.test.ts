@@ -605,6 +605,29 @@ function App() {
   });
 });
 
+describe('signals that are never written', () => {
+  it('renders a constant signal next to one that changes', async () => {
+    const code = await expectSameBehavior(
+      'signal-constant',
+      app(`const [label] = createSignal('count');
+function App() {
+  const [step, setStep] = createSignal(2, { name: 'step' });
+  const [count, setCount] = createSignal(0);
+  return (
+    <main>
+      <button type="button" onClick={() => setCount(count() + step())}>{label()}</button>
+      <p>{label()}: {count()}</p>
+    </main>
+  );
+}`),
+      ['button', 'button'],
+    );
+    // The constant joins the template. A signal with options stays.
+    expect(code).not.toContain('createSignal("count")');
+    expect(code).toContain('createSignal(2, { name: "step" })');
+  });
+});
+
 describe('createMemo', () => {
   it('inlines a memo of a new object read once', async () => {
     const code = await expectSameBehavior(

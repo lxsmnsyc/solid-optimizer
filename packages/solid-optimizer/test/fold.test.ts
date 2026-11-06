@@ -379,7 +379,9 @@ const [empty] = createSignal();
 const [items] = createStore([]);
 const [state] = createStore({ open: false }, { name: 'state' });
 const [label] = createSignal((\`ready\`));`;
-    expect(folded(code)).toBe(`import { createSignal, createStore } from 'solid-js';
+    // The memo pass would replace the signals nobody writes.
+    expect(optimize(code, { inline: false, conditionals: false, memos: false }))
+      .toBe(`import { createSignal, createStore } from 'solid-js';
 const [count, setCount] = /* @__PURE__ */ createSignal(0);
 const [empty] = /* @__PURE__ */ createSignal();
 const [items] = /* @__PURE__ */ createStore([]);

@@ -330,6 +330,8 @@ Plan:
 
 ## 14. Signals that are never written
 
+Status: done for signals. None of the apps has a signal that nothing writes, so their sizes do not change. A store that nothing writes is open: a read of a nested object returns a proxy, so only primitive properties could fold, and none of the apps has such a store.
+
 `const [count] = createSignal(5)` has no setter, so `count()` always returns `5`. A bundler cannot see this, since `createSignal` is a call into the runtime.
 
 Plan:

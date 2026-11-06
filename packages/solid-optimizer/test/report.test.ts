@@ -74,7 +74,7 @@ export const A = () => <main><Counted /><Cached key="a" /><Titled /><Handler /><
     expect(
       reasons(`function Title(props) { return <h1>{props.label}</h1>; }
 function Field(props) { return <input ref={props.ref} />; }
-function Row(props) { const [on] = createSignal(false); return <li>{on()}{props.name}</li>; }
+function Row(props) { const [on] = createSignal(false, { name: 'on' }); return <li>{on()}{props.name}</li>; }
 export const A = (p) => { let el; return <main>
   <Title {...p} />
   <Field ref={make()} />
