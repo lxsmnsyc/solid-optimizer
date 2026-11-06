@@ -23,6 +23,6 @@ Set `REPORT=1` to print what the optimizer leaves alone in each build, and why.
 
 - `Label`, `Priority`, `FilterBar`, `ErrorBox`, and `IssueRow` inline. `IssueRow` has a signal, so it inlines into the `<For>` callback, and `Priority`'s `<Switch>` becomes a chain of ternaries.
 - The `<For>` over `FILTERS` unrolls into three buttons. `FILTERS` is written `as const`, which needs #48.
-- The three `<Show>`s with a callback child, like `{(user) => <Avatar user={user()} />}`, stay components. Each passes the narrowed value as an accessor, which a ternary cannot.
+- The three `<Show>`s with a callback child, like `{(user) => <Avatar user={user()} />}`, become ternaries whose body reads `when` again.
 - `Summary` and `IssueDetail` stay components. Each has statements and sits in a `<Loading>`, whose children have no function to hold them (`no-host`).
 - `Avatar` stays a component inside the `<Show>` callbacks, where a copy measures larger than the call.
