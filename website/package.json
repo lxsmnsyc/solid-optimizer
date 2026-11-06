@@ -6,6 +6,7 @@
     "build": "vite build",
     "dev": "vite",
     "preview": "vite preview",
+    "og": "node scripts/og.ts",
     "showcase": "node scripts/showcase.ts",
     "type-check": "tsc --noEmit"
   },
