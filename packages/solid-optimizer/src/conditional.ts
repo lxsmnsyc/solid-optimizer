@@ -1,20 +1,23 @@
 /**
- * `<Show>` lowering.
+ * `<Show>` and `<Switch>` lowering.
  *
  * Solid's JSX transform compiles `{when ? children : fallback}` to a memo of
  * `!!when` and a function that renders the branch it selects, which is what
  * `<Show>` does without a callback child or `keyed`. The ternary skips the
  * component call, the props object with its getters, and two of `<Show>`'s
  * three memos.
+ *
+ * A `<Switch>` becomes a chain, `a ? A : b ? B : fallback`. The transform
+ * gives each later condition its own memo, read only when the ones before it
+ * are falsy, as `<Switch>` reads its `<Match>` conditions.
  */
 import type { JSXAttribute, JSXChild, JSXElement, Node } from 'oxc-parser';
 import { forEachChild, isFunctionNode, isInsignificant, isIntrinsicTag, unwrap } from './ast';
 import type { PassContext } from './context';
 import { solidExport } from './context';
-import { findAttribute } from './jsx';
 
 /**
- * How a lowered `<Show>` is written where it stands.
+ * How a lowered `<Show>` or `<Switch>` is written where it stands.
  *
  * - `container`: `{when ? children : fallback}`. A child of an element is
  *   inserted, and a child of a fragment becomes a memo, so both track the
@@ -26,20 +29,25 @@ import { findAttribute } from './jsx';
 type Form = 'container' | 'fragment';
 
 /**
- * Rewrites each `<Show>` that can be lowered. A `<Show>` inside one that is
- * lowered stays for the next run, since both would edit the same text.
+ * Rewrites each `<Show>` and `<Switch>` that can be lowered. One inside
+ * another that is lowered stays for the next run, since both would edit the
+ * same text.
  */
-export function lowerShows(context: PassContext): boolean {
+export function lowerConditionals(context: PassContext): boolean {
   let changed = false;
   visit(context.program);
   return changed;
 
   function visit(node: Node): void {
-    if (node.type === 'JSXElement' && isShow(context, node)) {
-      const form = formAt(context, node);
-      const text = form === undefined ? undefined : lowered(context, node, form);
-      if (text !== undefined) {
-        context.s.overwrite(node.start, node.end, text);
+    if (node.type === 'JSXElement') {
+      const ternary = ternaryOf(context, node);
+      const form = ternary === undefined ? undefined : formAt(context, node);
+      if (ternary !== undefined && form !== undefined) {
+        context.s.overwrite(
+          node.start,
+          node.end,
+          form === 'container' ? `{${ternary}}` : `<>{${ternary}}</>`,
+        );
         changed = true;
         return;
       }
@@ -49,24 +57,72 @@ export function lowerShows(context: PassContext): boolean {
 }
 
 /**
- * Whether an element is Solid's own `<Show>`, by the name its tag resolves to.
+ * The Solid built-in an element's tag resolves to, by the name Solid exports it under.
  */
-function isShow(context: PassContext, element: JSXElement): boolean {
+function builtInOf(context: PassContext, element: JSXElement): string | undefined {
   const { name } = element.openingElement;
   if (name.type !== 'JSXIdentifier') {
-    return false;
+    return undefined;
   }
   const { references } = context.scopes;
   if (!references.has(name)) {
-    return false;
+    return undefined;
   }
   const binding = references.get(name);
   const identity = binding ? solidExport(binding, context.options) : name.name;
-  return identity === 'Show' && context.options.builtIns.has('Show');
+  return identity !== undefined && context.options.builtIns.has(identity) ? identity : undefined;
 }
 
 /**
- * How a `<Show>` at this position is written once lowered, or `undefined`
+ * The ternary a `<Show>` or `<Switch>` lowers to, or `undefined` when its
+ * props or children need the component.
+ */
+function ternaryOf(context: PassContext, element: JSXElement): string | undefined {
+  switch (builtInOf(context, element)) {
+    case 'Show': {
+      const branch = branchOf(context, element, ['when', 'fallback']);
+      if (branch === undefined) {
+        return undefined;
+      }
+      return `${branch.when} ? ${branch.children} : ${branch.fallback ?? 'undefined'}`;
+    }
+    case 'Switch':
+      return switchTernary(context, element);
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A `<Switch>` whose children are all `<Match>`es that lower, as a chain of ternaries.
+ */
+function switchTernary(context: PassContext, element: JSXElement): string | undefined {
+  const props = propsOf(context, element, ['fallback']);
+  if (props === undefined) {
+    return undefined;
+  }
+  let chain = '';
+  let count = 0;
+  for (const child of significantChildren(element.children)) {
+    if (child.type !== 'JSXElement' || builtInOf(context, child) !== 'Match') {
+      return undefined;
+    }
+    const branch = branchOf(context, child, ['when']);
+    if (branch === undefined) {
+      return undefined;
+    }
+    chain += `${branch.when} ? ${branch.children} : `;
+    count += 1;
+  }
+  // A `<Switch>` without a `<Match>` renders its fallback, which the fold pass resolves.
+  if (count === 0) {
+    return undefined;
+  }
+  return `${chain}${props.get('fallback') ?? 'undefined'}`;
+}
+
+/**
+ * How a `<Show>` or `<Switch>` at this position is written once lowered, or `undefined`
  * when the position is not supported.
  */
 function formAt(context: PassContext, element: JSXElement): Form | undefined {
@@ -123,27 +179,57 @@ function isSoleChild(children: readonly JSXChild[], element: JSXElement): boolea
 }
 
 /**
- * The text of a lowered `<Show>`, or `undefined` when its props or children
- * need the component.
+ * The text of each prop of an element, or `undefined` when it has a prop
+ * other than `names`, a spread, or a prop more than once. A repeated prop
+ * takes its last value, and a spread could hold any prop, such as `keyed`.
  */
-function lowered(context: PassContext, element: JSXElement, form: Form): string | undefined {
-  // Only `when` and `fallback` are supported, once each. `keyed` and spreads
-  // change what the children get, and a repeated prop takes its last value.
-  const seen = new Set<string>();
+function propsOf(
+  context: PassContext,
+  element: JSXElement,
+  names: readonly string[],
+): Map<string, string> | undefined {
+  const props = new Map<string, string>();
   for (const attribute of element.openingElement.attributes) {
     if (
       attribute.type !== 'JSXAttribute' ||
       attribute.name.type !== 'JSXIdentifier' ||
-      (attribute.name.name !== 'when' && attribute.name.name !== 'fallback') ||
-      seen.has(attribute.name.name)
+      !names.includes(attribute.name.name) ||
+      props.has(attribute.name.name)
     ) {
       return undefined;
     }
-    seen.add(attribute.name.name);
+    const text = expressionText(context, attribute);
+    if (text === undefined) {
+      return undefined;
+    }
+    props.set(attribute.name.name, text);
+  }
+  return props;
+}
+
+interface Branch {
+  readonly when: string;
+  readonly children: string;
+  readonly fallback: string | undefined;
+}
+
+/**
+ * The condition and children of a `<Show>` or `<Match>`, or `undefined` when
+ * the children could need the narrowed value.
+ */
+function branchOf(
+  context: PassContext,
+  element: JSXElement,
+  names: readonly string[],
+): Branch | undefined {
+  const props = propsOf(context, element, names);
+  const when = props?.get('when');
+  if (props === undefined || when === undefined) {
+    return undefined;
   }
   // A function child receives the narrowed value, which a ternary has no way
   // to pass. A sole child that could hold a function, like `{render}`, counts
-  // too. Several children are an array, which `<Show>` renders as it is.
+  // too. Several children are an array, which is rendered as it is.
   const significant = significantChildren(element.children);
   const sole = significant.length === 1 ? significant[0] : undefined;
   if (
@@ -163,21 +249,16 @@ function lowered(context: PassContext, element: JSXElement, form: Form): string 
     }
   }
 
-  const when = expressionText(context, findAttribute(element, 'when'));
-  const fallback = expressionText(context, findAttribute(element, 'fallback'));
-  if (when === undefined || when === null || fallback === undefined) {
-    return undefined;
-  }
-
   // The children become one fragment, which keeps JSX's own whitespace rules for them.
   const { closingElement } = element;
   const inner = closingElement
     ? context.s.slice(element.openingElement.end, closingElement.start)
     : '';
-  const children = significant.length > 0 ? `<>${inner}</>` : 'undefined';
-
-  const ternary = `${when} ? ${children} : ${fallback ?? 'undefined'}`;
-  return form === 'container' ? `{${ternary}}` : `<>{${ternary}}</>`;
+  return {
+    when,
+    children: significant.length > 0 ? `<>${inner}</>` : 'undefined',
+    fallback: props.get('fallback'),
+  };
 }
 
 /**
@@ -216,16 +297,10 @@ function significantChildren(children: readonly JSXChild[]): JSXChild[] {
 }
 
 /**
- * The text of an attribute's value as an expression: `null` when the
- * attribute is missing, `undefined` when its value is not supported.
+ * The text of an attribute's value as an expression, or `undefined` when the
+ * value is not supported.
  */
-function expressionText(
-  context: PassContext,
-  attribute: JSXAttribute | undefined,
-): string | null | undefined {
-  if (attribute === undefined) {
-    return null;
-  }
+function expressionText(context: PassContext, attribute: JSXAttribute): string | undefined {
   const { value } = attribute;
   if (value === null) {
     // A bare attribute is `true`. The fold pass resolves those.

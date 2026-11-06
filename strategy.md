@@ -320,9 +320,9 @@ The demo used to keep `Table` as a component, since two copies measured larger t
 - Runtime helpers the bundle would drop if every use went away.
 - How the copies change the way Rolldown splits chunks.
 
-## `<Show>` lowering
+## `<Show>` and `<Switch>` lowering
 
-Status: implemented in `packages/solid-optimizer/src/show.ts`.
+Status: implemented in `packages/solid-optimizer/src/conditional.ts`.
 
 A `<Show>` without a callback child or `keyed` becomes a ternary:
 
@@ -350,11 +350,30 @@ A `<Show>` stays when:
 - It has `keyed`, a spread, a prop other than `when` and `fallback`, a repeated prop, or a string `fallback`.
 - It is an attribute's value, or part of an expression in a JSX container.
 
-The pass runs once the other passes stop changing the code. Memo inlining reads `when` as a tracked place, and a ternary's condition is not one.
+### `<Switch>`
+
+A `<Switch>` whose children are all `<Match>`es that lower becomes a chain:
+
+```jsx
+<Switch fallback={<Home />}>
+  <Match when={page() === 'about'}><About /></Match>
+  <Match when={page() === 'settings'}><Settings /></Match>
+</Switch>
+// becomes
+<>{(page() === 'about') ? <><About /></> : (page() === 'settings') ? <><Settings /></> : (<Home />)}</>
+```
+
+Solid's `<Switch>` reads each `<Match>`'s `when` through two memos, only while every `<Match>` before it is falsy, and renders a branch again only when the selected `<Match>` changes. It also resolves its children with the `children()` helper. The chain does the same with one memo per condition. The JSX transform creates each later memo inside the function that renders the chain, so it is read only when the conditions before it are falsy.
+
+A `<Match>` follows the rules of a `<Show>` above, with `when` as its only prop. A `<Switch>` stays when any child is not a `<Match>` that lowers, or it has a prop other than `fallback`.
+
+### When it runs
+
+The pass runs once the other passes stop changing the code. Memo inlining reads `when` of `<Show>` and `<Match>` as a tracked place, and a ternary's condition is not one.
 
 ### Accepted differences
 
-- `<Show>` no longer takes a slot in the owner tree, so the hydration keys after it shift. A server build and its client build must compile with the same options.
+- `<Show>` and `<Switch>` no longer take a slot in the owner tree, so the hydration keys after it shift. A server build and its client build must compile with the same options.
 
 ### Results
 
@@ -367,6 +386,14 @@ Hacker News, with the fixtures in `examples/hackernews/fixtures`, counted in the
 | `/users/:id`   | 15 → 12         | 42 → 37      |
 
 Each route renders the same DOM. The size changes by 23 B or less gzipped in each build, since the router keeps `<Show>` in the runtime.
+
+The demo's two `<Switch>`es were the last users of `Switch`, `Match`, and `children()`, which leave its bundle. Against `<Show>` lowering alone, gzipped:
+
+| Build   | Before   | After    |
+| ------- | -------- | -------- |
+| default | 17.85 kB | 17.58 kB |
+| vendor  | 18.87 kB | 18.58 kB |
+| single  | 19.71 kB | 19.43 kB |
 
 ## Solid 1 catch-up
 

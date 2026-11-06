@@ -1,5 +1,5 @@
 /**
- * `<Show>` lowering: the JSX it writes, and that each app renders the same
+ * `<Show>` and `<Switch>` lowering: the JSX it writes, and that each app renders the same
  * with and without it at every step.
  */
 import { describe, expect, it } from 'vitest';
@@ -126,14 +126,63 @@ describe('the JSX it writes', () => {
   it('can be turned off', () => {
     const code =
       'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.a}><i /></Show></div>;';
-    expect(optimize(code, { shows: false })).toBe(code);
+    expect(optimize(code, { conditionals: false })).toBe(code);
+  });
+});
+
+const SWITCH = 'import { Match, Switch } from "solid-js";\n';
+
+describe('<Switch>', () => {
+  it('writes a chain of ternaries', () => {
+    expect(
+      lowered(
+        `${SWITCH}const view = (p) => <div><Switch fallback={<u />}><Match when={p.a}><i /></Match><Match when={p.b}>b</Match></Switch></div>;`,
+      ),
+    ).toBe(
+      `${SWITCH}const view = (p) => <div>{(p.a) ? <><i /></> : (p.b) ? <>b</> : (<u />)}</div>;`,
+    );
+  });
+
+  it('wraps the chain in a fragment outside an element', () => {
+    expect(
+      lowered(
+        `${SWITCH}function View(p) { return <Switch><Match when={p.a}><i /></Match></Switch>; }`,
+      ),
+    ).toBe(`${SWITCH}function View(p) { return <>{(p.a) ? <><i /></> : undefined}</>; }`);
+  });
+
+  it('compiles to memos and no component, on the client and the server', () => {
+    const jsx = lowered(
+      `${SWITCH}const view = (p) => <div><Switch fallback={<u />}><Match when={p.a}><i /></Match><Match when={p.b}><b /></Match></Switch></div>;`,
+    );
+    expect(lower(jsx)).not.toContain('createComponent');
+    expect(lower(jsx, 'ssr')).not.toContain('createComponent');
+  });
+
+  it.each([
+    [
+      'a callback child',
+      '<div><Switch><Match when={p.a}>{(a) => <i>{a()}</i>}</Match></Switch></div>',
+    ],
+    ['a keyed <Match>', '<div><Switch><Match when={p.a} keyed><i /></Match></Switch></div>'],
+    [
+      'a child that is not a <Match>',
+      '<div><Switch><Match when={p.a}><i /></Match>{p.b}</Switch></div>',
+    ],
+    [
+      'a prop other than fallback',
+      '<div><Switch name="x"><Match when={p.a}><i /></Match></Switch></div>',
+    ],
+  ])('keeps <Switch> with %s', (_, jsx) => {
+    const code = `${SWITCH}const view = (p) => ${jsx};`;
+    expect(lowered(code)).toBe(code);
   });
 });
 
 function app(body: string): Record<string, string> {
   return {
     'main.tsx': `import { render } from '@solidjs/web';
-import { For, Show, createSignal } from 'solid-js';
+import { For, Match, Show, Switch, createSignal } from 'solid-js';
 ${body}
 render(() => <App />, document.getElementById('app')!);
 `,
@@ -258,5 +307,34 @@ function App() {
       ['#open', '#flip', '#open', '#flip'],
     );
     expect(code).not.toMatch(/createComponent\(Show/);
+  });
+
+  it('renders the first <Match> that holds, and keeps it while it does', async () => {
+    // The counter inside would reset if the branch were made again.
+    const code = await expectSameBehavior(
+      'switch-chain',
+      app(`function Counter() {
+  const [count, setCount] = createSignal(0);
+  return <button id="inner" onClick={() => setCount(count() + 1)}>{count()}</button>;
+}
+function App() {
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <button id="next" onClick={() => setN((n() + 1) % 4)}>{n()}</button>
+      <Switch fallback={<p>none</p>}>
+        <Match when={n() > 0 && n() < 3}>
+          <Counter />
+        </Match>
+        <Match when={n() > 0}>
+          <p>three</p>
+        </Match>
+      </Switch>
+    </main>
+  );
+}`),
+      ['#next', '#inner', '#next', '#inner', '#next', '#next', '#next'],
+    );
+    expect(code).not.toMatch(/createComponent\((Switch|Match)/);
   });
 });
