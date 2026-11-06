@@ -10,7 +10,7 @@ The app is the tracker's layout with its 40 issues read at once instead of loade
 
 | Count             | Plain | Optimized | Change        |
 | ----------------- | ----- | --------- | ------------- |
-| Script (gzip, B)  | 18867 | 17638     | −1229 (−6.5%) |
+| Script (gzip, B)  | 18867 | 17645     | −1222 (−6.5%) |
 | Templates created | 13    | 12        | −1 (−7.7%)    |
 | Templates cloned  | 191   | 190       | −1 (−0.5%)    |
 | Elements          | 317   | 317       | 0             |
@@ -22,7 +22,7 @@ The app is the tracker's layout with its 40 issues read at once instead of loade
 | Count                  | Plain | Optimized | Change      |
 | ---------------------- | ----- | --------- | ----------- |
 | HTML (B)               | 16734 | 16712     | −22 (−0.1%) |
-| HTML (gzip, B)         | 1632  | 1625      | −7 (−0.4%)  |
+| HTML (gzip, B)         | 1632  | 1624      | −8 (−0.5%)  |
 | Hydration keys (`_hk`) | 191   | 190       | −1 (−0.5%)  |
 | Comment markers        | 404   | 402       | −2 (−0.5%)  |
 
@@ -30,18 +30,18 @@ The app is the tracker's layout with its 40 issues read at once instead of loade
 
 | Count                | Plain | Optimized | Change       |
 | -------------------- | ----- | --------- | ------------ |
-| Script (gzip, B)     | 25363 | 24895     | −468 (−1.8%) |
+| Script (gzip, B)     | 25363 | 24909     | −454 (−1.8%) |
 | Nodes created        | 25    | 25        | 0            |
 | Server nodes removed | 0     | 0         | 0            |
 | Templates cloned     | 0     | 0         | 0            |
 
 ## Timings
 
-| Timing                               | Plain    | Optimized | Change           | Noise  | Real |
-| ------------------------------------ | -------- | --------- | ---------------- | ------ | ---- |
-| First client render, fresh page (µs) | 4720.0   | 4060.0    | −660.0 (−14.0%)  | ±60.0  | yes  |
-| Client render, warm (µs)             | 474.0    | 319.8     | −154.2 (−32.5%)  | ±15.8  | yes  |
-| Dispose, warm (µs)                   | 38.0     | 27.9      | −10.1 (−26.5%)   | ±1.4   | yes  |
-| Heap held by one mounted app (B)     | 427110.0 | 276480.0  | −150630 (−35.3%) | ±28.5  | yes  |
-| Hydration, fresh page (µs)           | 6840.0   | 5400.0    | −1440.0 (−21.1%) | ±315.0 | yes  |
-| `renderToString`, warm (µs)          | 163.6    | 91.6      | −72.0 (−44.0%)   | ±4.9   | yes  |
+| Timing                               | Plain    | Optimized | Change             | Noise  | Real |
+| ------------------------------------ | -------- | --------- | ------------------ | ------ | ---- |
+| First client render, fresh page (µs) | 4990.0   | 4090.0    | −900.0 (−18.0%)    | ±90.0  | yes  |
+| Client render, warm (µs)             | 449.6    | 314.0     | −135.7 (−30.2%)    | ±9.9   | yes  |
+| Dispose, warm (µs)                   | 36.5     | 25.2      | −11.3 (−30.9%)     | ±0.6   | yes  |
+| Heap held by one mounted app (B)     | 427083.7 | 246781.3  | −180302.4 (−42.2%) | ±31.8  | yes  |
+| Hydration, fresh page (µs)           | 7285.0   | 5630.0    | −1655.0 (−22.7%)   | ±300.0 | yes  |
+| `renderToString`, warm (µs)          | 185.9    | 96.7      | −89.2 (−48.0%)     | ±12.0  | yes  |
