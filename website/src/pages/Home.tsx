@@ -1,65 +1,9 @@
 import type { JSX } from '@solidjs/web';
 import { For } from 'solid-js';
-import { Benchmarks } from './components/Benchmarks';
-import { Code, CopyButton } from './components/Code';
-import { Repl } from './components/Repl';
-
-const REPOSITORY = 'https://github.com/lxsmnsyc/solid-optimizer';
-const NPM = 'https://www.npmjs.com/package/solid-optimizer';
-const INSTALL = 'npm i -D solid-optimizer@next';
-
-function Mark(): JSX.Element {
-  return (
-    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="mark-gradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#76b3e1" />
-          <stop offset="1" stop-color="#2c4f7c" />
-        </linearGradient>
-      </defs>
-      <path d="M6 7h20l-5 5H6z" fill="#446b9e" />
-      <path d="M6 14h20l-5 5H6z" fill="#4f88c6" />
-      <path d="M6 21h20l-5 5H6z" fill="url(#mark-gradient)" />
-    </svg>
-  );
-}
-
-function GitHubIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" class="icon">
-      <path
-        fill="currentColor"
-        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
-      />
-    </svg>
-  );
-}
-
-function Header(): JSX.Element {
-  return (
-    <header class="nav">
-      <a class="brand" href="#top">
-        <Mark />
-        <span>solid-optimizer</span>
-      </a>
-      <nav class="nav-links">
-        <a href="#repl">REPL</a>
-        <a href="#passes">Passes</a>
-        <a href="#benchmarks">Benchmarks</a>
-        <a href="#usage">Usage</a>
-        <a
-          class="nav-icon"
-          href={REPOSITORY}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="GitHub"
-        >
-          <GitHubIcon />
-        </a>
-      </nav>
-    </header>
-  );
-}
+import { Benchmarks } from '../components/Benchmarks';
+import { Code, CopyButton } from '../components/Code';
+import { Footer, Header, INSTALL, NPM } from '../components/Layout';
+import { Showcase } from '../components/Showcase';
 
 /** Five templates fold into one, the result of the Components preset. */
 function TemplateStack(): JSX.Element {
@@ -116,7 +60,10 @@ function Hero(): JSX.Element {
         control flow before Solid's JSX transform runs. More markup lands in fewer templates.
       </p>
       <div class="hero-actions">
-        <a class="button primary" href="#repl">
+        <a class="button primary" href="/docs/">
+          Get started
+        </a>
+        <a class="button secondary" href="/repl/">
           Open the REPL
         </a>
         <div class="install">
@@ -232,6 +179,10 @@ function Usage(): JSX.Element {
       <h2 class="section-title">
         Drop-in for <span class="gradient-text">Vite</span>
       </h2>
+      <p class="section-lede">
+        One import changes. The plugin wraps @solidjs/vite-plugin, so SSR, server functions, and HMR
+        keep working.
+      </p>
       <div class="usage">
         <div class="window">
           <div class="window-bar">
@@ -248,41 +199,52 @@ function Usage(): JSX.Element {
           <Code code={API_USAGE} />
         </div>
       </div>
+      <div class="section-links">
+        <a href="/docs/#vite-options">Vite plugin options</a>
+        <a href="/docs/#compile-options">compile options</a>
+        <a href="/docs/#report">Why a component stays</a>
+      </div>
     </section>
   );
 }
 
-function Footer(): JSX.Element {
+function Closing(): JSX.Element {
   return (
-    <footer class="footer">
-      <a class="brand" href="#top">
-        <Mark />
-        <span>solid-optimizer</span>
-      </a>
-      <span>MIT © lxsmnsyc</span>
-      <nav>
-        <a href={REPOSITORY} target="_blank" rel="noopener noreferrer">
-          GitHub
+    <section class="section closing">
+      <h2 class="section-title">
+        Try it on <span class="gradient-text">your components</span>
+      </h2>
+      <p class="section-lede">
+        The REPL runs solid-optimizer and Solid’s JSX transform in your browser, as WebAssembly.
+        Paste a few modules and compare the output, the templates, and the size.
+      </p>
+      <div class="hero-actions">
+        <a class="button primary" href="/repl/">
+          Open the REPL
         </a>
-        <a href={NPM} target="_blank" rel="noopener noreferrer">
-          npm
+        <a class="button secondary" href="/docs/">
+          Read the docs
         </a>
-      </nav>
-    </footer>
+      </div>
+    </section>
   );
 }
 
-export function App(): JSX.Element {
+export function Home(): JSX.Element {
   return (
     <>
-      <Header />
+      <Header page="home" />
       <main>
         <Hero />
-        <section class="section repl-section" id="repl">
+        <section class="section" id="build">
           <h2 class="section-title">
-            Watch it <span class="gradient-text">compile</span>
+            What changes <span class="gradient-text">in the build</span>
           </h2>
-          <Repl />
+          <p class="section-lede">
+            Six small apps, compiled by Solid’s JSX transform alone and with solid-optimizer first.
+            Pick one to compare the JSX, the client code, and the HTML the server sends.
+          </p>
+          <Showcase />
         </section>
         <Passes />
         <section class="section" id="benchmarks">
@@ -292,6 +254,7 @@ export function App(): JSX.Element {
           <Benchmarks />
         </section>
         <Usage />
+        <Closing />
       </main>
       <Footer />
     </>

@@ -1,9 +1,11 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import solid from 'solid-optimizer/vite';
 import { defineConfig } from 'vite';
 
 const require = createRequire(import.meta.url);
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
 // The REPL runs both compilers as WebAssembly with threads, which needs
 // SharedArrayBuffer, and so a cross-origin isolated page.
@@ -37,6 +39,14 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
+    // Each page is its own entry, so the landing page and the docs never load the REPL.
+    rolldownOptions: {
+      input: {
+        home: path.join(ROOT, 'index.html'),
+        repl: path.join(ROOT, 'repl/index.html'),
+        docs: path.join(ROOT, 'docs/index.html'),
+      },
+    },
     // The compilers are large, but only the REPL worker loads them.
     chunkSizeWarningLimit: 1200,
   },

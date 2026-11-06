@@ -1,0 +1,176 @@
+[
+  {
+    "id": "components",
+    "title": "Small components",
+    "summary": "Three components and a debug branch fold into the page that uses them.",
+    "source": "import { Show, createSignal } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nconst DEBUG = false;\n\nfunction Icon(props: { name: string }) {\n  return <span class={`icon icon-${props.name}`} />;\n}\n\nfunction Button(props: { icon: string; onClick: () => void; children: JSX.Element }) {\n  return (\n    <button type=\"button\" onClick={props.onClick}>\n      <Icon name={props.icon} />\n      {props.children}\n    </button>\n  );\n}\n\nfunction Counter(props: { label: string; start: number }) {\n  const [count, setCount] = createSignal(props.start);\n  return (\n    <p class=\"counter\">\n      {props.label}: {count()}{' '}\n      <Button icon=\"plus\" onClick={() => setCount(count() + 1)}>\n        Add\n      </Button>\n    </p>\n  );\n}\n\nexport function App() {\n  return (\n    <main>\n      <h1>Hello</h1>\n      <Show when={DEBUG}>\n        <pre>debug panel</pre>\n      </Show>\n      <Counter label=\"Clicks\" start={0} />\n    </main>\n  );\n}\n",
+    "optimized": "import { Show, createSignal } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nconst DEBUG = false;\n\nexport function App() {\n  const [count$1, setCount$1] = createSignal(0);\n  return (\n    <main>\n      <h1>Hello</h1>\n\n      <p class=\"counter\">\n        {'Clicks'}: {count$1()}{' '}\n        <button type=\"button\" onClick={() => setCount$1(count$1() + 1)}>\n          <span class={'icon icon-plus'} />\n          {}\n          Add\n          {}\n        </button>\n      </p>\n    </main>\n  );\n}\n",
+    "plain": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { getNextMarker as _$getNextMarker } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { scope as _$scope } from '@solidjs/web';\nimport { createComponent as _$createComponent } from '@solidjs/web';\nimport { className as _$className } from '@solidjs/web';\nimport { effect as _$effect } from '@solidjs/web';\nimport { addEvent as _$addEvent } from '@solidjs/web';\nimport { delegateEvents as _$delegateEvents } from '@solidjs/web';\nimport { runHydrationEvents as _$runHydrationEvents } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<span>`);\nvar _tmpl$2 = /* @__PURE__ */ _$template(\n  `<button type=button><!$><!/><!$><!/>`,\n);\nvar _tmpl$3 = /* @__PURE__ */ _$template(\n  `<p class=counter><!$><!/>: <!$><!/> <!$><!/>`,\n);\nvar _tmpl$4 = /* @__PURE__ */ _$template(`<pre>debug panel`);\nvar _tmpl$5 = /* @__PURE__ */ _$template(\n  `<main><h1>Hello</h1><!$><!/><!$><!/>`,\n);\nimport { Show, createSignal } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nconst DEBUG = false;\nfunction Icon(props: { name: string }) {\n  var _el$ = _$getNextElement(_tmpl$);\n  _$effect(\n    () => `icon icon-${props.name}`,\n    (_v$, _$p) => {\n      _$className(_el$, _v$, _$p);\n    },\n  );\n  return _el$;\n}\nfunction Button(props: {\n  icon: string;\n  onClick: () => void;\n  children: JSX.Element;\n}) {\n  var _el$2 = _$getNextElement(_tmpl$2);\n  var _el$3 = _el$2.firstChild;\n  var [_el$4, _el$5] = _$getNextMarker(_el$3.nextSibling);\n  var _el$6 = _el$4.nextSibling;\n  var [_el$7, _el$8] = _$getNextMarker(_el$6.nextSibling);\n  _$addEvent(_el$2, 'click', props.onClick, true);\n  _$insert(\n    _el$2,\n    _$createComponent(Icon, {\n      get name() {\n        return props.icon;\n      },\n    }),\n    _el$4,\n    _el$5,\n  );\n  _$insert(\n    _el$2,\n    _$scope(() => {\n      return props.children;\n    }),\n    _el$7,\n    _el$8,\n  );\n  _$runHydrationEvents();\n  return _el$2;\n}\nfunction Counter(props: { label: string; start: number }) {\n  const [count, setCount] = createSignal(props.start);\n  var _el$9 = _$getNextElement(_tmpl$3);\n  var _el$10 = _el$9.firstChild;\n  var [_el$11, _el$12] = _$getNextMarker(_el$10.nextSibling);\n  var _el$13 = _el$11.nextSibling;\n  var _el$14 = _el$13.nextSibling;\n  var [_el$15, _el$16] = _$getNextMarker(_el$14.nextSibling);\n  var _el$17 = _el$15.nextSibling;\n  var _el$18 = _el$17.nextSibling;\n  var [_el$19, _el$20] = _$getNextMarker(_el$18.nextSibling);\n  _$insert(\n    _el$9,\n    _$scope(() => {\n      return props.label;\n    }),\n    _el$11,\n    _el$12,\n  );\n  _$insert(\n    _el$9,\n    _$scope(() => {\n      return count();\n    }),\n    _el$15,\n    _el$16,\n  );\n  _$insert(\n    _el$9,\n    _$createComponent(Button, {\n      icon: 'plus',\n      onClick: () => setCount(count() + 1),\n      children: 'Add',\n    }),\n    _el$19,\n    _el$20,\n  );\n  return _el$9;\n}\nexport function App() {\n  var _el$21 = _$getNextElement(_tmpl$5);\n  var _el$22 = _el$21.firstChild;\n  var _el$24 = _el$22.nextSibling;\n  var [_el$25, _el$26] = _$getNextMarker(_el$24.nextSibling);\n  var _el$27 = _el$25.nextSibling;\n  var [_el$28, _el$29] = _$getNextMarker(_el$27.nextSibling);\n  _$insert(\n    _el$21,\n    _$createComponent(Show, {\n      when: DEBUG,\n      get children() {\n        return _$getNextElement(_tmpl$4);\n      },\n    }),\n    _el$25,\n    _el$26,\n  );\n  _$insert(\n    _el$21,\n    _$createComponent(Counter, {\n      label: 'Clicks',\n      start: 0,\n    }),\n    _el$28,\n    _el$29,\n  );\n  return _el$21;\n}\n_$delegateEvents(['click']);\n",
+      "html": "<main _hk=0>\n  <h1>Hello</h1>\n  <!--$--><!--/--><!--$-->\n  <p _hk=4 class=\"counter\">\n    <!--$-->Clicks<!--/-->: <!--$-->0<!--/--> <!--$-->\n    <button _hk=7 type=\"button\">\n      <!--$-->\n      <span _hk=8 class=\"icon icon-plus\"></span>\n      <!--/--><!--$-->Add<!--/-->\n    </button>\n    <!--/-->\n  </p>\n  <!--/-->\n</main>",
+      "templates": 5,
+      "components": 4,
+      "memos": 0,
+      "hydrationKeys": 4,
+      "markers": 14,
+      "bytes": 3299,
+      "gzip": 988
+    },
+    "after": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { getNextMarker as _$getNextMarker } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { scope as _$scope } from '@solidjs/web';\nimport { delegateEvents as _$delegateEvents } from '@solidjs/web';\nimport { runHydrationEvents as _$runHydrationEvents } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(\n  `<main><h1>Hello</h1><p class=counter>Clicks: <!$><!/> <button type=button><span class=\"icon icon-plus\"></span>Add`,\n);\nimport { Show, createSignal } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nconst DEBUG = false;\nexport function App() {\n  const [count$1, setCount$1] = createSignal(0);\n  var _el$ = _$getNextElement(_tmpl$);\n  var _el$2 = _el$.firstChild;\n  var _el$3 = _el$2.nextSibling;\n  var _el$4 = _el$3.firstChild;\n  var _el$5 = _el$4.nextSibling;\n  var [_el$6, _el$7] = _$getNextMarker(_el$5.nextSibling);\n  var _el$8 = _el$6.nextSibling;\n  var _el$9 = _el$8.nextSibling;\n  _$insert(\n    _el$3,\n    _$scope(() => {\n      return count$1();\n    }),\n    _el$6,\n    _el$7,\n  );\n  _el$9._$$click = () => setCount$1(count$1() + 1);\n  _$runHydrationEvents();\n  return _el$;\n}\n_$delegateEvents(['click']);\n",
+      "html": "<main _hk=0>\n  <h1>Hello</h1>\n  <p class=\"counter\">\n    Clicks: <!--$-->0<!--/-->\n    <button type=\"button\">\n      <span class=\"icon icon-plus\"></span>\n      Add\n    </button>\n  </p>\n</main>",
+      "templates": 1,
+      "components": 0,
+      "memos": 0,
+      "hydrationKeys": 1,
+      "markers": 2,
+      "bytes": 1247,
+      "gzip": 527
+    }
+  },
+  {
+    "id": "context",
+    "title": "Context providers",
+    "summary": "A provider whose readers are all visible is removed, with its owner.",
+    "source": "import { createContext, useContext } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nconst Theme = createContext<string>();\n\nfunction Card(props: { title: string; children: JSX.Element }) {\n  const theme = useContext(Theme);\n  return (\n    <article class={`card card-${theme}`}>\n      <h2>{props.title}</h2>\n      <p>{props.children}</p>\n    </article>\n  );\n}\n\nfunction Badge(props: { children: JSX.Element }) {\n  const theme = useContext(Theme);\n  return <span class={`badge badge-${theme}`}>{props.children}</span>;\n}\n\nexport function App() {\n  return (\n    <Theme value=\"dark\">\n      <Card title=\"Releases\">\n        <Badge>new</Badge> Every read of the theme got its value.\n      </Card>\n    </Theme>\n  );\n}\n",
+    "optimized": "import { createContext, useContext } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nconst Theme = /* @__PURE__ */ createContext<string>();\n\nexport function App() {\n  const theme$1 = 'dark';\n  const theme$2 = 'dark';\n  return (\n    <>\n      <article class={'card card-dark'}>\n        <h2>{'Releases'}</h2>\n        <p>\n          <span class={'badge badge-dark'}>new</span> Every read of the theme\n          got its value.\n        </p>\n      </article>\n    </>\n  );\n}\n",
+    "plain": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { scope as _$scope } from '@solidjs/web';\nimport { createComponent as _$createComponent } from '@solidjs/web';\nimport { className as _$className } from '@solidjs/web';\nimport { effect as _$effect } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<article><h2></h2><p>`);\nvar _tmpl$2 = /* @__PURE__ */ _$template(`<span>`);\nimport { createContext, useContext } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nconst Theme = createContext<string>();\nfunction Card(props: { title: string; children: JSX.Element }) {\n  const theme = useContext(Theme);\n  var _el$ = _$getNextElement(_tmpl$);\n  var _el$2 = _el$.firstChild;\n  var _el$3 = _el$2.nextSibling;\n  _$insert(\n    _el$2,\n    _$scope(() => {\n      return props.title;\n    }),\n  );\n  _$insert(\n    _el$3,\n    _$scope(() => {\n      return props.children;\n    }),\n  );\n  _$effect(\n    () => `card card-${theme}`,\n    (_v$, _$p) => {\n      _$className(_el$, _v$, _$p);\n    },\n  );\n  return _el$;\n}\nfunction Badge(props: { children: JSX.Element }) {\n  const theme = useContext(Theme);\n  var _el$4 = _$getNextElement(_tmpl$2);\n  _$insert(\n    _el$4,\n    _$scope(() => {\n      return props.children;\n    }),\n  );\n  _$effect(\n    () => `badge badge-${theme}`,\n    (_v$, _$p) => {\n      _$className(_el$4, _v$, _$p);\n    },\n  );\n  return _el$4;\n}\nexport function App() {\n  return _$createComponent(Theme, {\n    value: 'dark',\n    get children() {\n      return _$createComponent(Card, {\n        title: 'Releases',\n        get children() {\n          return [\n            _$createComponent(Badge, { children: 'new' }),\n            ' Every read of the theme got its value.',\n          ];\n        },\n      });\n    },\n  });\n}\n",
+      "html": "<article _hk=000 class=\"card card-dark\">\n  <h2>Releases</h2>\n  <p>\n    <span _hk=0020 class=\"badge badge-dark\">new</span>\n    Every read of the theme got its value.\n  </p>\n</article>",
+      "templates": 2,
+      "components": 3,
+      "memos": 0,
+      "hydrationKeys": 2,
+      "markers": 0,
+      "bytes": 1688,
+      "gzip": 592
+    },
+    "after": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(\n  `<article class=\"card card-dark\"><h2>Releases</h2><p><span class=\"badge badge-dark\">new</span> Every read of the theme got its value.`,\n);\nimport { createContext, useContext } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nconst Theme = /* @__PURE__ */ createContext<string>();\nexport function App() {\n  const theme$1 = 'dark';\n  const theme$2 = 'dark';\n  return _$getNextElement(_tmpl$);\n}\n",
+      "html": "<article _hk=0 class=\"card card-dark\">\n  <h2>Releases</h2>\n  <p>\n    <span class=\"badge badge-dark\">new</span>\n    Every read of the theme got its value.\n  </p>\n</article>",
+      "templates": 1,
+      "components": 0,
+      "memos": 0,
+      "hydrationKeys": 1,
+      "markers": 0,
+      "bytes": 559,
+      "gzip": 319
+    }
+  },
+  {
+    "id": "lists",
+    "title": "Constant lists",
+    "summary": "A <For> over a constant array becomes one row per item, in one template.",
+    "source": "import { For } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nconst LINKS = [\n  { href: '/', label: 'Home' },\n  { href: '/docs', label: 'Docs' },\n  { href: '/repl', label: 'REPL' },\n  { href: '/blog', label: 'Blog' },\n];\n\nfunction NavLink(props: { href: string; children: JSX.Element }) {\n  return (\n    <li>\n      <a class=\"nav-link\" href={props.href}>\n        {props.children}\n      </a>\n    </li>\n  );\n}\n\nexport function App() {\n  return (\n    <nav>\n      <ul>\n        <For each={LINKS}>\n          {(link) => <NavLink href={link.href}>{link.label}</NavLink>}\n        </For>\n      </ul>\n    </nav>\n  );\n}\n",
+    "optimized": "import { For } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nconst LINKS = [\n  { href: '/', label: 'Home' },\n  { href: '/docs', label: 'Docs' },\n  { href: '/repl', label: 'REPL' },\n  { href: '/blog', label: 'Blog' },\n];\n\nexport function App() {\n  return (\n    <nav>\n      <ul>\n        <li>\n          <a class=\"nav-link\" href={'/'}>\n            {'Home'}\n          </a>\n        </li>\n        <li>\n          <a class=\"nav-link\" href={'/docs'}>\n            {'Docs'}\n          </a>\n        </li>\n        <li>\n          <a class=\"nav-link\" href={'/repl'}>\n            {'REPL'}\n          </a>\n        </li>\n        <li>\n          <a class=\"nav-link\" href={'/blog'}>\n            {'Blog'}\n          </a>\n        </li>\n      </ul>\n    </nav>\n  );\n}\n",
+    "plain": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { getOwner as _$getOwner } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { scope as _$scope } from '@solidjs/web';\nimport { createComponent as _$createComponent } from '@solidjs/web';\nimport { effect as _$effect } from '@solidjs/web';\nimport { setAttribute as _$setAttribute } from '@solidjs/web';\nimport { claimElement as _$claimElement } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<li><a class=nav-link>`);\nvar _tmpl$2 = /* @__PURE__ */ _$template(`<nav><ul>`);\nimport { For } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nconst LINKS = [\n  {\n    href: '/',\n    label: 'Home',\n  },\n  {\n    href: '/docs',\n    label: 'Docs',\n  },\n  {\n    href: '/repl',\n    label: 'REPL',\n  },\n  {\n    href: '/blog',\n    label: 'Blog',\n  },\n];\nfunction NavLink(props: { href: string; children: JSX.Element }) {\n  var _el$ = _$getNextElement(_tmpl$);\n  var _el$2 = _el$.firstChild;\n  var _o$ = _$getOwner();\n  _$insert(\n    _el$2,\n    _$scope(() => {\n      return props.children;\n    }),\n  );\n  _$effect(\n    () => props.href,\n    (_v$) => {\n      _$setAttribute(_el$2, 'href', _v$);\n      _$claimElement(_el$2, _o$);\n    },\n  );\n  return _el$;\n}\nexport function App() {\n  var _el$3 = _$getNextElement(_tmpl$2);\n  var _el$4 = _el$3.firstChild;\n  _$insert(\n    _el$4,\n    _$createComponent(For, {\n      each: LINKS,\n      children: (link) =>\n        _$createComponent(NavLink, {\n          get href() {\n            return link.href;\n          },\n          get children() {\n            return link.label;\n          },\n        }),\n    }),\n  );\n  return _el$3;\n}\n",
+      "html": "<nav _hk=0>\n  <ul>\n    <li _hk=100>\n      <a class=\"nav-link\" href=\"/\">Home</a>\n    </li>\n    <li _hk=110>\n      <a class=\"nav-link\" href=\"/docs\">Docs</a>\n    </li>\n    <li _hk=120>\n      <a class=\"nav-link\" href=\"/repl\">REPL</a>\n    </li>\n    <li _hk=130>\n      <a class=\"nav-link\" href=\"/blog\">Blog</a>\n    </li>\n  </ul>\n</nav>",
+      "templates": 2,
+      "components": 2,
+      "memos": 0,
+      "hydrationKeys": 5,
+      "markers": 0,
+      "bytes": 1570,
+      "gzip": 590
+    },
+    "after": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { claimElement as _$claimElement } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(\n  `<nav><ul><li><a class=nav-link href=/>Home</a></li><li><a class=nav-link href=/docs>Docs</a></li><li><a class=nav-link href=/repl>REPL</a></li><li><a class=nav-link href=/blog>Blog`,\n);\nimport { For } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nconst LINKS = [\n  {\n    href: '/',\n    label: 'Home',\n  },\n  {\n    href: '/docs',\n    label: 'Docs',\n  },\n  {\n    href: '/repl',\n    label: 'REPL',\n  },\n  {\n    href: '/blog',\n    label: 'Blog',\n  },\n];\nexport function App() {\n  var _el$ = _$getNextElement(_tmpl$);\n  var _el$2 = _el$.firstChild;\n  var _el$3 = _el$2.firstChild;\n  var _el$4 = _el$3.firstChild;\n  var _el$5 = _el$3.nextSibling;\n  var _el$6 = _el$5.firstChild;\n  var _el$7 = _el$5.nextSibling;\n  var _el$8 = _el$7.firstChild;\n  var _el$9 = _el$7.nextSibling;\n  var _el$10 = _el$9.firstChild;\n  _$claimElement(_el$4);\n  _$claimElement(_el$6);\n  _$claimElement(_el$8);\n  _$claimElement(_el$10);\n  return _el$;\n}\n",
+      "html": "<nav _hk=0>\n  <ul>\n    <li>\n      <a class=\"nav-link\" href=\"/\">Home</a>\n    </li>\n    <li>\n      <a class=\"nav-link\" href=\"/docs\">Docs</a>\n    </li>\n    <li>\n      <a class=\"nav-link\" href=\"/repl\">REPL</a>\n    </li>\n    <li>\n      <a class=\"nav-link\" href=\"/blog\">Blog</a>\n    </li>\n  </ul>\n</nav>",
+      "templates": 1,
+      "components": 0,
+      "memos": 0,
+      "hydrationKeys": 1,
+      "markers": 0,
+      "bytes": 1114,
+      "gzip": 427
+    }
+  },
+  {
+    "id": "flags",
+    "title": "Build-time flags",
+    "summary": "<Switch>, <Show> and <Dynamic> resolve when their props are constants.",
+    "source": "import { Match, Show, Switch } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';\n\nconst LAYOUT = 'compact';\nconst HEADING = 'h2';\nconst BANNER = true;\n\nexport function App() {\n  return (\n    <section>\n      <Show when={BANNER} fallback={<p>No news</p>}>\n        <p class=\"banner\">Version 2 is out</p>\n      </Show>\n      <Dynamic component={HEADING}>Settings</Dynamic>\n      <Switch fallback={<p>Unknown layout</p>}>\n        <Match when={LAYOUT === 'wide'}>\n          <div class=\"grid wide\">wide</div>\n        </Match>\n        <Match when={LAYOUT === 'compact'}>\n          <div class=\"grid compact\">compact</div>\n        </Match>\n      </Switch>\n    </section>\n  );\n}\n",
+    "optimized": "import { Match, Show, Switch } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';\n\nconst LAYOUT = 'compact';\nconst HEADING = 'h2';\nconst BANNER = true;\n\nexport function App() {\n  return (\n    <section>\n      <p class=\"banner\">Version 2 is out</p>\n\n      <h2>Settings</h2>\n\n      <div class=\"grid compact\">compact</div>\n    </section>\n  );\n}\n",
+    "plain": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { getNextMarker as _$getNextMarker } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { createComponent as _$createComponent } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<p class=banner>Version 2 is out`);\nvar _tmpl$2 = /* @__PURE__ */ _$template(`<div class=\"grid wide\">wide`);\nvar _tmpl$3 = /* @__PURE__ */ _$template(`<div class=\"grid compact\">compact`);\nvar _tmpl$4 = /* @__PURE__ */ _$template(`<section><!$><!/><!$><!/><!$><!/>`);\nvar _tmpl$5 = /* @__PURE__ */ _$template(`<p>No news`);\nvar _tmpl$6 = /* @__PURE__ */ _$template(`<p>Unknown layout`);\nimport { Match, Show, Switch } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';\nconst LAYOUT = 'compact';\nconst HEADING = 'h2';\nconst BANNER = true;\nexport function App() {\n  var _el$ = _$getNextElement(_tmpl$4);\n  var _el$3 = _el$.firstChild;\n  var [_el$4, _el$5] = _$getNextMarker(_el$3.nextSibling);\n  var _el$6 = _el$4.nextSibling;\n  var [_el$7, _el$8] = _$getNextMarker(_el$6.nextSibling);\n  var _el$11 = _el$7.nextSibling;\n  var [_el$12, _el$13] = _$getNextMarker(_el$11.nextSibling);\n  _$insert(\n    _el$,\n    _$createComponent(Show, {\n      when: BANNER,\n      get fallback() {\n        return _$getNextElement(_tmpl$5);\n      },\n      get children() {\n        return _$getNextElement(_tmpl$);\n      },\n    }),\n    _el$4,\n    _el$5,\n  );\n  _$insert(\n    _el$,\n    _$createComponent(Dynamic, {\n      component: HEADING,\n      children: 'Settings',\n    }),\n    _el$7,\n    _el$8,\n  );\n  _$insert(\n    _el$,\n    _$createComponent(Switch, {\n      get fallback() {\n        return _$getNextElement(_tmpl$6);\n      },\n      get children() {\n        return [\n          _$createComponent(Match, {\n            when: LAYOUT === 'wide',\n            get children() {\n              return _$getNextElement(_tmpl$2);\n            },\n          }),\n          _$createComponent(Match, {\n            when: LAYOUT === 'compact',\n            get children() {\n              return _$getNextElement(_tmpl$3);\n            },\n          }),\n        ];\n      },\n    }),\n    _el$12,\n    _el$13,\n  );\n  return _el$;\n}\n",
+      "html": "<section _hk=0>\n  <!--$-->\n  <p _hk=30 class=\"banner\">Version 2 is out</p>\n  <!--/--><!--$-->\n  <h2 _hk=60>Settings</h2>\n  <!--/--><!--$-->\n  <div _hk=a0 class=\"grid compact\">compact</div>\n  <!--/-->\n</section>",
+      "templates": 6,
+      "components": 5,
+      "memos": 0,
+      "hydrationKeys": 4,
+      "markers": 6,
+      "bytes": 1973,
+      "gzip": 624
+    },
+    "after": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(\n  `<section><p class=banner>Version 2 is out</p><h2>Settings</h2><div class=\"grid compact\">compact`,\n);\nimport { Match, Show, Switch } from 'solid-js';\nimport { Dynamic } from '@solidjs/web';\nconst LAYOUT = 'compact';\nconst HEADING = 'h2';\nconst BANNER = true;\nexport function App() {\n  return _$getNextElement(_tmpl$);\n}\n",
+      "html": "<section _hk=0>\n  <p class=\"banner\">Version 2 is out</p>\n  <h2>Settings</h2>\n  <div class=\"grid compact\">compact</div>\n</section>",
+      "templates": 1,
+      "components": 0,
+      "memos": 0,
+      "hydrationKeys": 1,
+      "markers": 0,
+      "bytes": 479,
+      "gzip": 299
+    }
+  },
+  {
+    "id": "props",
+    "title": "Props with defaults",
+    "summary": "merge() and omit() views fold into the attributes each call passes.",
+    "source": "import { merge, omit } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nfunction Button(props: {\n  type?: 'button' | 'submit';\n  label: string;\n  class?: string;\n  onClick?: () => void;\n}) {\n  const merged = merge({ type: 'button' as const }, props);\n  const rest = omit(merged, 'label');\n  return (\n    <button {...rest}>\n      {props.label}\n    </button>\n  );\n}\n\nexport function App(): JSX.Element {\n  return (\n    <form>\n      <input name=\"email\" />\n      <Button label=\"Cancel\" class=\"ghost\" />\n      <Button type=\"submit\" label=\"Send\" class=\"primary\" />\n    </form>\n  );\n}\n",
+    "optimized": "import { merge, omit } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\n\nexport function App(): JSX.Element {\n  return (\n    <form>\n      <input name=\"email\" />\n      <button type={'button'} class={'ghost'}>\n        {'Cancel'}\n      </button>\n      <button type={'submit'} class={'primary'}>\n        {'Send'}\n      </button>\n    </form>\n  );\n}\n",
+    "plain": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { getNextMarker as _$getNextMarker } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { scope as _$scope } from '@solidjs/web';\nimport { createComponent as _$createComponent } from '@solidjs/web';\nimport { spread as _$spread } from '@solidjs/web';\nimport { runHydrationEvents as _$runHydrationEvents } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<button>`);\nvar _tmpl$2 = /* @__PURE__ */ _$template(\n  `<form><input name=email><!$><!/><!$><!/>`,\n);\nimport { merge, omit } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nfunction Button(props: {\n  type?: 'button' | 'submit';\n  label: string;\n  class?: string;\n  onClick?: () => void;\n}) {\n  const merged = merge({ type: 'button' as const }, props);\n  const rest = omit(merged, 'label');\n  var _el$ = _$getNextElement(_tmpl$);\n  _$spread(_el$, rest, true);\n  _$insert(\n    _el$,\n    _$scope(() => {\n      return props.label;\n    }),\n  );\n  _$runHydrationEvents();\n  return _el$;\n}\nexport function App(): JSX.Element {\n  var _el$2 = _$getNextElement(_tmpl$2);\n  var _el$3 = _el$2.firstChild;\n  var _el$4 = _el$3.nextSibling;\n  var [_el$5, _el$6] = _$getNextMarker(_el$4.nextSibling);\n  var _el$7 = _el$5.nextSibling;\n  var [_el$8, _el$9] = _$getNextMarker(_el$7.nextSibling);\n  _$insert(\n    _el$2,\n    _$createComponent(Button, {\n      label: 'Cancel',\n      class: 'ghost',\n    }),\n    _el$5,\n    _el$6,\n  );\n  _$insert(\n    _el$2,\n    _$createComponent(Button, {\n      type: 'submit',\n      label: 'Send',\n      class: 'primary',\n    }),\n    _el$8,\n    _el$9,\n  );\n  return _el$2;\n}\n",
+      "html": "<form _hk=0>\n  <input name=\"email\">\n  <!--$-->\n  <button _hk=1 type=\"button\" class=\"ghost\">Cancel</button>\n  <!--/--><!--$-->\n  <button _hk=3 type=\"submit\" class=\"primary\">Send</button>\n  <!--/-->\n</form>",
+      "templates": 2,
+      "components": 2,
+      "memos": 0,
+      "hydrationKeys": 3,
+      "markers": 4,
+      "bytes": 1606,
+      "gzip": 613
+    },
+    "after": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(\n  `<form><input name=email><button type=button class=ghost>Cancel</button><button type=submit class=primary>Send`,\n);\nimport { merge, omit } from 'solid-js';\nimport type { JSX } from '@solidjs/web';\nexport function App(): JSX.Element {\n  return _$getNextElement(_tmpl$);\n}\n",
+      "html": "<form _hk=0>\n  <input name=\"email\">\n  <button type=\"button\" class=\"ghost\">Cancel</button>\n  <button type=\"submit\" class=\"primary\">Send</button>\n</form>",
+      "templates": 1,
+      "components": 0,
+      "memos": 0,
+      "hydrationKeys": 1,
+      "markers": 0,
+      "bytes": 430,
+      "gzip": 260
+    }
+  },
+  {
+    "id": "memos",
+    "title": "Memos",
+    "summary": "A memo that always makes a new value, or never changes, becomes its computation.",
+    "source": "import { createMemo, createSignal } from 'solid-js';\n\nconst SIZE = 4;\n\nexport function App() {\n  const [color, setColor] = createSignal('tomato');\n  const style = createMemo(() => ({ color: color() }));\n  const padding = createMemo(() => SIZE * 2);\n\n  return (\n    <p style={style()} onClick={() => setColor('teal')}>\n      padding: {padding()}px\n    </p>\n  );\n}\n",
+    "optimized": "import { createMemo, createSignal } from 'solid-js';\n\nconst SIZE = 4;\n\nexport function App() {\n  const [color, setColor] = createSignal('tomato');\n\n  return (\n    <p style={{ color: color() }} onClick={() => setColor('teal')}>\n      padding: {8}px\n    </p>\n  );\n}\n",
+    "plain": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { getNextMarker as _$getNextMarker } from '@solidjs/web';\nimport { insert as _$insert } from '@solidjs/web';\nimport { scope as _$scope } from '@solidjs/web';\nimport { style as _$style } from '@solidjs/web';\nimport { readShallow as _$readShallow } from '@solidjs/web';\nimport { effect as _$effect } from '@solidjs/web';\nimport { delegateEvents as _$delegateEvents } from '@solidjs/web';\nimport { runHydrationEvents as _$runHydrationEvents } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<p>padding: <!$><!/>px`);\nimport { createMemo, createSignal } from 'solid-js';\nconst SIZE = 4;\nexport function App() {\n  const [color, setColor] = createSignal('tomato');\n  const style = createMemo(() => ({ color: color() }));\n  const padding = createMemo(() => SIZE * 2);\n  var _el$ = _$getNextElement(_tmpl$);\n  var _el$2 = _el$.firstChild;\n  var _el$3 = _el$2.nextSibling;\n  var [_el$4, _el$5] = _$getNextMarker(_el$3.nextSibling);\n  var _el$6 = _el$4.nextSibling;\n  _el$._$$click = () => setColor('teal');\n  _$insert(\n    _el$,\n    _$scope(() => {\n      return padding();\n    }),\n    _el$4,\n    _el$5,\n  );\n  _$effect(\n    () => _$readShallow(style()),\n    (_v$, _$p) => {\n      _$style(_el$, _v$, _$p);\n    },\n  );\n  _$runHydrationEvents();\n  return _el$;\n}\n_$delegateEvents(['click']);\n",
+      "html": "<p _hk=2 style=\"color:tomato\">padding: <!--$-->8<!--/-->px</p>",
+      "templates": 1,
+      "components": 0,
+      "memos": 2,
+      "hydrationKeys": 1,
+      "markers": 2,
+      "bytes": 1362,
+      "gzip": 524
+    },
+    "after": {
+      "dom": "import { template as _$template } from '@solidjs/web';\nimport { getNextElement as _$getNextElement } from '@solidjs/web';\nimport { setStyleProperty as _$setStyleProperty } from '@solidjs/web';\nimport { effect as _$effect } from '@solidjs/web';\nimport { delegateEvents as _$delegateEvents } from '@solidjs/web';\nimport { runHydrationEvents as _$runHydrationEvents } from '@solidjs/web';\nvar _tmpl$ = /* @__PURE__ */ _$template(`<p>padding: 8px`);\nimport { createMemo, createSignal } from 'solid-js';\nconst SIZE = 4;\nexport function App() {\n  const [color, setColor] = createSignal('tomato');\n  var _el$ = _$getNextElement(_tmpl$);\n  _el$._$$click = () => setColor('teal');\n  _$effect(\n    () => color(),\n    (_v$) => {\n      _$setStyleProperty(_el$, 'color', _v$);\n    },\n  );\n  _$runHydrationEvents();\n  return _el$;\n}\n_$delegateEvents(['click']);\n",
+      "html": "<p _hk=0 style=\"color:tomato\">padding: 8px</p>",
+      "templates": 1,
+      "components": 0,
+      "memos": 0,
+      "hydrationKeys": 1,
+      "markers": 0,
+      "bytes": 822,
+      "gzip": 379
+    }
+  }
+]
