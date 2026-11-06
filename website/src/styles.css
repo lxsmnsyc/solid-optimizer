@@ -1188,6 +1188,10 @@ pre {
   --bench-optimized: #4f88c6;
 }
 
+.bench-apps {
+  margin-bottom: 16px;
+}
+
 .bench-legend {
   display: flex;
   flex-wrap: wrap;
