@@ -24,6 +24,8 @@ export interface ResolvedOptions {
   readonly sharedComponents: ReadonlyMap<string, number>;
   /** Whether to inline components even where the copies are larger. */
   readonly alwaysInline: boolean;
+  /** Components to inline wherever they can be, whatever their size. */
+  readonly alwaysInlineComponents: ReadonlySet<string>;
 }
 
 /**

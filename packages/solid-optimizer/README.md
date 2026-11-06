@@ -45,6 +45,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `alwaysInline` inlines every component that can be, even where the copies are larger than the calls they replace. Defaults to `false`. See [Only where it is smaller](#only-where-it-is-smaller).
+- `alwaysInlineComponents` lists top-level components to inline wherever they can be, like `alwaysInline` does for every component. The Vite plugin lists the copies from `optimizer.packages` here.
 - `sharedComponents` maps top-level components that other modules use too to the number of modules that use them, this one included. Inlining one only counts its share of the declaration. `0` keeps the declaration whatever is inlined.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
@@ -116,6 +117,7 @@ The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 - `optimizer.report` reports what stays as written in each build, and why. `true` prints it. A function receives it instead, once per build environment. Defaults to `false`.
+- `optimizer.packages` lists packages whose components are copied into the modules that use them, like `['@kobalte/core']`. A package has to publish its JSX, as most Solid libraries do through the `solid` export condition. Re-exports and aliases like `const Button = ButtonRoot` are followed. Their copies inline wherever they can be, whatever the estimate says, since it cannot see what the package's other modules and the runtime code only they use add up to. The bundler then drops the originals, even when the package lands in another chunk. A listed package has to be bundled in every build, or the server and client builds copy different components. Defaults to `[]`.
 
 ### Report
 
@@ -136,7 +138,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 - `no-host` means the component has statements, and the call is not in JSX that a component or one of Solid's callbacks returns. A `<Show>` child or a `fallback` is one such place.
 - `size` means the copies would be larger than the calls.
 - `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
-- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from `node_modules`, `copy-cycle` means the two modules import each other, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
+- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from a package in `node_modules` that `optimizer.packages` does not list, `copy-cycle` means the two modules import each other, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
 
 The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps.
 
@@ -145,7 +147,7 @@ The provider pass reports `open-component`, `open-call`, `open-new`, `open-sprea
 - Chunk mode is skipped when the `babel` option is set or `compiler` is `'babel'`, since those passes need each module.
 - An export named `__so_local$name` is added to a module for each local binding its exported components need, so a copy in another module can import it. In chunk mode, entry modules get none.
 - A component used in several chunks is copied into each of them, where each copy is no larger than its call.
-- Components from dependencies in `node_modules` are not copied.
+- Components from dependencies in `node_modules` are only copied from the packages `optimizer.packages` lists.
 - `.tsrx` modules are lowered by the official plugin and are not optimized.
 
 ## Features

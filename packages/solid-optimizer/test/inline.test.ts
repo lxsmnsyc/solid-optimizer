@@ -306,6 +306,23 @@ export function App() {
     expect(output).toContain('export const Card = CardRoot;');
   });
 
+  it('inlines the components it is told to, whatever their size', () => {
+    const code = `
+function Field(props) {
+  const [focused, setFocused] = createSignal(false);
+  const [touched, setTouched] = createSignal(false);
+  return <label class={focused() ? 'field focused' : touched() ? 'field touched' : 'field'}>{props.label}<input onFocus={() => setFocused(true)} onBlur={() => setTouched(true)} placeholder="Type something here, then press enter to save it" /></label>;
+}
+export function App() {
+  return <form><Field label="a" /><Field label="b" /><Field label="c" /><Field label="d" /><Field label="e" /><Field label="f" /></form>;
+}
+`;
+    expect(inlined(code)).toContain('<Field label="a" />');
+    const forced = optimize(code, { fold: false, alwaysInlineComponents: ['Field'] });
+    expect(forced).not.toContain('<Field');
+    expect(forced).not.toContain('function Field');
+  });
+
   it('stores a static prop that is read more than once', () => {
     const code = `
 function Button(props) {

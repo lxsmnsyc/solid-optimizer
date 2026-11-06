@@ -105,3 +105,6 @@ dist
 .tern-port
 
 .npmrc
+
+# Fake packages that test fixtures resolve
+!test/fixtures/*/node_modules/

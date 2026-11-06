@@ -112,6 +112,12 @@ export interface CompileOptions {
    */
   alwaysInline?: boolean;
   /**
+   * Top-level components to inline wherever they can be, like
+   * `alwaysInline` does for every component. The Vite plugin lists the
+   * copies of components from `optimizer.packages` here.
+   */
+  alwaysInlineComponents?: readonly string[];
+  /**
    * The most passes to run. One pass can expose work for the next, such as
    * an inlined component whose props now fold. Compilation stops early once
    * a pass changes nothing.
@@ -176,6 +182,7 @@ function resolveOptions(options: CompileOptions): ResolvedOptions {
     ),
     sharedComponents: new Map(Object.entries(options.sharedComponents ?? {})),
     alwaysInline: options.alwaysInline ?? false,
+    alwaysInlineComponents: new Set(options.alwaysInlineComponents ?? []),
   };
 }
 

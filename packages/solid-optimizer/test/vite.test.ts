@@ -121,6 +121,9 @@ async function load(fixture: string, options: Options = {}): Promise<string> {
   }
 }
 
+/** How many fixtures `hydrateFixture` has built. */
+let hydrations = 0;
+
 /**
  * Builds a fixture for the server and the client, renders it on the server,
  * hydrates the markup in a DOM, and clicks its first button.
@@ -133,7 +136,12 @@ async function hydrateFixture(
   const options: Options = { ssr: true, optimizer };
   const server = (await bundle(fixture, options, { server: 'src/entry-server.tsx' })).at(0);
   const client = await bundle(fixture, options, { client: 'src/entry-client.tsx' });
-  const out = path.join(scratch, `${fixture}-${optimizer === false ? 'plain' : 'optimized'}`);
+  // Each build gets its own file, since `import()` caches a module by its URL.
+  hydrations += 1;
+  const out = path.join(
+    scratch,
+    `${fixture}-${optimizer === false ? 'plain' : 'optimized'}-${String(hydrations)}`,
+  );
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, 'server.mjs'), server?.code ?? '');
@@ -330,6 +338,37 @@ describe('solid-optimizer/vite', () => {
     // module for `Odd`, so a copy in `App` would only add code.
     expect(optimized.markup.match(/_hk=/g)).toHaveLength(4);
     expect(plain.markup.match(/_hk=/g)).toHaveLength(8);
+  });
+
+  it('hydrates server HTML with components copied from a listed package', async () => {
+    const keyless = (markup: string): string => markup.replaceAll(/ _hk="[^"]*"/g, '');
+    const optimized = await hydrateFixture('ssr-package', { packages: ['headless-ui'] });
+    const unlisted = await hydrateFixture('ssr-package', undefined);
+    const plain = await hydrateFixture('ssr-package', false);
+    for (const result of [optimized, unlisted, plain]) {
+      expect(result.claimed).toBe(true);
+      expect(keyless(result.hydrated)).toBe(keyless(plain.hydrated));
+    }
+    expect(keyless(plain.hydrated)).toContain('Add 2');
+    // The server and client builds copy both buttons and `Polymorphic` the
+    // same way, so `<main>` is one template with one hydration key.
+    expect(optimized.markup.match(/_hk=/g)).toHaveLength(1);
+    expect(unlisted.markup.match(/_hk=/g)?.length).toBeGreaterThan(1);
+  });
+
+  it('copies components from a listed package into a chunk that does not hold it', async () => {
+    const options: Options = { optimizer: { packages: ['headless-ui'] } };
+    const vendor: Rollup.OutputOptions = {
+      codeSplitting: { groups: [{ name: 'vendor', test: /node_modules/ }] },
+    };
+    const chunks = await bundle('ssr-package', options, { client: 'src/entry-client.tsx' }, vendor);
+    // The entry only keeps the call `hydrate` makes.
+    const app = chunks.find((chunk) => chunk.isEntry);
+    expect(app?.code.match(/createComponent\(\w+/g)).toEqual(['createComponent(App']);
+    // Nothing calls the originals anymore, so the bundler drops them.
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(code).not.toContain('ButtonRoot');
+    expect(code).not.toContain('Polymorphic');
   });
 
   it('hydrates server HTML when both builds optimize each module', async () => {

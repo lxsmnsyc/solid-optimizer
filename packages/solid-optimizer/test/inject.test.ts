@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exposeLocals, readExportedComponent } from '../src/vite/inject';
+import { exposeLocals, readExportedComponent, readReexport } from '../src/vite/inject';
 
 const SOURCES = ['solid-js', '@solidjs/web'];
 
@@ -75,6 +75,18 @@ export default () => <p />;`;
     ).toBeUndefined();
   });
 
+  it('reads a component exported under an alias', () => {
+    const component = readExportedComponent(
+      `function ButtonRoot(props) {\n  return <button>{props.children}</button>;\n}\nconst Button = ButtonRoot;\nexport { Button as t };`,
+      'a.jsx',
+      't',
+      SOURCES,
+    );
+    expect(component?.copy('Button$1', new Map())).toBe(
+      'function Button$1(props) {\n  return <button>{props.children}</button>;\n}',
+    );
+  });
+
   it('skips an export that is not a function', () => {
     expect(readExportedComponent('export const A = 1;', 'a.jsx', 'A', SOURCES)).toBeUndefined();
   });
@@ -99,5 +111,27 @@ export { Icon as __so_local$Icon, Theme as __so_local$Theme };`;
     expect(wraps('Panel')).toBe(false);
     // The provider pass can remove a provider from the copy.
     expect(wraps('ThemeProvider')).toBe(false);
+  });
+});
+
+describe('readReexport', () => {
+  const code = `export { t as Button, r as Root } from './button.jsx';
+export type { Props } from './types';
+export const local = 1;`;
+
+  it('finds the module and name an export is re-exported from', () => {
+    expect(readReexport(code, 'index.tsx', 'Button')).toEqual({
+      source: './button.jsx',
+      imported: 't',
+    });
+    expect(readReexport(code, 'index.tsx', 'Root')).toEqual({
+      source: './button.jsx',
+      imported: 'r',
+    });
+  });
+
+  it('skips an export the module declares, or does not have', () => {
+    expect(readReexport(code, 'index.tsx', 'local')).toBeUndefined();
+    expect(readReexport(code, 'index.tsx', 'Missing')).toBeUndefined();
   });
 });

@@ -1953,10 +1953,14 @@ class Inliner {
       }
     }
     const result = new Set<Component>();
-    if (this.context.options.alwaysInline) {
-      for (const component of byComponent.keys()) {
+    const { alwaysInline, alwaysInlineComponents } = this.context.options;
+    for (const component of byComponent.keys()) {
+      if (alwaysInline || alwaysInlineComponents.has(component.binding.name)) {
         result.add(component);
+        byComponent.delete(component);
       }
+    }
+    if (byComponent.size === 0) {
       return result;
     }
     // The copies made here are only measured, so their fresh names are not kept.
