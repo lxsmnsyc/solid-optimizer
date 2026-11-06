@@ -1,6 +1,8 @@
 import type { JSX } from '@solidjs/web';
-import { For } from 'solid-js';
-import results from '../../../benchmarks/runtime/results.json';
+import { For, createSignal } from 'solid-js';
+import demo from '../../../benchmarks/runtime/results.json';
+import hackernews from '../../../benchmarks/runtime/results-hackernews.json';
+import tracker from '../../../benchmarks/runtime/results-tracker.json';
 
 interface Pair {
   plain: number;
@@ -15,17 +17,67 @@ interface Chart {
   noise?: number;
 }
 
-const { timings, client, server, hydration } = results;
+type Entry = Pair & { label: string };
+
+/** What `benchmarks/runtime` writes for one app. */
+interface Results {
+  date: string;
+  runs: number;
+  cpu: string;
+  browser: string;
+  node: string;
+  timings: Record<string, Entry & { noise: number }>;
+  client: Record<string, Entry>;
+  server: Record<string, Entry>;
+  hydration: Record<string, Entry>;
+}
+
+interface App {
+  id: string;
+  label: string;
+  /** What the benchmark renders. */
+  note: string;
+  results: Results;
+}
+
+const APPS: App[] = [
+  {
+    id: 'demo',
+    label: 'Demo',
+    note: 'The demo app with every page rendered at once. It is written to show each pass.',
+    results: demo,
+  },
+  {
+    id: 'hackernews',
+    label: 'Hacker News',
+    note: "Hacker News's two story lists and a story's comments, without its router.",
+    results: hackernews,
+  },
+  {
+    id: 'tracker',
+    label: 'Tracker',
+    note: 'An issue tracker with 40 rows, data under <Loading>, and narrowing <Show> callbacks.',
+    results: tracker,
+  },
+];
 
 // Lower is better for every chart, so each bar's length is its share of the plain build.
-const CHARTS: Chart[] = [
-  { title: 'renderToString', unit: 'time', pair: timings.ssr, noise: timings.ssr.noise },
-  { title: 'Hydration', unit: 'time', pair: timings.hydrate, noise: timings.hydrate.noise },
-  { title: 'First render', unit: 'time', pair: timings.coldMount, noise: timings.coldMount.noise },
-  { title: 'Render, warm', unit: 'time', pair: timings.mount, noise: timings.mount.noise },
-  { title: 'Heap per app', unit: 'bytes', pair: timings.heap, noise: timings.heap.noise },
-  { title: 'Templates cloned', unit: 'count', pair: client.nodesCloned },
-];
+function chartsOf(results: Results): Chart[] {
+  const charts: Chart[] = [];
+  const titles: [string, string, Chart['unit']][] = [
+    ['ssr', 'renderToString', 'time'],
+    ['hydrate', 'Hydration', 'time'],
+    ['coldMount', 'First render', 'time'],
+    ['mount', 'Render, warm', 'time'],
+    ['heap', 'Heap per app', 'bytes'],
+  ];
+  for (const [key, title, unit] of titles) {
+    const entry = results.timings[key];
+    charts.push({ title, unit, pair: entry, noise: entry.noise });
+  }
+  charts.push({ title: 'Templates cloned', unit: 'count', pair: results.client.nodesCloned });
+  return charts;
+}
 
 interface TableRow {
   label: string;
@@ -80,12 +132,12 @@ function toRow(entry: Pair & { label: string }): TableRow {
   };
 }
 
-function collectGroups(): TableGroup[] {
-  const groups: [string, Record<string, Pair & { label: string }>][] = [
-    ['Timings', timings],
-    ['Client render', client],
-    ['Server render', server],
-    ['Hydration', hydration],
+function collectGroups(results: Results): TableGroup[] {
+  const groups: [string, Record<string, Entry>][] = [
+    ['Timings', results.timings],
+    ['Client render', results.client],
+    ['Server render', results.server],
+    ['Hydration', results.hydration],
   ];
   const result: TableGroup[] = [];
   for (const [title, entries] of groups) {
@@ -127,8 +179,32 @@ function Bar(props: {
 }
 
 export function Benchmarks(): JSX.Element {
+  const [selected, setSelected] = createSignal(0);
+  const app = (): App => {
+    const item = APPS.at(selected());
+    if (!item) {
+      throw new Error('no benchmark app');
+    }
+    return item;
+  };
   return (
     <div class="bench">
+      <div class="segmented small bench-apps" aria-label="App">
+        <For each={APPS}>
+          {(item, index) => (
+            <button
+              type="button"
+              aria-pressed={selected() === index() ? 'true' : 'false'}
+              class={['segment', { selected: selected() === index() }]}
+              onClick={() => {
+                setSelected(index());
+              }}
+            >
+              {item.label}
+            </button>
+          )}
+        </For>
+      </div>
       <div class="bench-legend">
         <span>
           <i class="bench-key plain" />
@@ -140,7 +216,7 @@ export function Benchmarks(): JSX.Element {
         </span>
       </div>
       <div class="bench-grid">
-        <For each={CHARTS}>
+        <For each={chartsOf(app().results)}>
           {(chart) => (
             <figure class="bench-card">
               <figcaption>
@@ -176,7 +252,7 @@ export function Benchmarks(): JSX.Element {
               <th scope="col">Change</th>
             </tr>
           </thead>
-          <For each={collectGroups()}>
+          <For each={collectGroups(app().results)}>
             {(group) => (
               <tbody>
                 <tr class="bench-group">
@@ -200,10 +276,9 @@ export function Benchmarks(): JSX.Element {
         </table>
       </details>
       <p class="bench-note">
-        The demo app with every page rendered at once, {results.date}. Median of{' '}
-        {String(results.runs)} runs on {results.cpu}, Chromium {results.browser.split('.')[0]} and
-        Node {results.node}. The demo is written to show each pass; on Hacker News the bundle
-        shrinks by 3% at most, so expect less there.
+        {app().note} {app().results.date}. Median of {String(app().results.runs)} runs on{' '}
+        {app().results.cpu}, Chromium {app().results.browser.split('.')[0]} and Node{' '}
+        {app().results.node}.
       </p>
     </div>
   );
