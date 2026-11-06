@@ -352,6 +352,8 @@ export const View = () => <p title={'x'}>{'x'}{'x'}</p>;
       `export const view = {\n  label() {\n    const self = () => this.name;\n    return function () {\n      return self();\n    };\n  },\n};\n`,
       // Called before its declaration, which throws.
       component('const early = read();\n  const read = () => 1;', '<p>{early}</p>'),
+      // The result called, tagged, or deleted, where `(a.b)` passes or deletes `a`'s property.
+      component('const l = () => a.b;', '<p>{l()()}{l()`x`}{String(delete l())}</p>'),
       // Exported.
       `export const label = () => 'x';\nexport const View = () => <p>{label()}</p>;\n`,
     ];

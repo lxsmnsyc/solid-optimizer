@@ -76,6 +76,9 @@
  * - The memo no longer takes a slot in the owner tree, which shifts the
  *   hydration keys after it. A server build and its client build must
  *   compile with the same options.
+ * - A call that runs before the declaration, from a hoisted function the
+ *   declaration comes before, throws on the original and returns the value
+ *   on the output.
  */
 import type {
   ArrowFunctionExpression,
@@ -639,6 +642,16 @@ class MemoInliner {
         // The arrow is used as a value, like an event handler. That is not a derivation.
         return;
       }
+      // `l()()` calls the result with no `this`, but `(a.b)()` passes `a`, and
+      // `delete (a.b)` deletes what `delete l()` leaves alone.
+      const parent = this.context.parents.get(call);
+      if (
+        (parent?.type === 'CallExpression' && parent.callee === call) ||
+        (parent?.type === 'TaggedTemplateExpression' && parent.tag === call) ||
+        (parent?.type === 'UnaryExpression' && parent.operator === 'delete')
+      ) {
+        return;
+      }
       calls.push(call);
     }
     if (calls.length === 0) {
@@ -652,7 +665,9 @@ class MemoInliner {
       }
     }
     const text = getText(this.context, body);
-    // Minified, the arrow costs `const a=()=>body;` and each call `a()`.
+    // Minified, the arrow costs `const a=()=>body;`, 13 characters besides the
+    // body, and each call `a()` costs 3. Copying adds the body to every call
+    // but one, and removes the rest.
     const length = compactLength(text);
     if ((calls.length - 1) * length > calls.length * 3 + 13) {
       return;

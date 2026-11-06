@@ -140,6 +140,7 @@ describe('the JSX it writes', () => {
     ).toContain(
       '<div>{(user()) ? <i>{(user())}</i> : undefined}{(issue()) ? <b>{(issue())}</b> : undefined}</div>',
     );
+    // An imported call, since the memo pass would inline a local arrow.
     const other = `${imports}import { load } from './load';\nconst view = <div><Show when={load()}>{(u) => <i>{u()}</i>}</Show></div>;`;
     expect(lowered(other)).toBe(other);
   });
