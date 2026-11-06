@@ -12,8 +12,9 @@
  * are falsy, as `<Switch>` reads its `<Match>` conditions.
  *
  * A callback child like `{(user) => <b>{user().name}</b>}` becomes its body,
- * with each `user()` read as `when` again. Only a `when` that only reads
- * values is copied, so reading it again gives the same value. `<Show>`'s
+ * with each `user()` read as `when` again. Only a `when` that reads names,
+ * members, and signals or memos is copied, so reading it again gives the same
+ * value. `<Show>`'s
  * accessor throws when it is read after the condition turns falsy, and the
  * copy reads the falsy value instead.
  */
@@ -311,7 +312,7 @@ function callbackBody(
   if (
     value?.type !== 'JSXExpressionContainer' ||
     value.expression.type === 'JSXEmptyExpression' ||
-    !isPlainRead(value.expression)
+    !isPlainRead(context, value.expression)
   ) {
     return undefined;
   }
@@ -322,11 +323,16 @@ function callbackBody(
   const names: Node[] = [];
   collectReferences(context, when, names);
   const binding = lookup(scopeAt(context.scopes, context.parents, param), param.name);
-  if (binding?.identifier !== param) {
+  // A write to the parameter, or a type that names it, has no copy to point at.
+  if (binding?.identifier !== param || binding.mutated || namesInTypes(body, param.name)) {
     return undefined;
   }
   const edits: { start: number; end: number; text: string }[] = [];
   for (const reference of binding.references) {
+    // A tag like `<C />` names a component, which an expression cannot replace.
+    if (reference.type !== 'Identifier') {
+      return undefined;
+    }
     const scope = scopeAt(context.scopes, context.parents, reference);
     for (const name of names) {
       if (
@@ -363,36 +369,104 @@ function callbackBody(
 }
 
 /**
- * Whether an expression only reads values: names, members, literals,
- * operators, and calls without arguments, like `user()` or `errors[id]`.
- * Reading it again gives the same value, since nothing runs between reads.
+ * Whether reading an expression again gives the same value, with nothing run
+ * between the reads: names, members, literals, and operators, and calls of
+ * a signal or a memo. Another call could change something or return
+ * something new, and `this` changes inside a `function` in the body.
  */
-function isPlainRead(node: Node): boolean {
+function isPlainRead(context: PassContext, node: Node): boolean {
   switch (node.type) {
     case 'Identifier':
     case 'Literal':
-    case 'ThisExpression':
       return true;
     case 'ParenthesizedExpression':
     case 'TSAsExpression':
     case 'TSSatisfiesExpression':
     case 'TSNonNullExpression':
     case 'ChainExpression':
-      return isPlainRead(node.expression);
+      return isPlainRead(context, node.expression);
     case 'MemberExpression':
-      return isPlainRead(node.object) && (!node.computed || isPlainRead(node.property));
+      return (
+        isPlainRead(context, node.object) && (!node.computed || isPlainRead(context, node.property))
+      );
     case 'CallExpression':
-      return node.arguments.length === 0 && isPlainRead(node.callee);
+      return node.arguments.length === 0 && isAccessor(context, node.callee);
     case 'UnaryExpression':
-      return node.operator !== 'delete' && isPlainRead(node.argument);
+      return node.operator !== 'delete' && isPlainRead(context, node.argument);
     case 'BinaryExpression':
     case 'LogicalExpression':
-      return isPlainRead(node.left) && isPlainRead(node.right);
+      return isPlainRead(context, node.left) && isPlainRead(context, node.right);
     case 'ConditionalExpression':
-      return isPlainRead(node.test) && isPlainRead(node.consequent) && isPlainRead(node.alternate);
+      return (
+        isPlainRead(context, node.test) &&
+        isPlainRead(context, node.consequent) &&
+        isPlainRead(context, node.alternate)
+      );
     default:
       return false;
   }
+}
+
+/**
+ * Whether a callee is the getter of a `createSignal` or a `createMemo` from
+ * Solid, declared with `const` and never written, which returns its current
+ * value without running anything else.
+ */
+function isAccessor(context: PassContext, callee: Node): boolean {
+  if (callee.type !== 'Identifier') {
+    return false;
+  }
+  const binding = context.scopes.references.get(callee);
+  if (!binding || binding.mutated || binding.kind !== 'const') {
+    return false;
+  }
+  const { declaration } = binding;
+  if (declaration.type !== 'VariableDeclarator' || !declaration.init) {
+    return false;
+  }
+  const init = unwrap(declaration.init);
+  if (init.type !== 'CallExpression' || init.callee.type !== 'Identifier') {
+    return false;
+  }
+  const factory = context.scopes.references.get(init.callee);
+  const name = factory ? solidExport(factory, context.options) : undefined;
+  if (name === 'createMemo') {
+    return declaration.id === binding.identifier;
+  }
+  // The getter is the first name of `const [value, setValue] = createSignal()`.
+  return (
+    name === 'createSignal' &&
+    declaration.id.type === 'ArrayPattern' &&
+    declaration.id.elements.at(0) === binding.identifier
+  );
+}
+
+/** Whether a TypeScript type in `node`, like `typeof v`, names `name`. */
+function namesInTypes(node: unknown, name: string): boolean {
+  if (typeof node !== 'object' || node === null) {
+    return false;
+  }
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      if (namesInTypes(item, name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const type: unknown = Reflect.get(node, 'type');
+  if (type === 'TSTypeQuery') {
+    const exprName: unknown = Reflect.get(node, 'exprName');
+    return (
+      typeof exprName === 'object' && exprName !== null && Reflect.get(exprName, 'name') === name
+    );
+  }
+  for (const key of Object.keys(node)) {
+    if (key !== 'parent' && namesInTypes(Reflect.get(node, key), name)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** The identifiers in an expression that refer to a binding or a global. */

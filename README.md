@@ -46,7 +46,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
-- `conditionals` turns `<Show>` and `<Switch>` lowering on or off. A `<Show>` without `keyed` becomes a ternary, which Solid's JSX transform compiles to one memo instead of a component and three memos. A callback child like `{(user) => <b>{user().name}</b>}` becomes its body, with `user()` read as `when` again, when `when` only reads values. A `<Switch>` of such `<Match>`es becomes a chain of ternaries. Defaults to `true`.
+- `conditionals` turns `<Show>` and `<Switch>` lowering on or off. A `<Show>` without `keyed` becomes a ternary, which Solid's JSX transform compiles to one memo instead of a component and three memos. A callback child like `{(user) => <b>{user().name}</b>}` becomes its body, with `user()` read as `when` again, when `when` reads names, members, and signal or memo getters. A `<Switch>` of such `<Match>`es becomes a chain of ternaries. Defaults to `true`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).

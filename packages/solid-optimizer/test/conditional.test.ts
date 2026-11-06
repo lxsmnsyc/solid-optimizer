@@ -73,6 +73,26 @@ describe('the JSX it writes', () => {
     ],
     ['a callback without a parameter', '<div><Show when={p.a}>{() => <i />}</Show></div>'],
     [
+      'a callback whose when calls a method',
+      '<div><Show when={p.queue.shift()}>{(a) => <i>{a()}</i>}</Show></div>',
+    ],
+    [
+      'a callback whose when calls a global',
+      '<div><Show when={Math.random() > 0.5}>{(a) => <i>{a()}</i>}</Show></div>',
+    ],
+    [
+      'a callback whose when reads this',
+      '<div><Show when={this.user}>{(a) => <i onClick={function () { return a(); }} />}</Show></div>',
+    ],
+    [
+      'a callback that writes its parameter',
+      '<div><Show when={p.a}>{(a) => <i onClick={() => { a = null; }}>{a()}</i>}</Show></div>',
+    ],
+    [
+      'a callback that uses its parameter as a tag',
+      '<div><Show when={p.a}>{(C) => <C />}</Show></div>',
+    ],
+    [
       'a callback that shadows a name when reads',
       '<div><Show when={p.a}>{(a) => <For each={a()}>{(p) => <i>{a()}</i>}</For>}</Show></div>',
     ],
@@ -97,10 +117,10 @@ describe('the JSX it writes', () => {
   it('writes a callback child as its body, reading when again', () => {
     expect(
       lowered(
-        'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.user()} fallback={<b />}>{(user) => <Avatar user={user()} name={user().name} get={user} />}</Show></div>;',
+        'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.user} fallback={<b />}>{(user) => <Avatar user={user()} name={user().name} get={user} />}</Show></div>;',
       ),
     ).toBe(
-      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.user()) ? <Avatar user={(p.user())} name={(p.user()).name} get={(() => (p.user()))} /> : (<b />)}</div>;',
+      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.user) ? <Avatar user={(p.user)} name={(p.user).name} get={(() => (p.user))} /> : (<b />)}</div>;',
     );
     expect(
       lowered(
@@ -109,6 +129,25 @@ describe('the JSX it writes', () => {
     ).toBe(
       'import { Match, Switch } from "solid-js";\nconst view = (p) => <div>{(p.errors[p.id]) ? <p>{(p.errors[p.id])}</p> : undefined}</div>;',
     );
+  });
+
+  it('reads a signal or a memo again, but not another call', () => {
+    const imports = 'import { Show, createMemo, createSignal } from "solid-js";\n';
+    expect(
+      lowered(
+        `${imports}const [user] = createSignal();\nconst issue = createMemo(() => 1);\nconst view = <div><Show when={user()}>{(u) => <i>{u()}</i>}</Show><Show when={issue()}>{(i) => <b>{i()}</b>}</Show></div>;`,
+      ),
+    ).toContain(
+      '<div>{(user()) ? <i>{(user())}</i> : undefined}{(issue()) ? <b>{(issue())}</b> : undefined}</div>',
+    );
+    const other = `${imports}const load = () => 1;\nconst view = <div><Show when={load()}>{(u) => <i>{u()}</i>}</Show></div>;`;
+    expect(lowered(other)).toBe(other);
+  });
+
+  it('keeps a callback whose parameter a type names', () => {
+    const code =
+      'import { Show } from "solid-js";\nconst view = (p: { a?: string }) => <div><Show when={p.a}>{(v) => <i>{String(v() as ReturnType<typeof v>)}</i>}</Show></div>;';
+    expect(optimize(code, { filename: 'view.tsx', inline: false })).toBe(code);
   });
 
   it('writes a container in a namespaced element', () => {

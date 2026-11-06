@@ -368,7 +368,8 @@ A callback child becomes its body, with each read of its parameter written as `w
 
 The rewrite only applies when reading `when` again gives the same value:
 
-- `when` only reads values: names, members, literals, operators, and calls without arguments, like `user()` or `errors[id]`. A call with arguments could do anything, so it keeps `<Show>`.
+- `when` reads names, members, literals, and operators, and calls only the getter of a `createSignal` or a `createMemo`, like `user()` or `errors[id]`. Any other call could change something or return something new, like `queue.shift()` or `Math.random()`, so it keeps `<Show>`. So does `this`, which a `function` in the body would rebind.
+- The body never writes the parameter, uses it as a tag like `<C />`, or names it in a type like `typeof v`.
 - The callback takes one parameter, and its body is only JSX, which reads nothing as it is made.
 - Each name `when` reads means the same thing where the body reads the parameter. A row callback whose own parameter shadows a name in `when` keeps `<Show>`.
 
