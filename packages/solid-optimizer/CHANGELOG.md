@@ -1,5 +1,30 @@
 # solid-optimizer
 
+## 1.0.0-next.2
+
+### Minor Changes
+
+- 4625ca6: Inline the components of headless libraries like Kobalte, which render through an alias, a `ref` array, and `<Dynamic>`.
+
+  - A call through an alias, like `<Separator />` with `const Separator = SeparatorRoot`, inlines as a call of the component it names. An alias nothing uses is removed with the component.
+  - A `ref` array at a call site can hold `void 0` and `untrack(() => target)`, like `ref={[setRef, untrack(() => merged.ref)]}` once the call site passes no `ref`.
+  - `untrack(() => value)` folds to the value when the value is a constant.
+  - The size estimate measures a copy with the calls in it inlined, when the copy is what lets them inline, such as a call that spreads a `merge()` or `omit()` view.
+  - In chunk mode, a module that spreads onto `<Dynamic>` keeps the helpers a `ref` and a link need, so the chunk can still be optimized once `<Dynamic>` becomes an element.
+
+- 7a31faa: Add `optimizer.packages`, a list of packages whose components are copied into the modules that use them, like `['@kobalte/core']`.
+
+  - A copy follows re-exports, like a library entry's `export { t as Button } from './button.jsx'`, and aliases, like `const Button = ButtonRoot`.
+  - Copies from a listed package inline wherever they can be, so the bundler drops the originals and the runtime code only they used, even when the package lands in another chunk. The `vendor` build of `examples/kobalte` drops from 19.00 kB to 13.75 kB gzipped.
+  - A listed package that is external in a build, like a server build that leaves it to Node, gets a warning, since its components are not copied there.
+  - `compile` takes `alwaysInlineComponents`, the components to inline wherever they can be.
+
+### Patch Changes
+
+- d2d334a: In chunk mode, build each chunk with every component inlined that can be too, and keep the smaller of the two, minified and gzipped. The size estimate weighs each component on its own, so it missed runtime code that only goes once every call is inlined, like `<Dynamic>`, `merge()`, and `omit()` behind Kobalte's components. `examples/kobalte` drops from 18.20 kB to 12.28 kB gzipped.
+- 9e340f9: Keep a component as a call when its statements assign to something declared outside it, like a counter at the top of the module. A copy's statements run before the JSX around the call, so JSX that read the value saw every copy's write at once. `optimizer.report` gives these calls the reason `component-write`.
+- 32343b1: Leave a package's own modules out of `optimizer.report`. They are compiled too, but the app cannot change what they leave alone, like Kobalte's own calls of `Polymorphic`. The app's calls of a package's components are still reported.
+
 ## 1.0.0-next.1
 
 ### Patch Changes
