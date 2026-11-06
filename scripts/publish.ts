@@ -66,13 +66,53 @@ function isPublished(name: string, version: string): boolean {
   }
 }
 
+/** Reads a version's major, minor, and patch numbers. */
+function parseVersion(version: string): number[] {
+  const parts: number[] = [];
+  for (const part of version.split('-')[0].split('.')) {
+    parts.push(Number(part));
+  }
+  return parts;
+}
+
+/** Whether version `a` comes before version `b`, ignoring prerelease suffixes. */
+function isOlder(a: string, b: string): boolean {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) {
+      return left[index] < right[index];
+    }
+  }
+  return false;
+}
+
+/** Reads the version a package's `latest` dist-tag points at, if it has one. */
+function readLatest(name: string): string | undefined {
+  try {
+    const found = execFileSync('npm', ['view', name, 'dist-tags.latest'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return found.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Returns the dist-tag to publish under.
  * A prerelease such as `1.0.0-next.3` goes under `next`, so `latest` never points at a prerelease.
+ * A release older than `latest`, like a 0.x fix once 1.0.0 is out, goes under `0.x`, so it does
+ * not move `latest` back.
  */
-function distTagOf(version: string): string {
+function distTagOf(name: string, version: string): string {
   const prerelease = /^\d+\.\d+\.\d+-([0-9A-Za-z-]+)/.exec(version);
-  return prerelease ? prerelease[1] : 'latest';
+  if (prerelease) {
+    return prerelease[1];
+  }
+  const latest = readLatest(name);
+  return latest !== undefined && isOlder(version, latest) ? '0.x' : 'latest';
 }
 
 let published = 0;
@@ -92,7 +132,7 @@ for (const entry of readdirSync(PACKAGES, { withFileTypes: true })) {
     continue;
   }
 
-  const tag = distTagOf(pkg.version);
+  const tag = distTagOf(pkg.name, pkg.version);
   log(`Publishing ${pkg.name}@${pkg.version} under "${tag}".`);
 
   // Publishing a tarball skips lifecycle scripts, so build before packing.

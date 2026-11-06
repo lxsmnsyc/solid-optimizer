@@ -277,7 +277,7 @@ export function App() {
 - The value must never be `undefined`.
 - Removing the provider removes its owner, so the hydration keys change. Compile a server build and its client build with the same options.
 
-See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/main/strategy.md) for the exact rules.
+See [strategy.md](https://github.com/lxsmnsyc/solid-optimizer/blob/0.x/strategy.md) for the exact rules.
 
 ### Memo inlining
 
