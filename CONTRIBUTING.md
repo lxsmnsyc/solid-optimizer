@@ -2,7 +2,7 @@
 
 ## Setup
 
-Pull requests go against `main`.
+Pull requests go against `main`, which targets Solid 2. Fixes for Solid 1.x go against the `0.x` branch.
 
 1. Fork the repository and clone it.
 2. Create a branch.
