@@ -225,7 +225,7 @@ Plan:
 
 ## 10. Class instances as context values
 
-A store as a context value already works. `strategy.md` still lists stores as not covered, so fix that line.
+A store as a context value already works, and so does a `[state, setState]` pair the consumer destructures.
 
 A class instance does not work:
 
@@ -275,7 +275,7 @@ Start with a prototype that only works in chunk mode. Measure it on solid-ui, wh
 
 ## 12. Measure runtime and hydration, not only bundle size
 
-Status: started on Solid 2. `benchmarks/runtime` measures two apps in client, server, and hydrating builds: the demo with every page at once ([results](benchmarks/runtime/results.md)), and Hacker News's story lists and comments from its fixtures ([results](benchmarks/runtime/results-hackernews.md)). The Solid 1 line, owner and computation counts, and updates after mount are open.
+Status: started. `benchmarks/runtime` measures three apps in client, server, and hydrating builds: the demo with every page at once ([results](benchmarks/runtime/results.md)), Hacker News's story lists and comments from its fixtures ([results](benchmarks/runtime/results-hackernews.md)), and the tracker example ([results](benchmarks/runtime/results-tracker.md)). Owner and computation counts, and updates after mount, are open.
 
 On Hacker News, nearly all of the runtime change comes from item 21. With `conditionals: false`, the warm client render is 3% faster than the plain build and the heap 0.2% smaller. With it, they are 22% and 29% smaller, and `renderToString` is 37% faster.
 
@@ -289,7 +289,7 @@ Plan:
 2. Timings, in Chromium through Playwright. Each result needs repeated runs and has to clear the noise, measured as the perf-pass skill's `bench.py` does.
    - Client: time to first render, mount and unmount loops, heap after mount.
    - Server and hydration: `renderToString` throughput and client hydration time.
-3. Apps: the demo and Hacker News on Solid 2, and Hacker News and solid-ui on Solid 1. Neither line's examples include a hydrating app. The `ssr` test fixtures are too small, so add one, for example by porting `todos-server` or the SSR `hackernews` from the Solid repo into `examples/`.
+3. Apps: the demo, Hacker News, and the tracker. The benchmark renders each on the server and hydrates it, so no separate hydrating example is needed.
 
 Start with the client counts in step 1. They need only a small counting harness, and they show whether the runtime effect is large enough to justify the timings and the SSR app. Updates after mount, such as a signal write reaching the DOM, are left out at first: merging changes creation more than updates, and update benchmarks need a script per app.
 
