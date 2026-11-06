@@ -126,7 +126,7 @@ The value must never be `undefined`, since `useContext` would then fall back to 
 ### Not covered yet
 
 - A provider in a callback, like a `.map()` or `<For>` child, with a value that has to be stored. The `const` needs a place that runs once per provider.
-- A consumer whose context value is used as something other than an object literal or an accessor, such as a store or a class instance.
+- A consumer whose context value is a class instance, or a `[state, setState]` pair it reads by index, like `store[0].n`. A store, and a pair the consumer destructures, work.
 - Providers in other modules. Hydrating builds only see one module at a time.
 
 ## Memo inlining
