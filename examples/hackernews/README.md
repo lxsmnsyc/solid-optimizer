@@ -7,7 +7,7 @@ The app is the original, with these changes to build it with Vite and Solid 2:
 - `src/routes.js` is `src/routes.jsx`, since Vite only reads JSX from `.jsx` and `.tsx` files.
 - The router has no `base`, which came from the Rollup build.
 - The service worker is left out.
-- `solid-js` is `2.0.0-rc.16` and `@solidjs/router` is `2.0.0-next.41`.
+- `solid-js` is `2.0.0-rc.21` and `@solidjs/router` is `2.0.0-next.41`.
 - The routes go through `createRouter`, and `load` is `preload`.
 - `cache` is `query`, and `createAsync` is `createMemo`.
 - The layout wraps the routes in `<Loading>`, since a read of pending data waits for the nearest one.
