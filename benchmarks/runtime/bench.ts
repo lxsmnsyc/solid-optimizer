@@ -5,6 +5,7 @@
  *
  * - `demo` is the demo with every page rendered at once.
  * - `hackernews` is Hacker News's story lists and comments, from its fixtures.
+ * - `tracker` is the tracker example's layout with its issues read at once.
  *
  * Counts are exact, so any difference in them is real. Timings run the two
  * builds in turns, so drift in machine load hits both, and a change is only

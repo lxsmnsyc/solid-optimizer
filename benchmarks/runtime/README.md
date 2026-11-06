@@ -2,10 +2,11 @@
 
 Measures what the optimizer changes at runtime, not only in bundle size: client creation, server rendering, and hydration. Each app is built once with `@solidjs/vite-plugin` alone and once with the optimizer. Each build is one minified chunk.
 
-| App          | What it renders                                                                                                 | Results                                        |
-| ------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `demo`       | `examples/demo` with every page at once and none of them lazy (`src/demo`).                                     | [results.md](results.md), read by the website  |
-| `hackernews` | Hacker News's two story lists and a story's comments, from its fixtures, without the router (`src/hackernews`). | [results-hackernews.md](results-hackernews.md) |
+| App          | What it renders                                                                                                         | Results                                        |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `demo`       | `examples/demo` with every page at once and none of them lazy (`src/demo`).                                             | [results.md](results.md), read by the website  |
+| `hackernews` | Hacker News's two story lists and a story's comments, from its fixtures, without the router (`src/hackernews`).         | [results-hackernews.md](results-hackernews.md) |
+| `tracker`    | The tracker example's layout, with its 40 issues read at once instead of loaded, and no issue selected (`src/tracker`). | [results-tracker.md](results-tracker.md)       |
 
 ## Run
 
@@ -15,6 +16,7 @@ Build the package first, then the benchmark.
 pnpm --filter solid-optimizer build
 pnpm --filter runtime-bench bench
 pnpm --filter runtime-bench bench --app hackernews
+pnpm --filter runtime-bench bench --app tracker
 ```
 
 `--app <name>` picks the app, `demo` by default. `--runs <n>` sets the samples per timing, 15 by default. Chromium comes from Playwright: run `pnpm --filter runtime-bench exec playwright install chromium` if it is missing.
@@ -34,7 +36,7 @@ Timings run the two builds in turns, after 3 warmup samples, so drift in machine
 - Heap is the JavaScript heap 200 mounted copies hold, per copy, read through the DevTools protocol after a full garbage collection.
 - `renderToString` runs in a separate Node process per sample, so the two builds do not share JIT state.
 
-Before timing, the benchmark checks that both builds render the same markup, that hydration leaves the server's markup as it was, and that a click after hydration updates the page: the demo's counter, or Hacker News's comment toggle.
+Before timing, the benchmark checks that both builds render the same markup, that hydration leaves the server's markup as it was, and that a click after hydration updates the page: the demo's counter, Hacker News's comment toggle, or the tracker's first star.
 
 ## Limits
 

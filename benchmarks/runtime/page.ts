@@ -93,6 +93,8 @@ export function instrument(): void {
   // The markup with comments and hydration keys left out and attributes
   // sorted. The optimized build can move an attribute into a template, which
   // changes the order attributes are set in but not what the element has.
+  // A class is compared as its list of names: the server writes a class
+  // object with spaces where a name is off, and hydration keeps them.
   function write(node: Node): string {
     if (node instanceof Text) {
       return node.data;
@@ -102,7 +104,9 @@ export function instrument(): void {
     }
     const attributes: string[] = [];
     for (const attribute of node.attributes) {
-      if (attribute.name !== '_hk') {
+      if (attribute.name === 'class') {
+        attributes.push(` class="${[...node.classList].join(' ')}"`);
+      } else if (attribute.name !== '_hk') {
         attributes.push(` ${attribute.name}="${attribute.value}"`);
       }
     }
