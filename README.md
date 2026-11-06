@@ -131,6 +131,7 @@ Each line is a pass, a reason, how many times it happened, and the names it happ
 
 - `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
+- `component-write` means the component's statements assign to something declared outside it, like a counter at the top of the module. A copy's statements run before the JSX around the call, so that JSX would see the write too early.
 - `call-spread` and `call-namespace` mean the call site passes a spread or a namespaced attribute. `call-ref` means its `ref` is an expression other than a name, a function, or an array of them, and `ref-use` means the component uses `props.ref` other than as a `ref`.
 - `no-host` means the component has statements, and the call is not in JSX that a component or one of Solid's callbacks returns. A `<Show>` child or a `fallback` is one such place.
 - `size` means the copies would be larger than the calls.

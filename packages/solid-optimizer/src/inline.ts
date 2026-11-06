@@ -344,6 +344,50 @@ function containsReturn(node: Node): boolean {
 }
 
 /**
+ * Collects the nodes an assignment target writes through: an identifier, or
+ * the root of a member chain, like `cache` in `cache.items[0] = x`. A root
+ * that is not a name, like a call, is collected as it is.
+ */
+function collectWriteRoots(target: Node, roots: Node[]): void {
+  switch (target.type) {
+    case 'MemberExpression':
+      collectWriteRoots(target.object, roots);
+      break;
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSNonNullExpression':
+    case 'TSTypeAssertion':
+      collectWriteRoots(target.expression, roots);
+      break;
+    case 'ObjectPattern':
+      for (const property of target.properties) {
+        collectWriteRoots(
+          property.type === 'RestElement' ? property.argument : property.value,
+          roots,
+        );
+      }
+      break;
+    case 'ArrayPattern':
+      for (const element of target.elements) {
+        if (element) {
+          collectWriteRoots(element, roots);
+        }
+      }
+      break;
+    case 'AssignmentPattern':
+      collectWriteRoots(target.left, roots);
+      break;
+    case 'RestElement':
+      collectWriteRoots(target.argument, roots);
+      break;
+    default:
+      roots.push(target);
+      break;
+  }
+}
+
+/**
  * Whether Solid would pass an attribute expression as a getter. The JSX
  * transform wraps any expression that reads a member or calls a function.
  */
@@ -698,6 +742,38 @@ class Inliner {
     return undefined;
   }
 
+  /**
+   * Whether statements assign, update, or delete through a binding declared
+   * outside `scope`, or through a global. Writes inside nested functions
+   * count too, since a function can run right away, like a memo's.
+   */
+  private writesOutside(statements: readonly Statement[], scope: Scope): boolean {
+    const roots: Node[] = [];
+    const visit = (node: Node): void => {
+      if (node.type === 'AssignmentExpression') {
+        collectWriteRoots(node.left, roots);
+      } else if (node.type === 'UpdateExpression') {
+        collectWriteRoots(node.argument, roots);
+      } else if (node.type === 'UnaryExpression' && node.operator === 'delete') {
+        collectWriteRoots(node.argument, roots);
+      }
+      forEachChild(node, visit);
+    };
+    for (const statement of statements) {
+      visit(statement);
+    }
+    for (const root of roots) {
+      if (root.type !== 'Identifier') {
+        return true;
+      }
+      const target = this.context.scopes.references.get(root);
+      if (!target || !isWithinScope(target.scope, scope)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private analyzeComponent(binding: Binding): Component | undefined {
     if (!isCapitalized(binding.name)) {
       return undefined;
@@ -762,6 +838,12 @@ class Inliner {
     }
     if (usesFunctionContext(this.context, fn.body)) {
       this.reason = 'component-this';
+      return undefined;
+    }
+    // A copy's statements run before any JSX of the function they move into,
+    // so JSX there could read a value they write later than it should.
+    if (this.writesOutside(statements, scope)) {
+      this.reason = 'component-write';
       return undefined;
     }
 

@@ -346,6 +346,55 @@ function App() {
   });
 });
 
+describe('statement order', () => {
+  // A copy's statements run before the JSX of the function they move into.
+  // A component whose statements write outside itself stays a call, so JSX
+  // that reads the value still sees each write in order.
+  it('keeps a component that writes outside itself', async () => {
+    const code = await expectSameBehavior(
+      'statement-order',
+      app(`let mounts = 0;
+function Row() {
+  mounts += 1;
+  return <li data-mount={mounts} />;
+}
+function App() {
+  return (
+    <ul>
+      <li data-mount={mounts} />
+      <Row />
+      <Row />
+    </ul>
+  );
+}`),
+    );
+    expect(code).toContain('createComponent(Row');
+  });
+
+  it('keeps a component that writes outside itself in an unrolled list', async () => {
+    const code = await expectSameBehavior(
+      'statement-order-list',
+      app(
+        `const ROWS = ['a', 'b'];
+let mounts = 0;
+function Row(props) {
+  mounts += 1;
+  return <li data-mount={mounts}>{props.name}</li>;
+}
+function App() {
+  return (
+    <ul>
+      <For each={ROWS}>{(row) => <Row name={row} />}</For>
+    </ul>
+  );
+}`,
+        "import { For } from 'solid-js';",
+      ),
+    );
+    expect(code).toContain('createComponent(Row');
+  });
+});
+
 describe('props.children', () => {
   it('renders children read more than once', async () => {
     const code = await expectSameBehavior(
