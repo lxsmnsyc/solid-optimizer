@@ -235,7 +235,7 @@ This is less common than the items above. Do it only if step 0 finds it.
 
 ## 11. Runtime helpers in the size estimate
 
-Status: researched. The local part is done. Whole-program helper tracking is not planned, but `examples/kobalte` is a case the local part does not catch.
+Status: done for chunk mode. In `renderChunk`, each chunk is also built with `alwaysInline`, and the smaller one, minified and gzipped, is kept. `examples/kobalte` drops from 18.20 kB to 12.28 kB gzipped in the `default` and `single` builds, and the demo and Hacker News do not change. Module mode and a runtime in another chunk, like the `vendor` build, are not covered.
 
 `examples/kobalte` saves 4.3% with the estimate, and 34% with `alwaysInline` (19.01 kB to 12.57 kB gzipped, one chunk). Its three `Button`s and two `Link`s stay calls, since each copy repeats Kobalte's signal, `createTagName`, and three memos. Inlining all of them leaves no `<Dynamic>`, `merge()`, or `omit()` in the app, and those runtime parts are most of the difference. A per-component credit cannot see that.
 

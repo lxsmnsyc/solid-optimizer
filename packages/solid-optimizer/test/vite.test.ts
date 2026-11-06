@@ -468,6 +468,44 @@ describe('solid-optimizer/vite', () => {
     );
   });
 
+  it('keeps the smaller of a chunk with every component inlined and one the estimate picks', async () => {
+    // The estimate keeps each `ButtonRoot` a call, since its copy repeats
+    // three memos. Inlining all three leaves no `<Dynamic>`, `merge()`, or
+    // `omit()` in the chunk, which makes it smaller.
+    const skips: string[] = [];
+    const chunks = await bundle('headless-many', {
+      optimizer: {
+        report: (report) => {
+          skips.push(...report.skips.map((skip) => `${skip.reason} ${skip.name}`));
+        },
+      },
+    });
+    const code = chunks.map((chunk) => chunk.code).join('\n');
+    expect(code).not.toContain('Polymorphic');
+    expect(code).not.toContain('ButtonRoot');
+    expect(skips.filter((skip) => skip.startsWith('size'))).toEqual([]);
+    // An inlined attribute can move into the template, which changes the
+    // order attributes are set in, but not what each element has.
+    const text = (markup: string): string =>
+      markup
+        .replaceAll(/<!--[^>]*-->/g, '')
+        .replaceAll(/<([a-z]+)((?: [a-z-]+="[^"]*")+)>/g, (_, tag: string, attributes: string) => {
+          const sorted = attributes
+            .trim()
+            .split(/ (?=[a-z-]+=)/)
+            .sort()
+            .join(' ');
+          return `<${tag} ${sorted}>`;
+        });
+    expect(text(await load('headless-many'))).toBe(
+      text(await load('headless-many', { optimizer: false })),
+    );
+
+    // Copies of a component with statements, used many times, are larger.
+    const wrappers = await bundle('repeated-wrapper');
+    expect(wrappers.map((chunk) => chunk.code).join('\n')).toContain('createComponent(Field');
+  });
+
   it('runs code-split chunks that share the runtime', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
     const optimized = text(await load('split'));

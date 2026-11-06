@@ -95,7 +95,7 @@ export default defineConfig({
 
 The plugin optimizes in one of two modes.
 
-- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. Components imported from other modules are inlined there too, so the bundler drops them and the runtime code only they used. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk.
+- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. Components imported from other modules are inlined there too, so the bundler drops them and the runtime code only they used. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk. Each chunk is also built with every component inlined that can be, and the smaller of the two, minified and gzipped, is kept. See [Only where it is smaller](#only-where-it-is-smaller).
 - **Module mode** is for everything else. Each module is optimized before the official plugin lowers it, with the components it imports from other modules copied in first. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so every decision depends only on the modules. Two modules that import each other do not copy each other's components.
 
 Both modes fold constants imported from other modules in the project.
@@ -239,6 +239,8 @@ Every copy repeats the component's own code, so inlining a component at many cal
 - A call in its body that can only inline in a copy counts too, such as a call that spreads a `merge()` or `omit()` view, which each call site resolves. The copy is measured with that call inlined, and the called component's declaration goes away when nothing else uses it.
 
 A component inlines only when its copies are no larger. A small component, or one used once, inlines at every call. A wrapper used many times, whose root is another component, like most wrappers of a component library, stays a component.
+
+The estimate weighs each component on its own, so it cannot see runtime code that only goes once every call that needs it is inlined, like `<Dynamic>`, `merge()`, and `omit()` behind a headless library's components. In chunk mode, the Vite plugin also builds each chunk with every component inlined that can be, as `alwaysInline` does, minifies and gzips both, and keeps the smaller one. The runtime only shrinks when it is in the same chunk as the calls.
 
 In the Vite plugin, a component copied from another module counts the module's share of its declaration: all of it when the importer is its only user, and one part in n when n modules use it, since it goes away once every one of them copies it. The plugin reads which modules use each export from the files the entries reach, and from the module scripts of an HTML entry. A re-export, a dynamic import, a use as a value, or a user the component's module imports back keeps the declaration whole.
 

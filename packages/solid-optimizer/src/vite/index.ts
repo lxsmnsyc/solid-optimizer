@@ -17,6 +17,7 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import remapping from '@jridgewell/remapping';
 import MagicString from 'magic-string';
 import type * as SolidCompiler from '@solidjs/compiler';
@@ -24,7 +25,7 @@ import type { Options as SolidPluginOptions } from '@solidjs/vite-plugin';
 import solidPlugin from '@solidjs/vite-plugin';
 import type { Node, Program } from 'oxc-parser';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
-import { createFilter, transformWithOxc } from 'vite';
+import { createFilter, minifySync, transformWithOxc } from 'vite';
 import type { CompileOptions, CompileResult, ModuleConstants } from '../compile';
 import { compile, readModuleConstants } from '../compile';
 import { collectParents, forEachChild, isIntrinsicTag, parse } from '../ast';
@@ -160,6 +161,27 @@ function spreadsOntoElement(code: string, filename: string): boolean {
   };
   visit(parse(filename, code));
   return found;
+}
+
+/** A chunk optimized and lowered one way, ready to be compared with another. */
+interface ChunkCandidate {
+  readonly optimized: CompileResult;
+  readonly lowered: SolidCompiler.TransformResult;
+  readonly linked: { code: string; map: string };
+}
+
+/**
+ * How many bytes a chunk takes once minified and gzipped. Minifying drops
+ * the runtime code nothing calls anymore, which is what the comparison is
+ * for, so it counts even when the build does not minify.
+ */
+function shippedSize(candidate: ChunkCandidate, filename: string): number {
+  const minified = minifySync(filename, candidate.linked.code, {
+    module: true,
+    compress: true,
+    mangle: true,
+  });
+  return gzipSync(minified.code).length;
 }
 
 function loadCompiler(): Compiler {
@@ -1322,29 +1344,54 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
             filename: `${filename}.jsx`,
             sourceMap: wantsMaps(),
           });
-        let optimized: CompileResult | undefined = compile(chunkCode, {
+        const chunkOptions: CompileOptions = {
           ...compileOptions,
           filename,
           sourceMap: wantsMaps(),
           constantVars: true,
           builtInAliases: runtime.builtInAliases,
-        });
+        };
+        // Each module keeps the helpers its own JSX needs, and a merged tree
+        // can need one none of them did. Such a candidate is left out.
+        let missing: MissingHelperError | undefined;
+        const lowerCandidate = (optimized: CompileResult): ChunkCandidate | undefined => {
+          const lowered = lowerChunk(optimized.code);
+          try {
+            const linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
+            return { optimized, lowered, linked };
+          } catch (error) {
+            if (!(error instanceof MissingHelperError)) {
+              throw error;
+            }
+            missing ??= error;
+            return undefined;
+          }
+        };
+        let chosen = lowerCandidate(compile(chunkCode, chunkOptions));
+        // The estimate weighs each component on its own. It cannot see the
+        // runtime code that only leaves the chunk once every call that needs
+        // it is inlined, like `<Dynamic>`, `merge()`, and `omit()` behind a
+        // headless library's components. So the chunk is also built with
+        // every component inlined that can be, and the smaller one is kept,
+        // as minified and gzipped.
+        if (compileOptions.alwaysInline !== true) {
+          const always = compile(chunkCode, { ...chunkOptions, alwaysInline: true });
+          const other = always.code === chosen?.optimized.code ? undefined : lowerCandidate(always);
+          if (other && (!chosen || shippedSize(other, filename) < shippedSize(chosen, filename))) {
+            chosen = other;
+          }
+        }
+        let optimized: CompileResult | undefined;
         let linked: { code: string; map: string };
         let lowered: SolidCompiler.TransformResult;
-        try {
-          lowered = lowerChunk(optimized.code);
-          linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);
+        if (chosen) {
+          ({ optimized, lowered, linked } = chosen);
           addSkips(this, optimized.skipped);
-        } catch (error) {
-          if (!(error instanceof MissingHelperError)) {
-            throw error;
-          }
-          // Each module keeps the helpers its own JSX needs, and a merged
-          // tree can need one none of them did. Without it, the chunk is
-          // lowered as its modules were written. Chunk mode never hydrates,
-          // so the chunks do not have to match anything else.
-          this.warn(`${error.message} ${filename} is not optimized.`);
-          optimized = undefined;
+        } else {
+          // Without the helper, the chunk is lowered as its modules were
+          // written. Chunk mode never hydrates, so the chunks do not have to
+          // match anything else.
+          this.warn(`${missing?.message ?? ''} ${filename} is not optimized.`);
           addSkips(this, [{ pass: 'inline', reason: 'missing-helper', name: filename }]);
           lowered = lowerChunk(chunkCode);
           linked = linkHelpers(lowered.code, filename, moduleName, runtime.helpers);

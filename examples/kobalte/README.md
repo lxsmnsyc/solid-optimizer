@@ -22,4 +22,5 @@ Set `REPORT=1` to print what the optimizer leaves alone in each build, and why.
 Kobalte publishes its JSX through the `solid` export condition, so the library is optimized with the app. Each component is an alias of a root, like `const Separator = SeparatorRoot`, and each root renders `<Polymorphic as="hr" ref={[setRef, ...]} {...others} />`, which renders `<Dynamic>`.
 
 - `Badge` and both `Separator`s inline into `Toolbar`. Their `Polymorphic` and `<Dynamic>` become a `<span>` and two `<hr>`s in `Toolbar`'s template.
-- The three `Button`s and two `Link`s stay calls. Each copy would repeat Kobalte's signal, `createTagName`, and the button's three memos, so the estimate turns them down. With `alwaysInline`, they inline too, and the app no longer needs `<Dynamic>`, `merge()`, or `omit()`. See item 11 in the [roadmap](../../roadmap.md).
+- The three `Button`s and two `Link`s inline too, in the `default` and `single` builds. The estimate turns them down, since each copy repeats Kobalte's signal, `createTagName`, and the button's three memos. The chunk built with every component inlined is smaller, since it no longer needs `<Dynamic>`, `merge()`, or `omit()`, so that one is kept.
+- In the `vendor` build, Kobalte is in another chunk than `Toolbar`, so its components stay calls.
