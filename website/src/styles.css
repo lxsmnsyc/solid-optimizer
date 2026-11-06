@@ -1135,6 +1135,16 @@ pre {
   color: var(--fg);
 }
 
+.footer-note a {
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.footer-note a:hover {
+  color: var(--fg);
+}
+
 /* twinkleplop token types, grouped the way its GitHub theme colors them. */
 
 .twinkleplop :is(.keyword, .operator, .unit, .lifetime) {

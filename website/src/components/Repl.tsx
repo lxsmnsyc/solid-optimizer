@@ -84,16 +84,14 @@ function Metric(props: {
 }
 
 export function Repl(): JSX.Element {
-  const shared = readShared();
-  const initialFiles = shared?.files ?? PRESETS[0].files;
+  // The server has no URL hash, so a shared link applies after hydration.
+  // See `onSettled` below.
+  const initialFiles = PRESETS[0].files;
 
   const [names, setNames] = createSignal<string[]>(getFileNames(initialFiles));
   const [active, setActive] = createSignal(initialFiles[0].name);
-  const [preset, setPreset] = createSignal(shared ? '' : PRESETS[0].id);
-  const [options, setOptions] = createSignal<PipelineOptions>({
-    ...DEFAULT_OPTIONS,
-    ...shared?.options,
-  });
+  const [preset, setPreset] = createSignal(PRESETS[0].id);
+  const [options, setOptions] = createSignal<PipelineOptions>(DEFAULT_OPTIONS);
   const [stage, setStage] = createSignal<Stage>('output');
   const [baseline, setBaseline] = createSignal(false);
   const [status, setStatus] = createSignal<Status>('waiting');
@@ -197,14 +195,18 @@ export function Repl(): JSX.Element {
 
   function loadPreset(id: string): void {
     const found = findPreset(id);
-    if (!found) {
-      return;
+    if (found) {
+      showFiles(found.files, id);
     }
-    loadFiles(found.files);
-    const first = found.files[0].name;
-    setNames(getFileNames(found.files));
+  }
+
+  /** Replaces every file, and marks the preset they come from, or none. */
+  function showFiles(files: VirtualFile[], presetId: string): void {
+    loadFiles(files);
+    const first = files[0].name;
+    setNames(getFileNames(files));
     setActive(first);
-    setPreset(id);
+    setPreset(presetId);
     const state = states.get(first);
     if (view && state) {
       view.setState(state);
@@ -338,6 +340,11 @@ export function Repl(): JSX.Element {
   let root: HTMLDivElement | undefined;
 
   onSettled(() => {
+    const shared = readShared();
+    if (shared) {
+      setOptions({ ...DEFAULT_OPTIONS, ...shared.options });
+      showFiles(shared.files, '');
+    }
     // The compilers are several megabytes of WebAssembly, so they load once
     // the REPL comes near the screen.
     const observer = new IntersectionObserver(
