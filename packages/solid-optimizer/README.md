@@ -352,7 +352,7 @@ This follows the `optimize` option of `@solidjs/compiler` ([solidjs/solid#3231](
 
 A built-in only folds when the tag resolves to Solid's component. The tag must bind to nothing, or be imported from one of `moduleSources`. A tag with a spread attribute or a function child never folds. `<Portal>`, `<Loading>`, `<Errored>`, and `<Reveal>` never fold.
 
-A call to Solid's `lazy` is marked `/* @__PURE__ */`, so the bundler drops one that a folded branch left unused, along with its chunk.
+A call to Solid's `lazy` is marked `/* @__PURE__ */`, so the bundler drops one that a folded branch left unused, along with its chunk. `createContext` is marked too, and so are `createSignal` and `createStore` whose first argument is a literal, an object, or an array.
 
 A condition that is discarded but has side effects still runs. `[effect()] && value` becomes `([effect()], value)`.
 
