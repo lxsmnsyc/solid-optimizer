@@ -465,7 +465,8 @@ function VitePlugin(): JSX.Element {
               out of the bundle. Components imported from other modules are inlined there too, so
               the bundler drops them and the runtime code only they used. JSX is then kept through
               bundling. Each chunk is optimized as a whole and then lowered by Solid’s JSX
-              transform, so a component inlines anywhere in its chunk.
+              transform, so a component inlines anywhere in its chunk. Each chunk is also built with
+              every component inlined that can be, and the smaller one is kept.
             </p>
           </div>
           <div class="doc-card">
@@ -948,6 +949,13 @@ export function App() {
             <code>alwaysInline</code>
           </a>{' '}
           to inline every component that can be.
+        </p>
+        <p>
+          The estimate weighs each component on its own, so it cannot see runtime code that only
+          goes once every call that needs it is inlined, like <code>&lt;Dynamic&gt;</code>,{' '}
+          <code>merge()</code>, and <code>omit()</code> behind a headless library’s components. In
+          chunk mode, each chunk is also built with every component inlined that can be, and the
+          smaller one, minified and gzipped, is kept.
         </p>
         <h3>Accepted differences</h3>
         <ul>
