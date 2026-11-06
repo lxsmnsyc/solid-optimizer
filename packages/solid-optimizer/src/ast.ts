@@ -124,7 +124,8 @@ export function unwrap(node: Expression): Expression {
     current.type === 'TSAsExpression' ||
     current.type === 'TSSatisfiesExpression' ||
     current.type === 'TSNonNullExpression' ||
-    current.type === 'TSTypeAssertion'
+    current.type === 'TSTypeAssertion' ||
+    current.type === 'TSInstantiationExpression'
   ) {
     current = current.expression;
   }
