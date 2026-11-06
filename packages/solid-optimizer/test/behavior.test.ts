@@ -628,6 +628,27 @@ function App() {
   });
 });
 
+describe('derived arrows', () => {
+  it('renders a derived arrow the same after its call becomes its body', async () => {
+    const code = await expectSameBehavior(
+      'arrow-derived',
+      app(`function App() {
+  const [open, setOpen] = createSignal(false);
+  const label = () => (open() ? 'Close' : 'Open');
+  const mark = () => '!';
+  return (
+    <main>
+      <button type="button" onClick={() => setOpen(!open())}>{label()}</button>
+      <p title={mark()}>{mark()}</p>
+    </main>
+  );
+}`),
+      ['button', 'button'],
+    );
+    expect(code).not.toContain('label');
+  });
+});
+
 describe('createMemo', () => {
   it('inlines a memo of a new object read once', async () => {
     const code = await expectSameBehavior(

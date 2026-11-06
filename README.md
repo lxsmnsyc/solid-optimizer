@@ -294,6 +294,8 @@ return <p>{size() * 2}</p>;
 
 becomes `<p>{6}</p>`.
 
+A plain arrow that only returns an expression, like `const label = () => (props.open ? 'Close' : 'Open')`, has no cache and no owner, so each call becomes its body. That needs every call to come after the declaration with no arguments, nothing else to use the arrow, and every name in the body to mean the same at the call. With more than one call, the body is copied only when the copies are no larger than the arrow and its calls, minified.
+
 Solid's `children` helper over JSX, read once as an element's child, becomes that JSX. The helper resolves JSX the same way inserting it does, and nothing makes it run again.
 
 ```jsx

@@ -163,7 +163,7 @@ describe('memo inlining', () => {
     const cases = [
       component('const size = createMemo(() => 3);\n  use(size);', '<p>{size()}</p>'),
       component(
-        'const read = () => size();\n  const size = createMemo(() => 3);',
+        'function read() {\n    return size();\n  }\n  const size = createMemo(() => 3);',
         '<p>{read()}</p>',
       ),
     ];
@@ -274,6 +274,88 @@ export const View = () => <main class={'dark'} />;
         '<p>{size()}</p>',
         "import { createSignal } from './signals';",
       ),
+    ];
+    for (const code of cases) {
+      expect(memos(code)).toBe(code);
+    }
+  });
+});
+
+describe('derived arrows', () => {
+  it('replaces the call of an arrow called once', () => {
+    const output = memos(
+      component(
+        "const label = () => (props.open ? 'Close' : 'Open');",
+        '<button>{label()}</button>',
+      ),
+    );
+    expect(output).toContain("return <button>{(props.open ? 'Close' : 'Open')}</button>;");
+    expect(output).not.toContain('const label');
+  });
+
+  it('wraps a body that is not primary outside a JSX container', () => {
+    const output = memos(
+      component('const total = () => a() + b();', '<p onClick={() => log(total() * 2)} />'),
+    );
+    expect(output).toContain('return <p onClick={() => log((a() + b()) * 2)} />;');
+  });
+
+  it('copies a short body to every call', () => {
+    const output = memos(`const label = () => 'x';
+export const View = () => <p title={label()}>{label()}{label()}</p>;
+`);
+    expect(output).toBe(`
+export const View = () => <p title={'x'}>{'x'}{'x'}</p>;
+`);
+  });
+
+  it('inlines arrows that call each other, in either order', () => {
+    for (const order of [
+      'const b = () => props.x;\n  const a = () => b() + 1;',
+      'const a = () => b() + 1;\n  const b = () => props.x;',
+    ]) {
+      const output = memos(component(order, '<p>{a()}</p>'));
+      expect(output).toContain('return <p>{(props.x) + 1}</p>;');
+    }
+  });
+
+  it('copies a body that reads a constant signal after the signal is replaced', () => {
+    const output = memos(
+      component(
+        'const [size] = createSignal(3);\n  const big = () => size() > props.limit;',
+        '<p>{big()}</p>',
+        "import { createSignal } from 'solid-js';",
+      ),
+    );
+    expect(output).toContain('return <p>{(3) > props.limit}</p>;');
+  });
+
+  it('keeps an arrow that is more than a derivation', () => {
+    const cases = [
+      // Used as a value, like a handler.
+      component('const go = () => props.onGo();', '<button onClick={go}>{go()}</button>'),
+      // Long, and called more than once.
+      component(
+        "const label = () => (props.open ? 'Close' : 'Open');",
+        '<button title={label()}>{label()}</button>',
+      ),
+      // Takes a parameter, is async, or is called with arguments or optionally.
+      component('const twice = (n) => n * 2;', '<p>{twice(2)}</p>'),
+      component('const load = async () => fetch(url);', '<p>{load()}</p>'),
+      component('const read = () => value;', '<p>{read(1)}{read?.()}</p>'),
+      // A name that means something else at the call, and `this`.
+      component(
+        'const v = () => a();',
+        '<ul><For each={items()}>{(a) => <li>{v()}</li>}</For></ul>',
+        "import { For } from 'solid-js';",
+      ),
+      `export const view = {\n  label() {\n    const self = () => this.name;\n    return function () {\n      return self();\n    };\n  },\n};\n`,
+      // Called before its declaration, which throws.
+      component('const early = read();\n  const read = () => 1;', '<p>{early}</p>'),
+      // The result called, tagged, or deleted, where `(a.b)` passes or deletes `a`'s property.
+      component('const l = () => a.b;', '<p>{l()()}{l()`x`}{String(delete l())}</p>'),
+      // Exported.
+      `export const label = () => 'x';\nexport const View = () => <p>{label()}</p>;\n`,
     ];
     for (const code of cases) {
       expect(memos(code)).toBe(code);

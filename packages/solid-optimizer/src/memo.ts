@@ -56,6 +56,19 @@
  * becomes `<p>{3}</p>`. A signal with a value that is not a function takes no
  * owner and no hydration id, so removing it changes nothing else.
  *
+ * A plain arrow that only returns an expression, like a derived accessor,
+ * has no cache and no owner, so each call already runs its body again. The
+ * calls can become the body:
+ *
+ * ```jsx
+ * const label = () => (props.open ? 'Close' : 'Open');
+ * return <button>{label()}</button>;
+ * ```
+ *
+ * becomes `<button>{(props.open ? 'Close' : 'Open')}</button>`. With more than
+ * one call, the body is copied only when the copies are no larger than the
+ * arrow and its calls.
+ *
  * # Accepted differences
  *
  * - The computation first runs when its reader first runs, instead of when
@@ -63,6 +76,9 @@
  * - The memo no longer takes a slot in the owner tree, which shifts the
  *   hydration keys after it. A server build and its client build must
  *   compile with the same options.
+ * - A call that runs before the declaration, from a hoisted function the
+ *   declaration comes before, throws on the original and returns the value
+ *   on the output.
  */
 import type {
   ArrowFunctionExpression,
@@ -73,12 +89,13 @@ import type {
   Node,
   VariableDeclarator,
 } from 'oxc-parser';
-import { isFunctionNode, isIntrinsicTag, unwrap } from './ast';
+import { isFunctionNode, isIntrinsicTag, isPrimary, unwrap } from './ast';
 import type { PassContext } from './context';
 import { getText, recordSkip, solidExport } from './context';
 import { usesFunctionContext } from './inline';
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
+import { compactLength } from './size';
 
 /**
  * Props of Solid's built-in components that are read inside a memo, once per update.
@@ -163,6 +180,9 @@ function returnedExpression(fn: FunctionNode | ArrowFunctionExpression): Express
 
 class MemoInliner {
   changed = false;
+
+  /** Ranges of the source rewritten so far in this run. */
+  private readonly edited: [number, number][] = [];
 
   constructor(private readonly context: PassContext) {}
 
@@ -277,8 +297,10 @@ class MemoInliner {
         parent?.type === 'Property' ||
         (parent?.type === 'CallExpression' && parent.callee !== call);
       this.context.s.overwrite(call.start, call.end, bare ? text : `(${text})`);
+      this.edited.push([call.start, call.end]);
     }
     this.context.s.remove(statement.start, statement.end);
+    this.edited.push([statement.start, statement.end]);
     this.changed = true;
     return true;
   }
@@ -520,11 +542,14 @@ class MemoInliner {
     if (kind === 'children' && container) {
       // The JSX takes the place of its container, so it joins the template around it.
       this.context.s.overwrite(container.start, container.end, getText(this.context, expression));
+      this.edited.push([container.start, container.end]);
     } else {
       // The read sits in a JSX container, which takes any expression.
       this.context.s.overwrite(call.start, call.end, getText(this.context, expression));
+      this.edited.push([call.start, call.end]);
     }
     this.context.s.remove(statement.start, statement.end);
+    this.edited.push([statement.start, statement.end]);
     this.changed = true;
     return true;
   }
@@ -583,6 +608,91 @@ class MemoInliner {
     }
   }
 
+  /**
+   * Replaces every call of `const name = () => expression` with the
+   * expression. Each reference has to be a call with no arguments after the
+   * declaration, and every name in the body has to mean the same at the call.
+   */
+  private tryInlineArrow(declarator: VariableDeclarator, binding: Binding): void {
+    const fn = declarator.init ? unwrap(declarator.init) : undefined;
+    if (fn?.type !== 'ArrowFunctionExpression' || fn.async || fn.params.length > 0) {
+      return;
+    }
+    const body = returnedExpression(fn);
+    const statement = this.context.parents.get(declarator);
+    if (
+      !body ||
+      statement?.type !== 'VariableDeclaration' ||
+      statement.declarations.length !== 1 ||
+      // Other modules can call an exported arrow.
+      this.context.parents.get(statement)?.type === 'ExportNamedDeclaration'
+    ) {
+      return;
+    }
+    const calls: CallExpression[] = [];
+    for (const reference of binding.references) {
+      const call = this.context.parents.get(reference);
+      if (
+        call?.type !== 'CallExpression' ||
+        call.callee !== reference ||
+        call.optional ||
+        call.arguments.length > 0 ||
+        call.start < declarator.end
+      ) {
+        // The arrow is used as a value, like an event handler. That is not a derivation.
+        return;
+      }
+      // `l()()` calls the result with no `this`, but `(a.b)()` passes `a`, and
+      // `delete (a.b)` deletes what `delete l()` leaves alone.
+      const parent = this.context.parents.get(call);
+      if (
+        (parent?.type === 'CallExpression' && parent.callee === call) ||
+        (parent?.type === 'TaggedTemplateExpression' && parent.tag === call) ||
+        (parent?.type === 'UnaryExpression' && parent.operator === 'delete')
+      ) {
+        return;
+      }
+      calls.push(call);
+    }
+    if (calls.length === 0) {
+      return;
+    }
+    // The body is copied from the source, so it must not hold an edit from this run.
+    // The next round sees the edit.
+    for (const [start, end] of this.edited) {
+      if (start < statement.end && end > statement.start) {
+        return;
+      }
+    }
+    const text = getText(this.context, body);
+    // Minified, the arrow costs `const a=()=>body;`, 13 characters besides the
+    // body, and each call `a()` costs 3. Copying adds the body to every call
+    // but one, and removes the rest.
+    const length = compactLength(text);
+    if ((calls.length - 1) * length > calls.length * 3 + 13) {
+      return;
+    }
+    if (usesFunctionContext(this.context, fn)) {
+      return;
+    }
+    for (const call of calls) {
+      if (!this.resolvesSameAt(body, call, binding)) {
+        return;
+      }
+    }
+    const bare = isPrimary(body);
+    for (const call of calls) {
+      const parent = this.context.parents.get(call);
+      const inContainer =
+        parent?.type === 'JSXExpressionContainer' && body.type !== 'SequenceExpression';
+      this.context.s.overwrite(call.start, call.end, bare || inContainer ? text : `(${text})`);
+      this.edited.push([call.start, call.end]);
+    }
+    this.context.s.remove(statement.start, statement.end);
+    this.edited.push([statement.start, statement.end]);
+    this.changed = true;
+  }
+
   run(): void {
     for (const scope of new Set(this.context.scopes.scopes.values())) {
       for (const binding of scope.bindings.values()) {
@@ -597,9 +707,13 @@ class MemoInliner {
         if (declaration.id.type === 'ArrayPattern') {
           // A signal takes no owner, so one outside any function works the same.
           this.tryInlineSignal(declaration, binding);
-        } else if (declaration.id === binding.identifier && scope.parent !== undefined) {
+        } else if (declaration.id === binding.identifier) {
+          // An arrow has no owner, so one outside any function works the same.
+          this.tryInlineArrow(declaration, binding);
           // A memo outside any function has no owner, and disposes differently.
-          this.tryInline(declaration, binding);
+          if (scope.parent !== undefined) {
+            this.tryInline(declaration, binding);
+          }
         }
       }
     }
