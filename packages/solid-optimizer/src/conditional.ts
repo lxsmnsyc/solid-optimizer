@@ -10,11 +10,19 @@
  * A `<Switch>` becomes a chain, `a ? A : b ? B : fallback`. The transform
  * gives each later condition its own memo, read only when the ones before it
  * are falsy, as `<Switch>` reads its `<Match>` conditions.
+ *
+ * A callback child like `{(user) => <b>{user().name}</b>}` becomes its body,
+ * with each `user()` read as `when` again. Only a `when` that only reads
+ * values is copied, so reading it again gives the same value. `<Show>`'s
+ * accessor throws when it is read after the condition turns falsy, and the
+ * copy reads the falsy value instead.
  */
-import type { JSXAttribute, JSXChild, JSXElement, Node } from 'oxc-parser';
+import type { ArrowFunctionExpression, JSXAttribute, JSXChild, JSXElement, Node } from 'oxc-parser';
 import { forEachChild, isFunctionNode, isInsignificant, isIntrinsicTag, unwrap } from './ast';
 import type { PassContext } from './context';
 import { solidExport } from './context';
+import { findAttribute } from './jsx';
+import { lookup, scopeAt } from './scope';
 
 /**
  * How a lowered `<Show>` or `<Switch>` is written where it stands.
@@ -227,11 +235,24 @@ function branchOf(
   if (props === undefined || when === undefined) {
     return undefined;
   }
-  // A function child receives the narrowed value, which a ternary has no way
-  // to pass. A sole child that could hold a function, like `{render}`, counts
-  // too. Several children are an array, which is rendered as it is.
   const significant = significantChildren(element.children);
   const sole = significant.length === 1 ? significant[0] : undefined;
+
+  // A callback child becomes its body, with the narrowed value read as `when`.
+  const callback =
+    sole?.type === 'JSXExpressionContainer' && sole.expression.type !== 'JSXEmptyExpression'
+      ? unwrap(sole.expression)
+      : undefined;
+  if (callback?.type === 'ArrowFunctionExpression') {
+    const body = callbackBody(context, element, callback);
+    return body === undefined
+      ? undefined
+      : { when, children: body, fallback: props.get('fallback') };
+  }
+
+  // Any other function child also receives the narrowed value. A sole child
+  // that could hold a function, like `{render}`, counts too. Several
+  // children are an array, which is rendered as it is.
   if (
     sole?.type === 'JSXExpressionContainer' &&
     sole.expression.type !== 'JSXEmptyExpression' &&
@@ -259,6 +280,129 @@ function branchOf(
     children: significant.length > 0 ? `<>${inner}</>` : 'undefined',
     fallback: props.get('fallback'),
   };
+}
+
+/**
+ * The body of a callback child with each read of its parameter written as
+ * `when`, or `undefined` when that could change what the body renders.
+ */
+function callbackBody(
+  context: PassContext,
+  element: JSXElement,
+  callback: ArrowFunctionExpression,
+): string | undefined {
+  // `<Show>` only passes the value to a callback that takes a parameter, and
+  // calls it untracked. A body that is only JSX reads nothing as it is made.
+  const param = callback.params.at(0);
+  if (
+    callback.async ||
+    callback.body.type === 'BlockStatement' ||
+    callback.params.length !== 1 ||
+    param?.type !== 'Identifier'
+  ) {
+    return undefined;
+  }
+  const body = unwrap(callback.body);
+  if (body.type !== 'JSXElement' && body.type !== 'JSXFragment') {
+    return undefined;
+  }
+  const attribute = findAttribute(element, 'when');
+  const value = attribute?.value;
+  if (
+    value?.type !== 'JSXExpressionContainer' ||
+    value.expression.type === 'JSXEmptyExpression' ||
+    !isPlainRead(value.expression)
+  ) {
+    return undefined;
+  }
+  const when = value.expression;
+  const whenText = `(${context.s.slice(when.start, when.end)})`;
+
+  // Each name `when` reads has to mean the same thing where the body reads the parameter.
+  const names: Node[] = [];
+  collectReferences(context, when, names);
+  const binding = lookup(scopeAt(context.scopes, context.parents, param), param.name);
+  if (binding?.identifier !== param) {
+    return undefined;
+  }
+  const edits: { start: number; end: number; text: string }[] = [];
+  for (const reference of binding.references) {
+    const scope = scopeAt(context.scopes, context.parents, reference);
+    for (const name of names) {
+      if (
+        name.type !== 'Identifier' ||
+        lookup(scope, name.name) !== context.scopes.references.get(name)
+      ) {
+        return undefined;
+      }
+    }
+    const parent = context.parents.get(reference);
+    if (
+      parent?.type === 'CallExpression' &&
+      parent.callee === reference &&
+      parent.arguments.length === 0 &&
+      !parent.optional
+    ) {
+      edits.push({ start: parent.start, end: parent.end, text: whenText });
+    } else if (parent?.type === 'Property' && parent.shorthand) {
+      return undefined;
+    } else {
+      edits.push({ start: reference.start, end: reference.end, text: `(() => ${whenText})` });
+    }
+  }
+
+  // Write the body with the edits, in order.
+  edits.sort((a, b) => a.start - b.start);
+  let text = '';
+  let at = body.start;
+  for (const edit of edits) {
+    text += context.s.slice(at, edit.start) + edit.text;
+    at = edit.end;
+  }
+  return text + context.s.slice(at, body.end);
+}
+
+/**
+ * Whether an expression only reads values: names, members, literals,
+ * operators, and calls without arguments, like `user()` or `errors[id]`.
+ * Reading it again gives the same value, since nothing runs between reads.
+ */
+function isPlainRead(node: Node): boolean {
+  switch (node.type) {
+    case 'Identifier':
+    case 'Literal':
+    case 'ThisExpression':
+      return true;
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSNonNullExpression':
+    case 'ChainExpression':
+      return isPlainRead(node.expression);
+    case 'MemberExpression':
+      return isPlainRead(node.object) && (!node.computed || isPlainRead(node.property));
+    case 'CallExpression':
+      return node.arguments.length === 0 && isPlainRead(node.callee);
+    case 'UnaryExpression':
+      return node.operator !== 'delete' && isPlainRead(node.argument);
+    case 'BinaryExpression':
+    case 'LogicalExpression':
+      return isPlainRead(node.left) && isPlainRead(node.right);
+    case 'ConditionalExpression':
+      return isPlainRead(node.test) && isPlainRead(node.consequent) && isPlainRead(node.alternate);
+    default:
+      return false;
+  }
+}
+
+/** The identifiers in an expression that refer to a binding or a global. */
+function collectReferences(context: PassContext, node: Node, out: Node[]): void {
+  if (node.type === 'Identifier' && context.scopes.references.has(node)) {
+    out.push(node);
+  }
+  forEachChild(node, (child) => {
+    collectReferences(context, child, out);
+  });
 }
 
 /**

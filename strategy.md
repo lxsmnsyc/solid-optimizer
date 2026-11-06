@@ -346,9 +346,38 @@ The position decides how the ternary is written:
 
 A `<Show>` stays when:
 
-- It has a function child, or a sole child that could hold a function, like `{render}`. `<Show>` calls a function child with the narrowed value. Several children are an array, which it renders as it is.
+- It has a function child other than the callbacks below, or a sole child that could hold a function, like `{render}`. `<Show>` calls a function child with the narrowed value. Several children are an array, which it renders as it is.
 - It has `keyed`, a spread, a prop other than `when` and `fallback`, a repeated prop, or a string `fallback`.
 - It is an attribute's value, or part of an expression in a JSX container.
+
+### Callback children
+
+A callback child becomes its body, with each read of its parameter written as `when`:
+
+```jsx
+<Show when={issue.assignee} fallback={<span>?</span>}>
+  {(user) => <Avatar user={user()} />}
+</Show>;
+// becomes
+{
+  issue.assignee ? <Avatar user={issue.assignee} /> : <span>?</span>;
+}
+```
+
+`<Show>` passes the callback an accessor of a memo of `when`, and calls it untracked. The copy reads `when` again wherever the body reads the accessor. A use of the parameter other than a call becomes `() => when`.
+
+The rewrite only applies when reading `when` again gives the same value:
+
+- `when` only reads values: names, members, literals, operators, and calls without arguments, like `user()` or `errors[id]`. A call with arguments could do anything, so it keeps `<Show>`.
+- The callback takes one parameter, and its body is only JSX, which reads nothing as it is made.
+- Each name `when` reads means the same thing where the body reads the parameter. A row callback whose own parameter shadows a name in `when` keeps `<Show>`.
+
+#### Accepted differences
+
+- The body reads `when` itself instead of a memo of it. An effect in the body that reads `user()` now depends on what `when` reads, which gives it the same value.
+- `<Show>`'s accessor throws `Stale read from <Show>` when it is read after the condition turns falsy. The copy reads the falsy value instead.
+
+The tracker's assignee `<Show>` runs in each of its 40 rows. Against `<Show>` lowering without callbacks, its optimized build holds 10.7% less heap per mounted app and runs `renderToString` 15% faster.
 
 ### `<Switch>`
 

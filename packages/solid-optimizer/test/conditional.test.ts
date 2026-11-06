@@ -63,7 +63,23 @@ describe('the JSX it writes', () => {
   });
 
   it.each([
-    ['a callback child', '<div><Show when={p.a}>{(a) => <i>{a()}</i>}</Show></div>'],
+    [
+      'a callback whose when calls with arguments',
+      '<div><Show when={p.find(1)}>{(a) => <i>{a()}</i>}</Show></div>',
+    ],
+    [
+      'a callback with statements',
+      '<div><Show when={p.a}>{(a) => { const b = a(); return <i>{b}</i>; }}</Show></div>',
+    ],
+    ['a callback without a parameter', '<div><Show when={p.a}>{() => <i />}</Show></div>'],
+    [
+      'a callback that shadows a name when reads',
+      '<div><Show when={p.a}>{(a) => <For each={a()}>{(p) => <i>{a()}</i>}</For>}</Show></div>',
+    ],
+    [
+      'a callback that reads its value by shorthand',
+      '<div><Show when={p.a}>{(a) => <Card {...{ a }} />}</Show></div>',
+    ],
     ['keyed', '<div><Show when={p.a} keyed><i /></Show></div>'],
     ['a spread', '<div><Show {...p}><i /></Show></div>'],
     ['a string fallback', '<div><Show when={p.a} fallback="&amp;"><i /></Show></div>'],
@@ -76,6 +92,23 @@ describe('the JSX it writes', () => {
   ])('keeps <Show> with %s', (_, jsx) => {
     const code = `import { Show } from "solid-js";\nconst view = (p) => ${jsx};`;
     expect(lowered(code)).toBe(code);
+  });
+
+  it('writes a callback child as its body, reading when again', () => {
+    expect(
+      lowered(
+        'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.user()} fallback={<b />}>{(user) => <Avatar user={user()} name={user().name} get={user} />}</Show></div>;',
+      ),
+    ).toBe(
+      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.user()) ? <Avatar user={(p.user())} name={(p.user()).name} get={(() => (p.user()))} /> : (<b />)}</div>;',
+    );
+    expect(
+      lowered(
+        'import { Match, Switch } from "solid-js";\nconst view = (p) => <div><Switch><Match when={p.errors[p.id]}>{(message) => <p>{message()}</p>}</Match></Switch></div>;',
+      ),
+    ).toBe(
+      'import { Match, Switch } from "solid-js";\nconst view = (p) => <div>{(p.errors[p.id]) ? <p>{(p.errors[p.id])}</p> : undefined}</div>;',
+    );
   });
 
   it('writes a container in a namespaced element', () => {
@@ -161,8 +194,8 @@ describe('<Switch>', () => {
 
   it.each([
     [
-      'a callback child',
-      '<div><Switch><Match when={p.a}>{(a) => <i>{a()}</i>}</Match></Switch></div>',
+      'a callback whose when calls with arguments',
+      '<div><Switch><Match when={p.find(1)}>{(a) => <i>{a()}</i>}</Match></Switch></div>',
     ],
     ['a keyed <Match>', '<div><Switch><Match when={p.a} keyed><i /></Match></Switch></div>'],
     [
@@ -336,5 +369,37 @@ function App() {
       ['#next', '#inner', '#next', '#inner', '#next', '#next', '#next'],
     );
     expect(code).not.toMatch(/createComponent\((Switch|Match)/);
+  });
+
+  it('passes a callback the value, and keeps its children while it stays truthy', async () => {
+    // The counter inside would reset if the callback ran again.
+    const code = await expectSameBehavior(
+      'show-callback',
+      app(`function Counter() {
+  const [count, setCount] = createSignal(0);
+  return <button id="inner" onClick={() => setCount(count() + 1)}>{count()}</button>;
+}
+function App() {
+  const [user, setUser] = createSignal<{ name: string } | undefined>(undefined);
+  const names = ['Ana', 'Ben'];
+  let next = 0;
+  return (
+    <main>
+      <button id="next" onClick={() => setUser(next < 2 ? { name: names[next++] } : ((next = 0), undefined))}>
+        next
+      </button>
+      <Show when={user()} fallback={<p>nobody</p>}>
+        {(current) => (
+          <p>
+            {current().name} <Counter />
+          </p>
+        )}
+      </Show>
+    </main>
+  );
+}`),
+      ['#next', '#inner', '#next', '#inner', '#next', '#next'],
+    );
+    expect(code).not.toMatch(/createComponent\(Show/);
   });
 });
