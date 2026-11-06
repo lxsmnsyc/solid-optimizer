@@ -212,6 +212,24 @@ export const nav = <nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a>
     ).toBe(1);
   });
 
+  it('unrolls <For> over a constant list behind `as const` or `satisfies`', () => {
+    const imports = "import { For } from 'solid-js';\n";
+    for (const suffix of [' as const', ' satisfies readonly { label: string }[]']) {
+      const code = optimize(
+        `${imports}const LINKS = [{ label: 'Home' }, { label: 'Docs' }]${suffix};
+export const nav = <nav><For each={LINKS}>{(link) => <a>{link.label}</a>}</For></nav>;`,
+        { filename: 'nav.tsx', inline: false },
+      );
+      expect(code).toContain("<nav><a>{'Home'}</a><a>{'Docs'}</a></nav>");
+    }
+    expect(
+      optimize(
+        `${imports}export const list = <ul><For each={['a', 'b'] as const}>{(x) => <li>{x}</li>}</For></ul>;`,
+        { filename: 'list.tsx', inline: false },
+      ),
+    ).toContain("<ul><li>{'a'}</li><li>{'b'}</li></ul>");
+  });
+
   it('keeps <For> over a list it cannot unroll the same', () => {
     const imports = "import { For } from 'solid-js';\n";
     const cases = [

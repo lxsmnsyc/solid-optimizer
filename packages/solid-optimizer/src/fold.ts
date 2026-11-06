@@ -62,6 +62,7 @@ import {
   needsParensAt,
   parse,
   startsLikeStatement,
+  unwrap,
 } from './ast';
 import type { PassContext } from './context';
 import { ConstantTable } from './constants';
@@ -872,10 +873,8 @@ class Folder {
   private constantList(
     expression: Expression,
   ): { items: ConstantItem[]; declaration: Node | undefined } | undefined {
-    let node: Expression = expression;
-    while (node.type === 'ParenthesizedExpression') {
-      node = node.expression;
-    }
+    // `as const` and `satisfies` change nothing at runtime.
+    let node: Expression = unwrap(expression);
     let declaration: Node | undefined;
     if (node.type === 'Identifier') {
       const binding = this.context.scopes.references.get(node);
@@ -900,10 +899,7 @@ class Folder {
       if (owner?.type === 'ExportNamedDeclaration' || !onlyForEach) {
         return undefined;
       }
-      node = binding.declaration.init;
-      while (node.type === 'ParenthesizedExpression') {
-        node = node.expression;
-      }
+      node = unwrap(binding.declaration.init);
       declaration =
         binding.references.length === 1 &&
         statement?.type === 'VariableDeclaration' &&
