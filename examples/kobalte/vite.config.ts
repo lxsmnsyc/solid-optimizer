@@ -27,7 +27,18 @@ function codeSplitting(): NonNullable<
 
 export default defineConfig({
   // `REPORT=1` prints what the optimizer leaves alone, and why.
-  plugins: [solid({ optimizer: optimized ? { report: process.env.REPORT === '1' } : false })],
+  plugins: [
+    solid({
+      optimizer: optimized
+        ? {
+            report: process.env.REPORT === '1',
+            // Kobalte's components are copied into the modules that use them,
+            // so they inline even when Kobalte lands in another chunk.
+            packages: ['@kobalte/core'],
+          }
+        : false,
+    }),
+  ],
   build: {
     outDir: `dist/${chunks}/${optimized ? 'optimized' : 'plain'}`,
     // Unminified output is easier to compare. Set `MINIFY=1` to compare sizes instead.

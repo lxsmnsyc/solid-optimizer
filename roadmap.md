@@ -185,7 +185,7 @@ Plan:
 
 ## 9. Copying components from chosen packages
 
-Status: on hold. The inline pass now inlines Kobalte's simple components when they share a chunk with their user, so copying them has something to gain. Do it when an app shows a library in another chunk than its user.
+Status: done. `optimizer.packages` lists the packages to copy from. Re-exports and aliases are followed, and the copies inline wherever they can be, since the estimate cannot see what a package's other modules and the runtime code only they use add up to. The `vendor` build of `examples/kobalte` drops from 19.00 kB to 13.75 kB gzipped, and module mode inlines Kobalte too.
 
 Components from `node_modules` are never copied across modules.
 

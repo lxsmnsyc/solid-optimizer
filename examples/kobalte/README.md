@@ -23,4 +23,4 @@ Kobalte publishes its JSX through the `solid` export condition, so the library i
 
 - `Badge` and both `Separator`s inline into `Toolbar`. Their `Polymorphic` and `<Dynamic>` become a `<span>` and two `<hr>`s in `Toolbar`'s template.
 - The three `Button`s and two `Link`s inline too, in the `default` and `single` builds. The estimate turns them down, since each copy repeats Kobalte's signal, `createTagName`, and the button's three memos. The chunk built with every component inlined is smaller, since it no longer needs `<Dynamic>`, `merge()`, or `omit()`, so that one is kept.
-- In the `vendor` build, Kobalte is in another chunk than `Toolbar`, so its components stay calls.
+- `optimizer.packages` lists `@kobalte/core`, so its components are copied into `main.tsx` before bundling. In the `vendor` build, where Kobalte is in another chunk than `Toolbar`, they still inline, and the bundler drops the originals and `<Dynamic>`.

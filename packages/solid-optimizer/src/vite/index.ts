@@ -37,7 +37,7 @@ import { sharedGlobals } from './globals';
 import type { Skip } from '../context';
 import type { OptimizerReport } from './report';
 import { formatReport } from './report';
-import { exposeLocals, readExportedComponent } from './inject';
+import { exposeLocals, readExportedComponent, readReexport } from './inject';
 import { nameNamespaceTags } from './namespace';
 import { protectRefs, restoreRefs } from './refs';
 import type { UsageIndex } from './usage';
@@ -80,6 +80,16 @@ export interface OptimizerOptions extends Pick<
    * @default false
    */
   report?: boolean | ((report: OptimizerReport) => void);
+  /**
+   * Packages whose components can be copied into the modules that use
+   * them, like `['@kobalte/core']`. A package has to publish its JSX, as
+   * most Solid libraries do through the `solid` export condition. A copy
+   * lets the bundler drop the original, and the runtime code only it used,
+   * even when the package lands in another chunk.
+   *
+   * @default []
+   */
+  packages?: readonly string[];
 }
 
 export type { OptimizerReport } from './report';
@@ -815,6 +825,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   interface Copy {
     /** The module and export the copy comes from. */
     readonly key: string;
+    /** Whether it comes from a package in `optimizer.packages`. */
+    readonly fromPackage: boolean;
     readonly name: string;
     /** The tags in the importer that call it. */
     readonly tags: Node[];
@@ -835,6 +847,44 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
   }
 
   /**
+   * Whether components can be copied from a module: one of the app's, or
+   * one of a package listed in `optimizer.packages`.
+   */
+  const isCopyable = (id: string): boolean => {
+    const file = stripQuery(id).replaceAll('\\', '/');
+    if (!file.includes('/node_modules/')) {
+      return true;
+    }
+    return (optimizer.packages ?? []).some((name) => file.includes(`/node_modules/${name}/`));
+  };
+
+  /** The listed packages already warned about, by environment. */
+  const warnedPackages = new Set<string>();
+
+  /**
+   * Warns once when a listed package is external, like a server build that
+   * leaves it to Node. Its components are not copied there, so a build that
+   * copies them would hydrate different markup.
+   */
+  const warnExternalPackage = (context: Rollup.PluginContext, source: string): void => {
+    const name = (optimizer.packages ?? []).find(
+      (item) => source === item || source.startsWith(`${item}/`),
+    );
+    const key = environmentKey(context, name ?? '');
+    if (name === undefined || warnedPackages.has(key)) {
+      return;
+    }
+    warnedPackages.add(key);
+    context.warn(
+      `[solid-optimizer] ${name} is external in this build, so its components are not copied. Bundle it, like with \`ssr.noExternal\`, so every build copies the same components.`,
+    );
+  };
+
+  /** Whether a module, or the module of a copy's key, is in `node_modules`. */
+  const isPackageModule = (id: string): boolean =>
+    stripQuery(id).replaceAll('\\', '/').includes('/node_modules/');
+
+  /**
    * Reads the component `source` exports as `imported`, and imports what it
    * needs into the importer. `undefined` when it cannot be copied.
    */
@@ -842,20 +892,42 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     context: Rollup.PluginContext,
     id: string,
     source: string,
-    imported: string,
+    requested: string,
     state: CopyState,
   ): Promise<{ key: string; text: (name: string) => string } | undefined> {
     const skip = (reason: string): void => {
-      state.skips?.push({ pass: 'inline', reason, name: `${imported} (${source})` });
+      state.skips?.push({ pass: 'inline', reason, name: `${requested} (${source})` });
     };
-    const resolved = await context.resolve(source, id);
+    // The export's name in the module that declares it, past any re-exports.
+    let imported = requested;
+    let resolved = await context.resolve(source, id);
     if (!resolved || resolved.external) {
+      warnExternalPackage(context, source);
       skip('copy-external');
       return undefined;
     }
-    if (resolved.id.includes('/node_modules/')) {
+    if (!isCopyable(resolved.id)) {
       skip('copy-package');
       return undefined;
+    }
+    // A module that re-exports the component by name, like a library's
+    // entry, leads to the module that declares it.
+    for (let depth = 0; depth < 8 && isJSXModule(resolved.id); depth += 1) {
+      // oxlint-disable-next-line no-await-in-loop
+      const code = await state.load(resolved.id);
+      const reexport =
+        code === undefined ? undefined : readReexport(code, stripQuery(resolved.id), imported);
+      if (!reexport) {
+        break;
+      }
+      // oxlint-disable-next-line no-await-in-loop
+      const next = await context.resolve(reexport.source, resolved.id);
+      if (!next || next.external || !isCopyable(next.id)) {
+        skip('copy-package');
+        return undefined;
+      }
+      resolved = next;
+      imported = reexport.imported;
     }
     if (resolved.id === id) {
       return undefined;
@@ -1027,7 +1099,8 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           }
           if (copy) {
             const name = fresh(specifier.local.name);
-            copies.push({ key: copy.key, name, tags, text: copy.text(name) });
+            const fromPackage = isPackageModule(copy.key);
+            copies.push({ key: copy.key, fromPackage, name, tags, text: copy.text(name) });
           }
         }
       }
@@ -1060,6 +1133,13 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
               .map((copy): [string, number] => [copy.name, usersOf(copy)])
               .filter(([, users]) => users !== 1),
           ),
+          // The estimate cannot see what a package's own modules use, so a
+          // copy of its component never counts its declaration, or the
+          // runtime code only it used, as removed. Listing the package asks
+          // for its components to inline wherever they can be.
+          alwaysInlineComponents: copies
+            .filter((copy) => copy.fromPackage)
+            .map((copy) => copy.name),
         });
         const left = analyzeScopes(parse(filename, result.code)).root.bindings;
         const stuck = copies.filter((copy) => left.has(copy.name));

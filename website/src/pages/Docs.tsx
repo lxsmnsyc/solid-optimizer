@@ -316,6 +316,21 @@ const VITE_OPTIONS: Option[] = [
     ),
   },
   {
+    name: 'optimizer.packages',
+    type: 'string[]',
+    default: '[]',
+    text: (
+      <>
+        Packages whose components are copied into the modules that use them, like{' '}
+        <code>['@kobalte/core']</code>. A package has to publish its JSX, as most Solid libraries do
+        through the <code>solid</code> export condition. Their copies inline wherever they can be,
+        so the bundler drops the originals, even when the package lands in another chunk. A listed
+        package has to be bundled in every build, or the server and client builds copy different
+        components.
+      </>
+    ),
+  },
+  {
     name: 'optimizer.inline',
     type: 'boolean',
     default: 'true',
@@ -428,9 +443,9 @@ const INLINE_REASONS: Reason[] = [
     codes: ['copy-package', 'copy-cycle', 'copy-wrapper', 'copy-size'],
     text: (
       <>
-        Copying a component from another module. It comes from <code>node_modules</code>, the two
-        modules import each other, the component only returns a call of another component in its
-        module, or the copy was larger.
+        Copying a component from another module. It comes from a package that{' '}
+        <code>optimizer.packages</code> does not list, the two modules import each other, the
+        component only returns a call of another component in its module, or the copy was larger.
       </>
     ),
   },
@@ -595,7 +610,8 @@ export function App() {
             larger than its call.
           </li>
           <li>
-            Components from dependencies in <code>node_modules</code> are not copied.
+            Components from dependencies in <code>node_modules</code> are only copied from the
+            packages <code>optimizer.packages</code> lists.
           </li>
           <li>
             <code>.tsrx</code> modules are lowered by the official plugin and are not optimized.
@@ -670,6 +686,17 @@ const COMPILE_OPTIONS: Option[] = [
       <>
         Inlines every component that can be, even where the copies are larger than the calls they
         replace. See <a href="#only-where-smaller">Only where it is smaller</a>.
+      </>
+    ),
+  },
+  {
+    name: 'alwaysInlineComponents',
+    type: 'string[]',
+    default: '[]',
+    text: (
+      <>
+        Top-level components to inline wherever they can be, like <code>alwaysInline</code> does for
+        every component. The Vite plugin lists the copies from <code>optimizer.packages</code> here.
       </>
     ),
   },
