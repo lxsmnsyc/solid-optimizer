@@ -356,6 +356,32 @@ describe('solid-optimizer/vite', () => {
     expect(unlisted.markup.match(/_hk=/g)?.length).toBeGreaterThan(1);
   });
 
+  it('reports what the app leaves alone, not what a package does', async () => {
+    const reportOf = async (packages: string[]): Promise<string[]> => {
+      const skips: string[] = [];
+      await bundle(
+        'ssr-package',
+        {
+          ssr: true,
+          optimizer: {
+            packages,
+            mode: 'module',
+            report: (report) => {
+              skips.push(...report.skips.map((skip) => `${skip.reason} ${skip.name}`));
+            },
+          },
+        },
+        { client: 'src/entry-client.tsx' },
+      );
+      return skips;
+    };
+    // The package's own modules call `Polymorphic`, which the app cannot change.
+    expect((await reportOf([])).filter((skip) => skip.includes('Polymorphic'))).toEqual([]);
+    // The app's calls of the package's component are still reported.
+    expect(await reportOf([])).toContain('copy-package Button (headless-ui)');
+    expect(await reportOf(['headless-ui'])).not.toContain('copy-package Button (headless-ui)');
+  });
+
   it('copies components from a listed package into a chunk that does not hold it', async () => {
     const options: Options = { optimizer: { packages: ['headless-ui'] } };
     const vendor: Rollup.OutputOptions = {

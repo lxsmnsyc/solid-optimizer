@@ -130,7 +130,7 @@ solid-optimizer: what stays as written in client
   inline   no-host           1  Home
 ```
 
-Each line is a pass, a reason, how many times it happened, and the names it happened to. The reasons for the inline pass:
+Each line is a pass, a reason, how many times it happened, and the names it happened to. A package's own modules are compiled too, but what they leave alone is not reported, since the app cannot change it. The app's calls of a package's components are. In chunk mode, a chunk is reported as a whole, so it also lists the package code bundled into it. The reasons for the inline pass:
 
 - `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
 - `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.

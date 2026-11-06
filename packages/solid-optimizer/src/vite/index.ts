@@ -194,6 +194,11 @@ function shippedSize(candidate: ChunkCandidate, filename: string): number {
   return gzipSync(minified.code).length;
 }
 
+/** Whether a module, or the module of a copy's key, is in `node_modules`. */
+function isPackageModule(id: string): boolean {
+  return stripQuery(id).replaceAll('\\', '/').includes('/node_modules/');
+}
+
 function loadCompiler(): Compiler {
   // Use the compiler `@solidjs/vite-plugin` uses, so both lower JSX the same way.
   const require = createRequire(import.meta.url);
@@ -296,8 +301,15 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
 
   /** What the final compile of each chunk or module left alone, by environment. */
   const skips = new Map<string, Skip[]>();
-  const addSkips = (context: { environment?: { name: string } }, list?: readonly Skip[]): void => {
-    if (!list) {
+  const addSkips = (
+    context: { environment?: { name: string } },
+    list?: readonly Skip[],
+    module?: string,
+  ): void => {
+    // A package's own modules are compiled too, but what they leave alone
+    // is not something the app can change. A call of a package's component
+    // in the app is still reported, from the app's module.
+    if (!list || (module !== undefined && isPackageModule(module))) {
       return;
     }
     const environment = context.environment?.name ?? 'client';
@@ -880,10 +892,6 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     );
   };
 
-  /** Whether a module, or the module of a copy's key, is in `node_modules`. */
-  const isPackageModule = (id: string): boolean =>
-    stripQuery(id).replaceAll('\\', '/').includes('/node_modules/');
-
   /**
    * Reads the component `source` exports as `imported`, and imports what it
    * needs into the importer. `undefined` when it cannot be copied.
@@ -1226,7 +1234,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
         copySkips,
       );
       // The rest of the report comes from the chunk this module ends up in.
-      addSkips(context, copySkips);
+      addSkips(context, copySkips, id);
       if (imported) {
         code = imported.code;
         maps.push(...imported.maps);
@@ -1357,7 +1365,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           async (target) => loadRecorded(this, id, target),
           copySkips,
         );
-        addSkips(this, copySkips);
+        addSkips(this, copySkips, id);
         if (imported) {
           code = imported.code;
           maps.push(...imported.maps);
@@ -1371,7 +1379,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           maps.push(exposed.map);
         }
       }
-      addSkips(this, skipped);
+      addSkips(this, skipped, id);
       recorded.set(environmentKey(this, id), code);
       if (code === source) {
         return null;

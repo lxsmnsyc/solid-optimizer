@@ -581,6 +581,11 @@ export function App() {
           function receives the report instead of printing it:
         </p>
         <Block code={REPORT_FUNCTION} />
+        <p>
+          A package’s own modules are compiled too, but what they leave alone is not reported, since
+          the app cannot change it. The app’s calls of a package’s components are. In chunk mode, a
+          chunk is reported as a whole, so it also lists the package code bundled into it.
+        </p>
         <h3>Inline pass</h3>
         <Reasons reasons={INLINE_REASONS} />
         <h3>Provider and memo passes</h3>
