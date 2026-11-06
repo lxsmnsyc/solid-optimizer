@@ -320,6 +320,54 @@ The demo used to keep `Table` as a component, since two copies measured larger t
 - Runtime helpers the bundle would drop if every use went away.
 - How the copies change the way Rolldown splits chunks.
 
+## `<Show>` lowering
+
+Status: implemented in `packages/solid-optimizer/src/show.ts`.
+
+A `<Show>` without a callback child or `keyed` becomes a ternary:
+
+```jsx
+<li><Show when={story.url} fallback={<a href={story.id}>…</a>}>…</Show></li>
+// becomes
+<li>{(story.url) ? <>…</> : (<a href={story.id}>…</a>)}</li>
+```
+
+### What `<Show>` costs
+
+Solid 2.0.0-rc.21's `<Show>` is a component call with a props object of getters, and three memos: the value of `when`, its truthiness, and the branch to render. Solid's JSX transform compiles a ternary in an element to one memo of `!!when` and a function that `insert` runs, which renders the branch the memo selects. The branch is made again only when the truthiness changes, as with `<Show>`. Both memos are `sync`.
+
+### Where it is lowered
+
+The position decides how the ternary is written:
+
+- **A child of an element.** `{when ? children : fallback}`, which the element inserts.
+- **A child of a fragment.** The same container, which the JSX transform wraps in a memo.
+- **The sole child of a component, or an expression outside JSX**, such as a return value or a `<For>` callback's body. `<>{when ? children : fallback}</>`, which compiles to a memo. A ternary alone as a component's child would compile to a `children` getter that reads it again each time, with no memo.
+
+A `<Show>` stays when:
+
+- It has a function child, or a sole child that could hold a function, like `{render}`. `<Show>` calls a function child with the narrowed value. Several children are an array, which it renders as it is.
+- It has `keyed`, a spread, a prop other than `when` and `fallback`, a repeated prop, or a string `fallback`.
+- It is an attribute's value, or part of an expression in a JSX container.
+
+The pass runs once the other passes stop changing the code. Memo inlining reads `when` as a tracked place, and a ternary's condition is not one.
+
+### Accepted differences
+
+- `<Show>` no longer takes a slot in the owner tree, so the hydration keys after it shift. A server build and its client build must compile with the same options.
+
+### Results
+
+Hacker News, with the fixtures in `examples/hackernews/fixtures`, counted in the `single` and `vendor` builds:
+
+| Route          | Component calls | Computations |
+| -------------- | --------------- | ------------ |
+| `/`            | 106 → 13        | 402 → 186    |
+| `/stories/:id` | 31 → 21         | 69 → 53      |
+| `/users/:id`   | 15 → 12         | 42 → 37      |
+
+Each route renders the same DOM. The size changes by 23 B or less gzipped in each build, since the router keeps `<Show>` in the runtime.
+
 ## Solid 1 catch-up
 
 Status: planned.

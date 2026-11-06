@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { lower, optimize, templateCount } from './utils';
 
 function inlined(code: string): string {
-  return optimize(code, { fold: false });
+  // `<Show>` stays, so the tests can see where inlining puts its children.
+  return optimize(code, { fold: false, shows: false });
 }
 
 describe('component inlining', () => {

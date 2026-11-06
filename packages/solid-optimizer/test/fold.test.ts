@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { lower, optimize, templateCount } from './utils';
 
 function folded(code: string): string {
-  return optimize(code, { inline: false });
+  // `<Show>` stays unless a constant condition resolves it.
+  return optimize(code, { inline: false, shows: false });
 }
 
 function lowered(code: string): string {
