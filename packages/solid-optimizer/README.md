@@ -10,7 +10,7 @@
 
 ## Install
 
-The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x.
+The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x, which only gets fixes now, from the [`0.x` branch](https://github.com/lxsmnsyc/solid-optimizer/tree/0.x).
 
 ```bash
 npm i -D solid-optimizer@next
