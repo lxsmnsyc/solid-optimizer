@@ -35,9 +35,10 @@ import type { BrowserContext, Page } from 'playwright';
 import { chromium } from 'playwright';
 import solid from 'solid-optimizer/vite';
 import { build } from 'vite';
-import type { DomCounts, HydrationCounts } from './page.ts';
+import type { DomCounts, GraphCounts, HydrationCounts } from './page.ts';
 import {
   countClient,
+  countGraph,
   countHydration,
   disposeHeap,
   instrument,
@@ -73,14 +74,17 @@ const WARMUP = 3;
 
 /**
  * Builds the client, hydrating client, and server bundles of one variant into
- * `dist/<variant>`. Each is one minified chunk.
+ * `dist/<variant>`. Each is one minified chunk. The `graph` bundle is the
+ * client one with Solid's `observe` runtime, which counts the reactive graph.
+ * Only counts run on it, so the other measures use the runtime apps ship.
  */
 async function buildVariant(variant: Variant): Promise<void> {
   const optimizer = variant === 'plain' ? false : undefined;
   const targets = [
-    { name: 'client', entry: `src/${APP}/client.tsx`, ssr: false, server: false },
-    { name: 'hydrate', entry: `src/${APP}/hydrate.tsx`, ssr: true, server: false },
-    { name: 'server', entry: `src/${APP}/server.tsx`, ssr: true, server: true },
+    { name: 'client', entry: `src/${APP}/client.tsx`, ssr: false, server: false, observe: false },
+    { name: 'hydrate', entry: `src/${APP}/hydrate.tsx`, ssr: true, server: false, observe: false },
+    { name: 'server', entry: `src/${APP}/server.tsx`, ssr: true, server: true, observe: false },
+    { name: 'graph', entry: 'src/graph.ts', ssr: false, server: false, observe: true },
   ];
   for (const target of targets) {
     // oxlint-disable-next-line no-await-in-loop
@@ -89,6 +93,12 @@ async function buildVariant(variant: Variant): Promise<void> {
       configFile: false,
       logLevel: 'warn',
       plugins: [solid({ ssr: target.ssr, optimizer })],
+      resolve: target.observe
+        ? {
+            alias: { 'bench-client': path.join(HERE, `src/${APP}/client.tsx`) },
+            conditions: ['observe', 'module', 'browser', 'production'],
+          }
+        : {},
       build: {
         outDir: path.join(DIST, variant, target.name),
         emptyOutDir: true,
@@ -173,6 +183,14 @@ async function serve(servers: Record<Variant, ServerModule>): Promise<{
       response.end(
         `${head}</head><body><div id="app"></div>` +
           `<script type="module" src="/${variant}/client/client.js"></script></body></html>`,
+      );
+      return;
+    }
+    if (url.pathname === '/graph.html' && isVariant(variant)) {
+      response.setHeader('content-type', 'text/html');
+      response.end(
+        `${head}</head><body><div id="app"></div>` +
+          `<script type="module" src="/${variant}/graph/graph.js"></script></body></html>`,
       );
       return;
     }
@@ -288,10 +306,19 @@ async function sample(
 function check(
   client: Record<Variant, DomCounts>,
   hydration: Record<Variant, HydrationCounts>,
+  graph: Record<Variant, GraphCounts>,
 ): void {
   const problems: string[] = [];
   if (client.plain.markup !== client.optimized.markup) {
     problems.push('The two client builds render different markup.');
+  }
+  for (const variant of VARIANTS) {
+    if (graph[variant].markup !== client[variant].markup) {
+      problems.push(`The ${variant} build renders other markup with the observe runtime.`);
+    }
+    if (graph[variant].owners === 0) {
+      problems.push(`The ${variant} graph build counted no owners.`);
+    }
   }
   for (const variant of VARIANTS) {
     const counts = hydration[variant];
@@ -341,7 +368,14 @@ try {
   // Count what the client creates and what hydration changes.
   const clientCounts: Partial<Record<Variant, DomCounts>> = {};
   const hydrationCounts: Partial<Record<Variant, HydrationCounts>> = {};
+  const graphCounts: Partial<Record<Variant, GraphCounts>> = {};
   for (const variant of VARIANTS) {
+    // oxlint-disable-next-line no-await-in-loop
+    const graphPage = await open(context, `${url}/graph.html?variant=${variant}`);
+    // oxlint-disable-next-line no-await-in-loop
+    graphCounts[variant] = await graphPage.evaluate(countGraph);
+    // oxlint-disable-next-line no-await-in-loop
+    await graphPage.close();
     // oxlint-disable-next-line no-await-in-loop
     const clientPage = await open(context, `${url}/client.html?variant=${variant}`);
     // oxlint-disable-next-line no-await-in-loop
@@ -357,12 +391,21 @@ try {
   }
   const { plain: clientPlain, optimized: clientOptimized } = clientCounts;
   const { plain: hydrationPlain, optimized: hydrationOptimized } = hydrationCounts;
-  if (!clientPlain || !clientOptimized || !hydrationPlain || !hydrationOptimized) {
+  const { plain: graphPlain, optimized: graphOptimized } = graphCounts;
+  if (
+    !clientPlain ||
+    !clientOptimized ||
+    !hydrationPlain ||
+    !hydrationOptimized ||
+    !graphPlain ||
+    !graphOptimized
+  ) {
     throw new Error('a build was not counted');
   }
   const client = { plain: clientPlain, optimized: clientOptimized };
   const hydration = { plain: hydrationPlain, optimized: hydrationOptimized };
-  check(client, hydration);
+  const graph = { plain: graphPlain, optimized: graphOptimized };
+  check(client, hydration, graph);
 
   // Time each side in turns. Warm timings reuse one page per side.
   const samples: Samples = {};
@@ -419,6 +462,10 @@ try {
       elements: countPair(client, 'elements', 'Elements'),
       texts: countPair(client, 'texts', 'Text nodes'),
       comments: countPair(client, 'comments', 'Comment markers'),
+      owners: countPair(graph, 'owners', 'Owners'),
+      computations: countPair(graph, 'computations', 'Computations'),
+      signals: countPair(graph, 'signals', 'Signals read'),
+      edges: countPair(graph, 'edges', 'Dependency edges'),
     },
     server: {
       htmlBytes: countPair(serverCounts, 'htmlBytes', 'HTML (B)'),

@@ -26,6 +26,7 @@ pnpm --filter runtime-bench bench --app tracker
 Counts are exact, so any difference is real:
 
 - Client render: templates created and cloned, elements, text nodes, and comment markers.
+- Reactive graph after a client render: owners, computations, the signals they read, and their dependency edges. These come from `graphSize()` in `solid-js/attribution`, which only counts in Solid's `observe` runtime. So each variant has a fourth build, `graph`, which is the client build resolved with the `observe` condition. Only these counts run on it, and the benchmark checks that it renders the same markup as the client build.
 - Server render: HTML bytes, hydration keys (`_hk`), and comment markers.
 - Hydration: nodes created and server nodes removed. Both are 0 when hydration claims every node the server wrote.
 
@@ -42,4 +43,3 @@ Before timing, the benchmark checks that both builds render the same markup, tha
 
 - The demo is written to show the optimizer's passes. Hacker News is a real app, but without its router, whose components the optimizer leaves alone.
 - Updates after mount, like a signal write reaching the DOM, are not measured.
-- Owners and computations are not counted. The runtime has no public way to list them.
