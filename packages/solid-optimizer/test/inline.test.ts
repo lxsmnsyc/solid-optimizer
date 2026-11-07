@@ -299,7 +299,7 @@ function Start() {
 }
 function Stop() {
   (stop || start)()
-  return <hr />
+  return <b />
 }
 export function App() {
   return <p><Start /><Stop /></p>
@@ -311,7 +311,7 @@ export function App() {
 export function App() {
   const stop$1 = begin();
   (stop || start)();
-  return <p><time>{stop$1}</time><hr /></p>
+  return <p><time>{stop$1}</time><b /></p>
 }
 `);
   });
