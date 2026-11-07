@@ -18,6 +18,10 @@
  * - Statements a constant condition makes unreachable: `if`/`else` branches,
  *   `while (false)` loops, and anything after a `return`, `throw`, `break`,
  *   or `continue`.
+ * - A `const`, or a `let` nothing writes to, declared inside a function,
+ *   that nothing references and whose initializer has no side effects. A
+ *   component left with such a declaration has a statement, which stops it
+ *   from inlining where a statement has no place to go.
  * - A call of an arrow function whose body is JSX, with constant arguments,
  *   as an element's child. The call becomes the JSX with the arguments in
  *   place of the parameters, so it joins the template around it.
@@ -49,6 +53,7 @@ import type {
   LogicalExpression,
   Node,
   Statement,
+  VariableDeclaration,
   WhileStatement,
 } from 'oxc-parser';
 import MagicString from 'magic-string';
@@ -354,6 +359,9 @@ class Folder {
 
   private readonly lookup: ConstantLookup;
 
+  /** Declarations removed before the walk, which it does not enter. */
+  private readonly removed = new Set<Node>();
+
   constructor(private readonly context: PassContext) {
     this.lookup = new ConstantTable(context.scopes, context.options).lookup;
   }
@@ -363,6 +371,9 @@ class Folder {
   // ---------------------------------------------------------------------------
 
   walk(node: Node): void {
+    if (this.removed.has(node)) {
+      return;
+    }
     forEachChild(node, (child) => {
       this.walk(child);
     });
@@ -1495,6 +1506,98 @@ class Folder {
     }
   }
 
+  /**
+   * Removes each declaration inside a function that nothing references. The
+   * references are those of the code this pass parsed, so a binding whose last
+   * read this pass folds is removed in the next round.
+   */
+  removeUnusedDeclarations(): void {
+    for (const scope of this.context.scopes.scopes.values()) {
+      if (scope === this.context.scopes.root) {
+        continue;
+      }
+      for (const binding of scope.bindings.values()) {
+        const declaration = this.unusedDeclaration(binding);
+        if (declaration && !this.removed.has(declaration)) {
+          this.removed.add(declaration);
+          this.context.s.remove(declaration.start, declaration.end);
+          this.changed = true;
+        }
+      }
+    }
+  }
+
+  /**
+   * The declaration statement of `binding` when every binding it declares is
+   * unused and every initializer can be skipped.
+   */
+  private unusedDeclaration(binding: Binding): VariableDeclaration | undefined {
+    if (binding.declaration.type !== 'VariableDeclarator') {
+      return undefined;
+    }
+    const statement = this.context.parents.get(binding.declaration);
+    if (
+      statement?.type !== 'VariableDeclaration' ||
+      (statement.kind !== 'const' && statement.kind !== 'let') ||
+      statement.declare
+    ) {
+      return undefined;
+    }
+
+    // Only a statement in a list can go. A loop head or an export needs it.
+    const container = this.context.parents.get(statement)?.type;
+    if (
+      container !== 'BlockStatement' &&
+      container !== 'StaticBlock' &&
+      container !== 'SwitchCase'
+    ) {
+      return undefined;
+    }
+
+    // Every declarator has to go, or the statement stays whole.
+    for (const declarator of statement.declarations) {
+      if (declarator.id.type !== 'Identifier') {
+        return undefined;
+      }
+      const declared = binding.scope.bindings.get(declarator.id.name);
+      if (!declared || declared.mutated || declared.references.length > 0) {
+        return undefined;
+      }
+      if (declarator.init && !this.isSkippableInit(declarator.init)) {
+        return undefined;
+      }
+    }
+    return statement;
+  }
+
+  /**
+   * Whether an unused initializer can be dropped: an expression with no side
+   * effects, or a Solid call that only creates a value from such arguments.
+   */
+  private isSkippableInit(init: Expression): boolean {
+    if (isSideEffectFree(init)) {
+      return true;
+    }
+    const call = unwrap(init);
+    if (call.type !== 'CallExpression' || call.callee.type !== 'Identifier') {
+      return false;
+    }
+    const callee = this.context.scopes.references.get(call.callee);
+    const identity = callee ? solidExport(callee, this.context.options) : undefined;
+    if (
+      identity === undefined ||
+      (!PURE_CALLS.has(identity) && !(PURE_VALUE_CALLS.has(identity) && isValueArgument(call)))
+    ) {
+      return false;
+    }
+    for (const argument of call.arguments) {
+      if (argument.type === 'SpreadElement' || !isSideEffectFree(argument)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private replaceStatement(statement: Node, text: string): void {
     if (text === '') {
       this.context.s.remove(statement.start, statement.end);
@@ -1566,6 +1669,7 @@ class Folder {
  */
 export function fold(context: PassContext): boolean {
   const folder = new Folder(context);
+  folder.removeUnusedDeclarations();
   folder.walk(context.program);
   return folder.changed;
 }

@@ -29,7 +29,8 @@ function Label() {
 export function App() {
   return <main><Theme value="dark"><Label /></Theme></main>;
 }`);
-    expect(code).toContain('const theme$1 = "dark";');
+    // The read folds to the value, and the unread `theme$1` is then removed.
+    expect(code).not.toContain('theme$1');
     expect(code).toContain('<main><span class={"dark"}>label</span></main>');
     expect(code).not.toContain('<Theme');
   });
