@@ -301,7 +301,7 @@ Suggested order:
 
 1. Item 13, since it is small and every fold leaves more for it to remove.
 2. Items 14 and 15, which reuse `memo.ts` and make each other fold more.
-3. Item 16, then item 17. These matter most for apps built on a component library.
+3. Item 17, which matters most for apps built on a component library. Item 16 is not planned.
 4. Items 18, 19, and 20, which depend on the build kind or on item 12's runtime numbers.
 
 ## 13. Mark Solid's factory calls as free of side effects
@@ -362,30 +362,6 @@ Plan:
 3. Allow more than one call when the body folds to a literal or is short, since the copy costs the same as the call. Use the size estimate otherwise.
 4. Leave the arrow alone when it is referenced other than by a call, such as `insert(el, label)` or `on:click={label}`.
 
-## 16. Class helpers evaluated at build time
-
-Component libraries build `class` with helpers like `clsx`, `cn` (`twMerge(clsx(...))`), and `cva`. A bundler treats each call as opaque. After component inlining, the arguments are often constants:
-
-```jsx
-// A copy of solid-ui's Button, inlined with variant="outline" and size="sm"
-<button class={cn(buttonVariants({ variant: 'outline', size: 'sm' }), undefined)} />
-```
-
-The call could become a string at build time. The `class` then turns static, joins the template, and needs no effect or `className` helper. `strategy.md` says solid-ui's wrappers stay calls because each copy repeats its `cn(...)` call and class string. A static string is one attribute in a template.
-
-Plan:
-
-1. Add an option `pureFunctions`, a list of package exports that return the same result for the same arguments and have no side effects, such as `{ clsx: ['clsx', 'default'], 'tailwind-merge': ['twMerge'] }`.
-2. In the fold pass, call such a function at build time when every argument folds to a constant. Load the package in the build process, not in the bundle, and replace the call with the result when it is a string, number, or boolean.
-3. Follow a local wrapper like `function cn(...inputs) { return twMerge(clsx(inputs)); }` when its body only calls listed functions on its parameters.
-4. Handle `cva` as a listed function that returns a function. Fold `buttonVariants({ ... })` when the `cva(...)` call's arguments are constants too.
-5. Measure on solid-ui with `@kobalte/core` in `optimizer.packages`. Count how many `class` attributes turn static.
-
-Risks:
-
-- Running package code during the build runs whatever it does on import. Only listed packages run, and they run in the build process.
-- The server build and the client build must give the same result. They do, since both run the same function on the same constants.
-
 ## 17. Constant props baked into a component every caller agrees on
 
 When every call of a component passes the same constant for a prop, the component can fold that prop inside itself, and the calls can stop passing it:
@@ -393,7 +369,7 @@ When every call of a component passes the same constant for a prop, the componen
 ```jsx
 <Button variant="primary">Save</Button>
 <Button variant="primary">Send</Button>
-// Button folds props.variant to 'primary'. Its other variants, and their entries in a cva table, go away.
+// Button folds props.variant to 'primary'. Its branches for other variants go away.
 ```
 
 This applies to components that stay calls because of the size estimate. A bundler cannot do this, since props are an object of getters.
@@ -484,3 +460,4 @@ These are known gaps that are not worth doing now.
 - **Adjacent text children joined into one effect.** `{a()} - {b()}` takes two `insert` calls and their markers. One text effect would do, but only when both values are known to be strings or numbers, which needs type information.
 - **A spread of an unknown object at a component call.** No app has a case. See item 2.
 - **Components with statements in a `<Show>` child or a `fallback`.** About 16 B minified per call. See item 1.
+- **Item 16, class helpers evaluated at build time.** Solid 2's `class` already takes objects and arrays, the forms `clsx` builds, and compiles them itself, so Solid code has little need for `clsx`. What it does not cover is `tailwind-merge`'s conflict resolution in a `cn` helper. Only libraries like solid-ui use that, and folding it would run package code in the build.
