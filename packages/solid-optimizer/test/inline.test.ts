@@ -627,4 +627,25 @@ export function App() {
     expect(output).not.toContain('open</p>');
     expect(lower(output)).toContain('_$template(`<main><section><p>closed`)');
   });
+
+  it('inlines a component once folding leaves its declarations unread', () => {
+    const code = `
+const BIG = false;
+function Card() {
+  let size = 'sm';
+  if (BIG) size = 'lg';
+  return <div class={size}>card</div>;
+}
+function Plain() {
+  const size = 'sm';
+  return <div class={size}>plain</div>;
+}
+export const App = (props) => <Show when={props.on} fallback={<Card />}><Plain /></Show>;
+`;
+    const output = optimize(code, { alwaysInline: true });
+    expect(output).not.toContain('<Card');
+    expect(output).not.toContain('<Plain');
+    expect(output).toContain('<div class={"sm"}>card</div>');
+    expect(output).toContain('<div class={"sm"}>plain</div>');
+  });
 });
