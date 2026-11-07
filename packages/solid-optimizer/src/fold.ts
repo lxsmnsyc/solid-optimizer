@@ -753,14 +753,14 @@ class Folder {
         };
       case 'JSXElement':
       case 'JSXFragment':
-        return { kind: 'jsx', text: getText(this.context, value) };
+        return this.foldedJSX(value);
       default:
         if (value.expression.type === 'JSXEmptyExpression') {
           return EMPTY;
         }
         // JSX in a container splices like JSX, so it can join the surrounding template.
         if (value.expression.type === 'JSXElement' || value.expression.type === 'JSXFragment') {
-          return { kind: 'jsx', text: getText(this.context, value.expression) };
+          return this.foldedJSX(value.expression);
         }
         return {
           kind: 'expression',
@@ -768,6 +768,19 @@ class Folder {
           primary: isPrimary(value.expression),
         };
     }
+  }
+
+  /**
+   * What a JSX value renders, read after the folds of this round. A fold
+   * inside it can have replaced it with an expression already, such as an
+   * inner `<Show>` that became its string `fallback`.
+   */
+  private foldedJSX(node: JSXElement | JSXFragment): Fold {
+    const text = getText(this.context, node);
+    if (text.startsWith('<')) {
+      return { kind: 'jsx', text };
+    }
+    return { kind: 'expression', text, primary: false };
   }
 
   private foldShow(element: JSXElement): Fold | undefined {
