@@ -8,6 +8,8 @@
 
 ![A small app compiled by Solid's JSX transform alone and with solid-optimizer first. The optimized build has 1 template instead of 5, and its server HTML has 1 hydration key instead of 4.](https://github.com/lxsmnsyc/solid-optimizer/blob/main/examples/showcase/comparison.png?raw=true)
 
+The website, [solid-optimizer.vercel.app](https://solid-optimizer.vercel.app), shows each pass and the benchmarks for the example apps.
+
 ## Install
 
 The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x, which only gets fixes now, from the [`0.x` branch](https://github.com/lxsmnsyc/solid-optimizer/tree/0.x).
@@ -44,6 +46,9 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `filename` sets the parser and the source map source. `.ts` and `.tsx` parse as TypeScript. Anything else parses as JSX. Defaults to `input.jsx`.
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
+- `alwaysInline` inlines every component that can be, even where the copies are larger than the calls they replace. Defaults to `false`. See [Only where it is smaller](#only-where-it-is-smaller).
+- `alwaysInlineComponents` lists top-level components to inline wherever they can be, like `alwaysInline` does for every component. The Vite plugin lists the copies from `optimizer.packages` here.
+- `sharedComponents` maps top-level components that other modules use too to the number of modules that use them, this one included. Inlining one only counts its share of the declaration. `0` keeps the declaration whatever is inlined.
 - `contexts` turns context provider removal on or off. Defaults to `true`.
 - `memos` turns memo inlining on or off. Defaults to `true`.
 - `conditionals` turns `<Show>` and `<Switch>` lowering on or off. A `<Show>` without `keyed` becomes a ternary, which Solid's JSX transform compiles to one memo instead of a component and three memos. A callback child like `{(user) => <b>{user().name}</b>}` becomes its body, with `user()` read as `when` again, when `when` reads names, members, and signal or memo getters. A `<Switch>` of such `<Match>`es becomes a chain of ternaries. Defaults to `true`.
@@ -94,7 +99,7 @@ export default defineConfig({
 
 The plugin optimizes in one of two modes.
 
-- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. Components imported from other modules are inlined there too, so the bundler drops them and the runtime code only they used. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk. Each chunk is also built with every component inlined that can be, and the smaller of the two, minified and gzipped, is kept. See [Only where it is smaller](packages/solid-optimizer/README.md#only-where-it-is-smaller).
+- **Chunk mode** is for client builds that do not hydrate. Constants fold and memos inline in each module first, so a branch that folds away takes its imports and `lazy()` chunks out of the bundle. Components imported from other modules are inlined there too, so the bundler drops them and the runtime code only they used. JSX is then kept through bundling. Each chunk is optimized as a whole and then lowered by Solid's JSX transform, so a component inlines anywhere in its chunk. Each chunk is also built with every component inlined that can be, and the smaller of the two, minified and gzipped, is kept. See [Only where it is smaller](#only-where-it-is-smaller).
 - **Module mode** is for everything else. Each module is optimized before the official plugin lowers it, with the components it imports from other modules copied in first. A server build and its client build split chunks differently, and hydration needs both to render the same tree, so every decision depends only on the modules. Two modules that import each other do not copy each other's components.
 
 Both modes fold constants imported from other modules in the project.
@@ -111,7 +116,7 @@ The optimizer is off while serving. Set `optimizer.dev` to run module mode in de
 The plugin takes every option of `@solidjs/vite-plugin`, plus `optimizer`.
 
 - `optimizer: false` uses `@solidjs/vite-plugin` as it is.
-- `optimizer.fold`, `optimizer.inline`, `optimizer.contexts`, `optimizer.memos`, `optimizer.conditionals`, and `optimizer.maxPasses` work like the `compile` options.
+- `optimizer.fold`, `optimizer.inline`, `optimizer.alwaysInline`, `optimizer.contexts`, `optimizer.memos`, `optimizer.conditionals`, and `optimizer.maxPasses` work like the `compile` options.
 - `optimizer.mode` is `'auto'` by default. Set it to `'module'` to never keep JSX through bundling.
 - `optimizer.dev` also optimizes while serving. Defaults to `false`.
 - `optimizer.report` reports what stays as written in each build, and why. `true` prints it. A function receives it instead, once per build environment. Defaults to `false`.
@@ -145,7 +150,7 @@ The provider pass reports `open-component`, `open-call`, `open-new`, `open-sprea
 
 - Chunk mode is skipped when the `babel` option is set or `compiler` is `'babel'`, since those passes need each module.
 - An export named `__so_local$name` is added to a module for each local binding its exported components need, so a copy in another module can import it. In chunk mode, entry modules get none.
-- A component used in several chunks is copied into each of them.
+- A component used in several chunks is copied into each of them, where each copy is no larger than its call.
 - Components from dependencies in `node_modules` are only copied from the packages `optimizer.packages` lists.
 - `.tsrx` modules are lowered by the official plugin and are not optimized.
 
@@ -228,6 +233,24 @@ Inlining accepts two differences:
 - Moved statements run before the host's JSX is created. The order of effect registration between siblings can change.
 
 Inlined JSX is a copy, so its source map points at the call site it replaced.
+
+#### Only where it is smaller
+
+Every copy repeats the component's own code, so inlining a component at many calls can make the output larger than the calls were. Before inlining, each component's copies are compared with what they replace, as Solid's JSX transform would lower them:
+
+- A copy saves the component call, and the getters of its props. Elements it puts directly in another element join that element's template.
+- A copy costs the component's statements, its dynamic attributes and children, and the elements that cannot join a template. Constant props are folded first, so a branch they rule out costs nothing.
+- When every call inlines and nothing else uses the component, its declaration goes away too.
+- A call in its children that can only inline once it does, because that component has statements to hoist, counts too.
+- A call in its body that can only inline in a copy counts too, such as a call that spreads a `merge()` or `omit()` view, which each call site resolves. The copy is measured with that call inlined, and the called component's declaration goes away when nothing else uses it.
+
+A component inlines only when its copies are no larger. A small component, or one used once, inlines at every call. A wrapper used many times, whose root is another component, like most wrappers of a component library, stays a component.
+
+The estimate weighs each component on its own, so it cannot see runtime code that only goes once every call that needs it is inlined, like `<Dynamic>`, `merge()`, and `omit()` behind a headless library's components. In chunk mode, the Vite plugin also builds each chunk with every component inlined that can be, as `alwaysInline` does, minifies and gzips both, and keeps the smaller one. The runtime only shrinks when it is in the same chunk as the calls.
+
+In the Vite plugin, a component copied from another module counts the module's share of its declaration: all of it when the importer is its only user, and one part in n when n modules use it, since it goes away once every one of them copies it. The plugin reads which modules use each export from the files the entries reach, and from the module scripts of an HTML entry. A re-export, a dynamic import, a use as a value, or a user the component's module imports back keeps the declaration whole.
+
+Set `alwaysInline` to inline every component that can be.
 
 ### Context inlining
 

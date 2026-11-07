@@ -8,6 +8,8 @@
 
 ![A small app compiled by Solid's JSX transform alone and with solid-optimizer first. The optimized build has 1 template instead of 5, and its server HTML has 1 hydration key instead of 4.](https://github.com/lxsmnsyc/solid-optimizer/blob/main/examples/showcase/comparison.png?raw=true)
 
+The website, [solid-optimizer.vercel.app](https://solid-optimizer.vercel.app), shows each pass and the benchmarks for the example apps.
+
 ## Install
 
 The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x, which only gets fixes now, from the [`0.x` branch](https://github.com/lxsmnsyc/solid-optimizer/tree/0.x).
