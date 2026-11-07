@@ -54,11 +54,44 @@ describe('memo inlining', () => {
   it('inlines a block body that only returns', () => {
     const output = memos(
       component(
-        'const list = createMemo(() => {\n    return items().slice(0, 3);\n  }, { equals: false });',
+        'const list = createMemo(() => {\n    return [items()[0], items()[1]];\n  });',
         '<ul>{list()}</ul>',
       ),
     );
-    expect(output).toContain('<ul>{items().slice(0, 3)}</ul>');
+    expect(output).toContain('<ul>{[items()[0], items()[1]]}</ul>');
+  });
+
+  it('keeps a memo whose value can be a promise or an async iterable', () => {
+    for (const [body, read] of [
+      ['() => new Promise((resolve) => resolve(a()))', ''],
+      ['() => new Thing(a())', ''],
+      ['() => ({ then: a() })', ''],
+      ['() => ({ ...a() })', ''],
+      ['() => ({ __proto__: a() })', ''],
+      ['() => new Object(a())', ''],
+      ['() => load(a())', ', { equals: false }'],
+      ['() => a().value', ', { equals: false }'],
+      ['() => a() || load()', ', { equals: false }'],
+    ]) {
+      const output = memos(component(`const v = createMemo(${body}${read});`, '<div>{v()}</div>'));
+      expect(output, body).toContain('createMemo(');
+    }
+  });
+
+  it('keeps a memo of a constructor the module declares', () => {
+    const output = memos(
+      component('class Set {}\n  const v = createMemo(() => new Set(a()));', '<div>{v()}</div>'),
+    );
+    expect(output).toContain('createMemo(');
+  });
+
+  it('inlines a memo with equals: false whose value is never a promise', () => {
+    for (const value of ['a() * 2', '`${a()}!`', 'a() ? 1 : 2', '!a()', 'a() > 0 && b() > 1']) {
+      const output = memos(
+        component(`const v = createMemo(() => ${value}, { equals: false });`, '<div>{v()}</div>'),
+      );
+      expect(output, value).not.toContain('createMemo(');
+    }
   });
 
   it('inlines a computation with its own callbacks', () => {
