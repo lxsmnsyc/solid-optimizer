@@ -1,5 +1,13 @@
 # solid-optimizer
 
+## 1.0.0-next.6
+
+### Minor Changes
+
+- 134a9ab: A derived arrow like `const label = () => (props.open ? 'Close' : 'Open')` now becomes its body at each call, so a constant can fold and join the template. Each call has to come after the declaration with no arguments, and nothing else may use the arrow. With more than one call, the body is copied only when that is no larger.
+- 22c45d7: `createSignal` and `createStore` are now marked `/* @__PURE__ */` when their first argument is a literal, an object, or an array, so the bundler drops one that folding left unused. `createContext` was already marked, along with `lazy`. A call given a function stays unmarked, since it creates a computation that runs it.
+- e21fa51: A signal that nothing writes now becomes its value. When the setter is left out, as in `const [size] = createSignal(3)`, or nothing references it, and the value is a literal with no options, every call of the getter becomes the literal, so it can fold and join the template. This also works at module scope, and an exported getter stays.
+
 ## 1.0.0-next.5
 
 ### Minor Changes
