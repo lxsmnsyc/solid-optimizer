@@ -501,6 +501,38 @@ describe('constants', () => {
     expect(folded('var A = 1;\nexport const x = A;')).toBe('var A = 1;\nexport const x = A;');
   });
 
+  it('sees writes and reads inside namespaces and enums', () => {
+    function foldedTS(code: string): string {
+      return optimize(code, { filename: 'input.tsx', inline: false, conditionals: false });
+    }
+
+    // A namespace body runs, so its write keeps `a` from folding.
+    for (const code of [
+      'let a = "one";\nnamespace N { a = "two"; }\nexport function C() { return <div title={a} />; }',
+      'let a = "one";\nnamespace N.M { a = "two"; }\nexport function C() { return <div title={a} />; }',
+      'let a = "one";\nenum E { X = (a = "two", 1) }\nexport function C() { return <div title={a} />; }',
+    ]) {
+      expect(foldedTS(code)).toBe(code);
+    }
+
+    // A `var` in a namespace stays inside it, and a `declare namespace` never runs.
+    for (const code of [
+      'let a = "one";\nnamespace N { var a = "two"; }\nexport function C() { return <div title={a} />; }',
+      'let a = "one";\ndeclare namespace N { let a: string; }\nexport function C() { return <div title={a} />; }',
+    ]) {
+      expect(foldedTS(code)).toContain('title={"one"}');
+    }
+
+    // An enum initializer reads the earlier member, not the outer binding.
+    expect(
+      foldedTS(
+        'const X = "outer";\nenum E { X = 1, Y = X }\nexport const view = <div title={X} />;',
+      ),
+    ).toBe(
+      'const X = "outer";\nenum E { X = 1, Y = X }\nexport const view = <div title={"outer"} />;',
+    );
+  });
+
   it('keeps output valid where a literal needs parentheses', () => {
     expect(folded('const N = 5;\nexport const s = N.toFixed();')).toBe(
       'const N = 5;\nexport const s = (5).toFixed();',

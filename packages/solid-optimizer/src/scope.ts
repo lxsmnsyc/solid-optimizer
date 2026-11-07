@@ -570,15 +570,48 @@ class Analyzer {
           this.visitJSXName(node.closingElement.name);
         }
         break;
-      case 'TSEnumDeclaration':
       case 'TSImportEqualsDeclaration':
         this.declare(node.id, 'other', node);
         break;
-      case 'TSModuleDeclaration':
-        if (node.id.type === 'Identifier') {
-          this.declare(node.id, 'other', node);
+      case 'TSEnumDeclaration':
+        this.declare(node.id, 'other', node);
+        // A `declare enum` is stripped with the types.
+        if (node.declare) {
+          break;
+        }
+        // An initializer can read earlier members by name, so they shadow outer bindings.
+        this.withScope(node, false, () => {
+          for (const member of node.body.members) {
+            if (member.id.type === 'Identifier') {
+              this.declare(member.id, 'other', member);
+            }
+          }
+          for (const member of node.body.members) {
+            if (member.initializer) {
+              this.visit(member.initializer);
+            }
+          }
+        });
+        break;
+      case 'TSModuleDeclaration': {
+        // `namespace A.B {}` declares `A`. `declare module "m" {}` declares nothing.
+        let id: Node = node.id;
+        while (id.type === 'TSQualifiedName') {
+          id = id.left;
+        }
+        if (id.type === 'Identifier') {
+          this.declare(id, 'other', node);
+        }
+        // A `declare namespace` or `declare module` is stripped with the types.
+        // The body of any other one runs, and a `var` in it stays inside.
+        const { body } = node;
+        if (!node.declare && body) {
+          this.withScope(node, true, () => {
+            this.visitStatements(body.body);
+          });
         }
         break;
+      }
       default:
         forEachChild(node, (child) => {
           this.visit(child);
