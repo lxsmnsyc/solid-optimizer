@@ -15,6 +15,7 @@ import { removeProviders } from './provider';
 import { lowerConditionals } from './conditional';
 import type { ScopeAnalysis } from './scope';
 import { analyzeScopes } from './scope';
+import { terminateStatements } from './terminate';
 import type { Primitive } from './value';
 
 export interface CompileOptions {
@@ -288,6 +289,21 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     }
     return parsed;
   };
+  const terminated = runPass(
+    parsedCurrent(),
+    filename,
+    resolved,
+    sourceMap,
+    terminateStatements,
+    undefined,
+  );
+  if (terminated) {
+    current = terminated.code;
+    if (terminated.map !== undefined) {
+      maps.push(terminated.map);
+    }
+  }
+  const start = current;
   const maxPasses = options.maxPasses ?? 10;
   let skipped: Skip[] | undefined;
   for (let round = 0; round < maxPasses; round += 1) {
@@ -335,7 +351,7 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   // A pass can put an element straight inside a parent that cannot hold it,
   // which Solid's JSX transform rejects. Only a changed module can have one
   // that its source did not.
-  if (current !== code) {
+  if (current !== start) {
     const result = runPass(
       parsedCurrent(),
       filename,
@@ -353,6 +369,10 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
   }
 
   const report = skipped ? { skipped } : {};
+  // Semicolons alone are no reason to change a module.
+  if (current === start) {
+    return { code, map: null, ...report };
+  }
   if (maps.length === 0) {
     return { code: current, map: null, ...report };
   }
