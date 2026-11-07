@@ -14,6 +14,15 @@ export interface DomCounts {
   markup: string;
 }
 
+/** The live reactive graph that one client render adds. */
+export interface GraphCounts {
+  owners: number;
+  computations: number;
+  signals: number;
+  edges: number;
+  markup: string;
+}
+
 /** Exact counts of one hydration. */
 export interface HydrationCounts extends DomCounts {
   /** Nodes in the hydrated app that the server did not write. */
@@ -138,6 +147,28 @@ export function countClient(): DomCounts {
     ...window.countDom(root),
     templatesCreated: window.counts.templatesCreated - before.templatesCreated,
     nodesCloned: window.counts.nodesCloned - before.nodesCloned,
+    markup: window.markup(root),
+  };
+}
+
+/**
+ * Renders the app once into `#app` with the `observe` runtime, and counts the
+ * owners, computations, signals, and dependency edges the render added.
+ */
+export function countGraph(): GraphCounts {
+  const root = document.getElementById('app');
+  const { mount, graph } = window.bench;
+  if (!root || !mount || !graph) {
+    throw new Error('no graph build');
+  }
+  const before = graph();
+  mount(root);
+  const after = graph();
+  return {
+    owners: after.owners - before.owners,
+    computations: after.computations - before.computations,
+    signals: after.signals - before.signals,
+    edges: after.edges - before.edges,
     markup: window.markup(root),
   };
 }

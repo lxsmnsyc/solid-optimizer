@@ -1,3 +1,5 @@
+import type { GraphSize } from 'solid-js/attribution';
+
 export {};
 
 declare global {
@@ -6,6 +8,8 @@ declare global {
     bench: {
       mount?: (element: HTMLElement) => () => void;
       hydrate?: (element: HTMLElement) => () => void;
+      /** Counts the live reactive graph. Only the `graph` build, with the `observe` runtime, has it. */
+      graph?: () => GraphSize;
       /** What to click after hydration, and what has to change when it does. */
       probe?: { click: string; watch: string };
     };
