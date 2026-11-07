@@ -211,6 +211,45 @@ render(() => <Row name="root" />, document.body);
     );
   });
 
+  it('ends a moved statement that has no semicolon', () => {
+    const code = `
+const Timer = () => {
+  onSettled(start)
+  return <time />
+}
+export const App = () => <p><Timer /></p>
+`;
+    expect(inlined(code)).toBe(`
+
+export const App = () => { onSettled(start); return <p><time /></p>; }
+`);
+  });
+
+  it('keeps moved statements apart when the next one starts with a parenthesis', () => {
+    const code = `
+function Start() {
+  const stop = begin()
+  return <time>{stop}</time>
+}
+function Stop() {
+  (stop || start)()
+  return <hr />
+}
+export function App() {
+  return <p><Start /><Stop /></p>
+}
+`;
+    expect(inlined(code)).toBe(`
+
+
+export function App() {
+  const stop$1 = begin();
+  (stop || start)();
+  return <p><time>{stop$1}</time><hr /></p>
+}
+`);
+  });
+
   it('keeps statements out of callbacks that are not run once per creation', () => {
     const imports = "import { Show } from 'solid-js';\n";
     const code = `${imports}function Item(props) {

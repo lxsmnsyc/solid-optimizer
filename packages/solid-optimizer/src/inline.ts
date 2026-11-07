@@ -1627,7 +1627,9 @@ class Inliner {
     const first = component.statements.at(0);
     const last = component.statements.at(-1);
     if (first && last) {
-      statements.push(copy.slice(first.start, last.end));
+      // The last statement can rely on a line break that it loses here.
+      const text = copy.slice(first.start, last.end);
+      statements.push(text.endsWith(';') ? text : `${text};`);
     }
     return {
       element,
