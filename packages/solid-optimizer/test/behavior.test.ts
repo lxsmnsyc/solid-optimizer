@@ -283,6 +283,46 @@ function App() {
   });
 });
 
+describe('compound components', () => {
+  it('renders a root and its parts the same once they inline', async () => {
+    // Like Kobalte: the root provides its state, and each part reads it.
+    const code = await expectSameBehavior(
+      'compound',
+      app(
+        `const DialogContext = createContext();
+function DialogRoot(props) {
+  const [open, setOpen] = createSignal(false);
+  return (
+    <DialogContext value={{ open, toggle: () => setOpen((v) => !v) }}>
+      <div class="dialog">{props.children}</div>
+    </DialogContext>
+  );
+}
+function DialogTrigger(props) {
+  const dialog = useContext(DialogContext);
+  return <button id="toggle" onClick={() => dialog.toggle()}>{props.children}</button>;
+}
+function DialogContent(props) {
+  const dialog = useContext(DialogContext);
+  return <p>{dialog.open() ? props.children : 'closed'}</p>;
+}
+const Dialog = Object.assign(DialogRoot, { Trigger: DialogTrigger, Content: DialogContent });
+function App() {
+  return (
+    <Dialog>
+      <Dialog.Trigger>Toggle</Dialog.Trigger>
+      <Dialog.Content>open</Dialog.Content>
+    </Dialog>
+  );
+}`,
+        "import { createContext, createSignal, useContext } from 'solid-js';",
+      ),
+      ['#toggle', '#toggle'],
+    );
+    expect(code).not.toContain('Object.assign');
+  });
+});
+
 describe('dynamic', () => {
   it('renders a known component through <Dynamic> the same as a call', async () => {
     const code = await expectSameBehavior(

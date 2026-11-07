@@ -927,6 +927,11 @@ export function App() {
           <li>
             It is declared once at the top level, with a capitalized name. A call through an alias,
             like <code>const Separator = SeparatorRoot</code>, is a call of the component it names.
+            So is a call through a compound component, like Kobalte's{' '}
+            <code>{'const Dialog = Object.assign(DialogRoot, { Trigger: DialogTrigger })'}</code>:{' '}
+            <code>{'<Dialog>'}</code> calls <code>DialogRoot</code> and{' '}
+            <code>{'<Dialog.Trigger>'}</code> calls <code>DialogTrigger</code>, as long as nothing
+            writes to a member of either.
           </li>
           <li>
             Its parameter is one identifier that is only read as <code>props.name</code>, spread

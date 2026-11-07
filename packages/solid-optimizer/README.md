@@ -201,7 +201,7 @@ Solid then creates one template for `<main>` instead of two.
 
 A component inlines when all of these hold:
 
-- It is declared once at the top level, with a capitalized name. A call through an alias, like `const Separator = SeparatorRoot`, is a call of the component it names.
+- It is declared once at the top level, with a capitalized name. A call through an alias, like `const Separator = SeparatorRoot`, is a call of the component it names. So is a call through a compound component, like Kobalte's `const Dialog = Object.assign(DialogRoot, { Trigger: DialogTrigger })`: `<Dialog>` calls `DialogRoot` and `<Dialog.Trigger>` calls `DialogTrigger`, as long as nothing writes to a member of either.
 - Its parameter is one identifier that is only read as `props.name`, spread onto an element as `{...props}`, or passed to `merge()` and `omit()`. See below.
 - Its body ends in the only `return`, and that `return` returns JSX.
 - It does not use `this`, `arguments`, `super`, or `new.target`.
