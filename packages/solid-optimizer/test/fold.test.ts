@@ -586,6 +586,60 @@ describe('dead code', () => {
     expect(loop).not.toContain('while');
   });
 
+  it('removes a declaration whose reads all folded', () => {
+    expect(
+      folded("function Card() {\n  const size = 'sm';\n  return <div class={size} />;\n}"),
+    ).toBe('function Card() {\n  \n  return <div class={"sm"} />;\n}');
+    expect(
+      folded(
+        "const BIG = false;\nfunction Card() {\n  let size = 'sm';\n  if (BIG) size = 'lg';\n  return <div class={size} />;\n}",
+      ),
+    ).not.toContain('let size');
+  });
+
+  it('removes unused declarations that only create a value', () => {
+    const code = folded(`import { createSignal } from 'solid-js';
+function Card() {
+  const a = 1, b = () => a;
+  let c;
+  const [d] = [1];
+  const s = createSignal(0);
+  return <div />;
+}`);
+    expect(code).not.toContain('const a');
+    expect(code).not.toContain('let c');
+    expect(code).not.toContain('createSignal(0)');
+    // A pattern is left to the bundler.
+    expect(code).toContain('const [d] = [1];');
+  });
+
+  it('keeps declarations that are read, written, or have effects', () => {
+    for (const body of [
+      'const a = effect();',
+      'const a = [...items];',
+      'const a = { [key()]: 1 };',
+      'let a = 1;\n  a = 2;',
+      'const a = createSignal(() => 1);',
+      'const a = 1, b = effect();',
+    ]) {
+      const code = `import { createSignal } from 'solid-js';\nfunction Card() {\n  ${body}\n  return <div />;\n}`;
+      expect(folded(code), body).toBe(code);
+    }
+    // A read that does not fold keeps its binding.
+    const read = 'function Card() {\n  const a = {};\n  return <div ref={a} />;\n}';
+    expect(folded(read)).toBe(read);
+  });
+
+  it('keeps declarations outside functions and in loop heads', () => {
+    for (const code of [
+      "const unused = 'x';\nexport const App = () => <div />;",
+      'function Card() {\n  for (let i = 0; false; ) {}\n  return <div />;\n}',
+      'function Card() {\n  var a = 1;\n  return <div />;\n}',
+    ]) {
+      expect(folded(code)).toBe(code);
+    }
+  });
+
   it('drops the side of a short-circuit that never runs', () => {
     expect(folded('export const k = false && effect();')).toBe('export const k = false;');
     expect(folded('export const j = true ? kept() : effect();')).toBe('export const j = kept();');

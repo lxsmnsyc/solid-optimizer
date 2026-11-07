@@ -406,6 +406,7 @@ Plan:
 2. In a server build, replace the callback given to `onMount`, the effect function of `createEffect`, and the remaining `ref` and `on*` values with `() => {}`. The bundler then drops imports only those callbacks used.
 3. Keep `createEffect`'s compute function when it could throw or read a value that suspends, since the server may run it. Check Solid 2's server `createEffect` first.
 4. Measure the server bundle of a hydrating example, once item 12 adds one.
+5. A setter called only from a removed handler is then never called. The signal becomes one that nothing writes, so item 14 folds its reads to the initial value. React Compiler's `OptimizeForSSR` does the same for `useState`.
 
 ## 20. Handlers hoisted out of `<For>` rows
 
@@ -418,6 +419,7 @@ Plan:
 1. Hoist an arrow given to an `on*` attribute when every binding it reads is declared outside the `<For>` callback.
 2. Hoist to the nearest scope that declares all of them. A module-level target needs no `const` in a component.
 3. The bundle does not get smaller. Measure with item 12's runtime benchmark, mount time and heap for a list of 1,000 rows, before keeping it.
+4. An arrow that reads no local binding at all can move to the module level from any function, not only out of a `<For>` row. React Compiler's `OutlineFunctions` uses this rule: a function expression with no captured context is outlined.
 
 ## 21. `<Show>` and `<Switch>` lowered to ternaries
 
@@ -448,6 +450,63 @@ Plan:
 3. List the accepted difference in `strategy.md`. Removing `<Show>` shifts the hydration keys after it.
 4. Measure timings once item 12 has a Hacker News harness. The demo has one `<Show>`.
 
+## 22. Declarations that folding leaves unread
+
+Status: done in the fold pass. No example app changes size or report, since each component left as `no-host` (the demo's `Home`, Hacker News's `Routes`, the tracker's `IssueDetail` and `Summary`) keeps statements that are read. Taken from React Compiler's `DeadCodeElimination`, which runs after constant propagation and drops each instruction whose value nothing reads.
+
+Fold replaces each read of a constant binding with its value, but keeps the declaration. A component left with that declaration has a statement, so it can no longer inline where a statement has no host. Checked on 2026-11-07 with `compile` and `alwaysInline: true`:
+
+```jsx
+function Plain() {
+  const size = 'sm';
+  return <div class={size}>x</div>;
+}
+export const App = (props) => (
+  <Show when={props.on} fallback={<Card />}>
+    <Plain />
+  </Show>
+);
+```
+
+The output keeps `const size = 'sm';` in `Plain`, with `class={"sm"}`. The report lists `Plain` and `Card` as `no-host`. Without the declaration both bodies are JSX only and inline in the ternary.
+
+Plan:
+
+1. After fold, remove a `const`, or a `let` nothing writes to, when no reference to the binding is left. Its initializer must have no side effects. Accept a literal, a template literal of literals, an arrow, or a Solid factory call that item 13 marks as free of side effects.
+2. Remove a `let` whose only writes are in branches fold removed, in the same way. `if (BIG) size = 'lg'` with `BIG` false already folds `size`, and leaves `let size = 'sm';`.
+3. Run it inside the fold pass, so the inline pass of the same round sees the body without the statement.
+4. Leave a top-level declaration, a `var`, a destructuring pattern, and a loop head to the bundler.
+
+## 23. Value kinds for memos and text children
+
+Status: open. Taken from React Compiler's `InferTypes` and the shapes in `Globals.ts`, which record what built-in calls return, such as a new array from `Array.prototype.map`.
+
+Two items in "Not planned" stop on the same missing fact, which kind of value an expression produces:
+
+- A memo of `.map`, `.filter`, or `Array.from` always returns a new array only when the receiver is an array.
+- Adjacent text children can share one effect only when every value is a string or a number.
+
+Plan:
+
+1. Add a small analysis in `value.ts` that gives each expression one of these kinds: `string`, `number`, `boolean`, `array`, `object`, `function`, `jsx`, or `unknown`.
+2. Fill it from literals, operators such as `+` of two numbers, template literals, and bindings that fold allows. Add a table of known calls: `Array.from`, `Array.isArray`, `String`, `Number`, `.toFixed`, and the array methods on a binding whose kind is `array`.
+3. Read the kind of a module-level function's return value when every `return` has the same kind. The tracker's `filterIssues` returns `issues.filter(...)` on a parameter typed `readonly Issue[]`, but types are stripped, so its kind stays `unknown` unless the parameter's argument is known.
+4. Treat `unknown` the way the passes do now. The analysis only adds cases, it never removes one.
+5. Use it in `memo.ts` for computations that always return a new value. Measure on the tracker's `visible` memo first. Then plan the text children item separately.
+
+## 24. Immediately invoked functions
+
+Status: parked until an app has a case. Checked on 2026-11-07: no example app has an immediately invoked function. Taken from React Compiler's `InlineImmediatelyInvokedFunctionExpressions`.
+
+`{(() => { const n = 2; return <b>{n}</b>; })()}` folds `n` inside the function, but the call stays. The JSX in it does not join the template around it.
+
+Plan:
+
+1. Accept an arrow or function expression with no parameters, called at once with no arguments, as an element's child. Its body must be statements followed by one final `return` of JSX.
+2. When the body has no statements left after fold, replace the call with the JSX. Fold already does this for an arrow whose body is JSX.
+3. When statements remain, move them to the host the inline pass uses for a component's statements. The call runs once each time its host runs, the same as a component call.
+4. With more than one `return`, React Compiler writes a labeled block and a result variable. That gives a statement, not JSX, so it does not help a template. Leave such a function alone.
+
 ## Not planned
 
 These are known gaps that are not worth doing now.
@@ -463,4 +522,6 @@ These are known gaps that are not worth doing now.
 - **Adjacent text children joined into one effect.** `{a()} - {b()}` takes two `insert` calls and their markers. One text effect would do, but only when both values are known to be strings or numbers, which needs type information.
 - **A spread of an unknown object at a component call.** No app has a case. See item 2.
 - **Components with statements in a `<Show>` child or a `fallback`.** About 16 B minified per call. See item 1.
+- **React Compiler's reactive scopes.** Its passes that align, merge, and prune memo scopes exist because a React component runs again on every render. So does its model of mutation and aliasing. A Solid component runs once, so neither applies.
+- **`let` bindings written in straight-line code.** `let x = 1; use(x); x = 2;` could fold the first read by tracking each write, as React Compiler does with SSA. A write in a branch that fold removes already folds, and no app writes a `let` this way.
 - **Item 16, class helpers evaluated at build time.** Solid 2's `class` already takes objects and arrays, the forms `clsx` builds, and compiles them itself, so Solid code has little need for `clsx`. What it does not cover is `tailwind-merge`'s conflict resolution in a `cn` helper. Only libraries like solid-ui use that, and folding it would run package code in the build.
