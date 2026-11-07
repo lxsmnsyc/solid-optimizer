@@ -2375,21 +2375,154 @@ class Inliner {
   }
 
   /**
+   * The parts of a compound component like Kobalte's
+   * `const Dialog = Object.assign(DialogRoot, { Trigger: DialogTrigger })`,
+   * or `undefined` when the binding is not one. `<Dialog>` is `<DialogRoot>`,
+   * since `Object.assign` returns its first argument, and `<Dialog.Trigger>`
+   * is `<DialogTrigger>` while nothing writes to a member of either.
+   */
+  private compoundTarget(
+    binding: Binding,
+  ): { root: Binding; parts: ReadonlyMap<string, Binding> } | undefined {
+    const { declaration } = binding;
+    if (
+      !isCapitalized(binding.name) ||
+      !isConstantDeclaration(binding, this.context.options) ||
+      declaration.type !== 'VariableDeclarator' ||
+      declaration.id !== binding.identifier ||
+      !declaration.init
+    ) {
+      return undefined;
+    }
+    const init = unwrap(declaration.init);
+    if (
+      init.type !== 'CallExpression' ||
+      init.optional ||
+      init.arguments.length !== 2 ||
+      !this.isObjectAssign(init.callee)
+    ) {
+      return undefined;
+    }
+    const [first, second] = init.arguments;
+    if (first.type !== 'Identifier' || second.type !== 'ObjectExpression') {
+      return undefined;
+    }
+    const root = this.topLevelComponent(first);
+    if (!root || root === binding || this.hasMemberWrite(binding) || this.hasMemberWrite(root)) {
+      return undefined;
+    }
+    const parts = new Map<string, Binding>();
+    for (const property of second.properties) {
+      if (
+        property.type !== 'Property' ||
+        property.kind !== 'init' ||
+        property.computed ||
+        property.method ||
+        property.value.type !== 'Identifier'
+      ) {
+        return undefined;
+      }
+      const key = propertyKeyName(property.key);
+      if (key === undefined) {
+        return undefined;
+      }
+      // Only parts with a capitalized name can be tags. The others stay reads.
+      const part = this.topLevelComponent(property.value);
+      if (part) {
+        parts.set(key, part);
+      }
+    }
+    return { root, parts };
+  }
+
+  /** Whether `callee` is the global `Object.assign`. */
+  private isObjectAssign(callee: Node): boolean {
+    return (
+      callee.type === 'MemberExpression' &&
+      !callee.computed &&
+      !callee.optional &&
+      callee.object.type === 'Identifier' &&
+      callee.object.name === 'Object' &&
+      !this.context.scopes.references.get(callee.object) &&
+      callee.property.type === 'Identifier' &&
+      callee.property.name === 'assign'
+    );
+  }
+
+  /** The top-level binding with a capitalized name that `reference` reads, when nothing reassigns it. */
+  private topLevelComponent(reference: Node): Binding | undefined {
+    const target = this.context.scopes.references.get(reference);
+    return target &&
+      target.scope.parent === undefined &&
+      !target.mutated &&
+      isCapitalized(target.name)
+      ? target
+      : undefined;
+  }
+
+  /** Whether anything assigns to, updates, or deletes a member of the binding. */
+  private hasMemberWrite(binding: Binding): boolean {
+    for (const reference of binding.references) {
+      const member = this.context.parents.get(reference);
+      if (member?.type !== 'MemberExpression' || member.object !== reference) {
+        continue;
+      }
+      const use = this.context.parents.get(member);
+      if (
+        (use?.type === 'AssignmentExpression' && use.left === member) ||
+        use?.type === 'UpdateExpression' ||
+        (use?.type === 'UnaryExpression' && use.operator === 'delete')
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Whether the code reads a member of the binding, like `DialogRoot.Trigger`. */
+  private hasMemberRead(binding: Binding): boolean {
+    for (const reference of binding.references) {
+      const member = this.context.parents.get(reference);
+      if (
+        (member?.type === 'MemberExpression' || member?.type === 'JSXMemberExpression') &&
+        member.object === reference
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * The statement of an alias nothing uses that `reference` is the value
    * of, like `const Separator = SeparatorRoot` once its tags are renamed.
-   * It does not keep the component, and goes away with it.
+   * It does not keep the component, and goes away with it. A compound
+   * component counts too, when its tags are renamed and nothing reads the
+   * members `Object.assign` gave its root.
    */
   private unusedAlias(reference: Node): Node | undefined {
-    const declarator = this.context.parents.get(reference);
+    let declarator = this.context.parents.get(reference);
+    if (declarator?.type === 'Property') {
+      declarator = this.context.parents.get(declarator);
+    }
+    if (declarator?.type === 'ObjectExpression' || declarator?.type === 'CallExpression') {
+      const call =
+        declarator.type === 'CallExpression' ? declarator : this.context.parents.get(declarator);
+      declarator = call ? this.context.parents.get(call) : undefined;
+    }
     if (declarator?.type !== 'VariableDeclarator' || declarator.id.type !== 'Identifier') {
       return undefined;
     }
     const alias = this.context.scopes.root.bindings.get(declarator.id.name);
+    if (alias?.declaration !== declarator || alias.references.length > 0) {
+      return undefined;
+    }
+    const compound = this.compoundTarget(alias);
+    if (this.aliasTarget(alias) === undefined && (!compound || this.hasMemberRead(compound.root))) {
+      return undefined;
+    }
     const statement = this.context.parents.get(declarator);
-    return alias?.declaration === declarator &&
-      this.aliasTarget(alias) !== undefined &&
-      alias.references.length === 0 &&
-      statement?.type === 'VariableDeclaration' &&
+    return statement?.type === 'VariableDeclaration' &&
       statement.declarations.length === 1 &&
       this.context.parents.get(statement)?.type === 'Program'
       ? statement
@@ -2404,23 +2537,36 @@ class Inliner {
   private renameAliasTags(): boolean {
     let renamed = false;
     for (const binding of this.context.scopes.root.bindings.values()) {
-      const target = this.aliasTarget(binding);
+      const compound = this.compoundTarget(binding);
+      const target = this.aliasTarget(binding) ?? compound?.root;
       if (!target) {
         continue;
       }
       for (const reference of binding.references) {
         const parent = this.context.parents.get(reference);
+        // `<Dialog.Trigger>` is the part `Object.assign` gave the root.
+        let tag: Node = reference;
+        let renamedTo = target;
+        if (parent?.type === 'JSXMemberExpression' && parent.object === reference) {
+          const part = compound?.parts.get(parent.property.name);
+          if (!part) {
+            continue;
+          }
+          tag = parent;
+          renamedTo = part;
+        }
+        const element = this.context.parents.get(tag);
         if (
-          (parent?.type !== 'JSXOpeningElement' && parent?.type !== 'JSXClosingElement') ||
-          parent.name !== reference
+          (element?.type !== 'JSXOpeningElement' && element?.type !== 'JSXClosingElement') ||
+          element.name !== tag
         ) {
           continue;
         }
         const scope = scopeAt(this.context.scopes, this.context.parents, reference);
-        if (lookup(scope, target.name) !== target) {
+        if (lookup(scope, renamedTo.name) !== renamedTo) {
           continue;
         }
-        this.context.s.overwrite(reference.start, reference.end, target.name);
+        this.context.s.overwrite(tag.start, tag.end, renamedTo.name);
         renamed = true;
       }
     }
@@ -2785,4 +2931,12 @@ function hasChild(children: readonly Node[], child: Node): boolean {
     }
   }
   return false;
+}
+
+/** The name a non-computed object key spells, like `Trigger` or `'Trigger'`. */
+function propertyKeyName(key: Node): string | undefined {
+  if (key.type === 'Identifier') {
+    return key.name;
+  }
+  return key.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
 }
