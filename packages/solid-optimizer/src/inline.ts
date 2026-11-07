@@ -1637,15 +1637,21 @@ class Inliner {
     };
   }
 
+  /** Queues statements for a host. Each `return` gets its own, since their scopes can differ. */
+  private addToHost(found: { fn: Node; host: Host }, texts: readonly string[]): void {
+    const key = found.host.kind === 'return' ? found.host.statement : found.fn;
+    const entry = this.hosts.get(key) ?? { host: found.host, texts: [] };
+    entry.texts.push(...texts);
+    this.hosts.set(key, entry);
+  }
+
   /**
    * Writes a prepared copy over its call site.
    */
   private commit(site: PreparedSite): void {
     this.context.s.overwrite(site.element.start, site.element.end, site.root);
     if (site.host) {
-      const entry = this.hosts.get(site.host.fn) ?? { host: site.host.host, texts: [] };
-      entry.texts.push(...site.statements);
-      this.hosts.set(site.host.fn, entry);
+      this.addToHost(site.host, site.statements);
     }
   }
 
@@ -1768,9 +1774,7 @@ class Inliner {
       const name = this.freshName(
         `${provider.context.name.charAt(0).toLowerCase()}${provider.context.name.slice(1)}Value`,
       );
-      const entry = this.hosts.get(host.fn) ?? { host: host.host, texts: [] };
-      entry.texts.push(`const ${name} = ${getText(this.context, provider.value)};`);
-      this.hosts.set(host.fn, entry);
+      this.addToHost(host, [`const ${name} = ${getText(this.context, provider.value)};`]);
       this.context.s.overwrite(provider.value.start, provider.value.end, name);
       this.transparent.set(element, { provider, text: name });
       this.changed = true;

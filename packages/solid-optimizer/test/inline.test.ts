@@ -165,6 +165,72 @@ export const App = () => { onSettled(start); return <p><time /></p>; };
 `);
   });
 
+  it('moves statements to the return that holds the call', () => {
+    const code = `
+function First(props) {
+  const [first, setFirst] = createSignal(props.initial);
+  return <button onClick={() => setFirst(1)}>{first()}</button>;
+}
+function Second(props) {
+  const [second, setSecond] = createSignal(props.initial);
+  return <button onClick={() => setSecond(2)}>{second()}</button>;
+}
+export function App(props) {
+  if (props.first) {
+    return <div><First initial={0} /></div>;
+  }
+  return <p><Second initial={0} /></p>;
+}
+`;
+    expect(inlined(code)).toBe(`
+
+
+export function App(props) {
+  if (props.first) {
+    const [first$1, setFirst$1] = createSignal(0);
+    return <div><button onClick={() => setFirst$1(1)}>{first$1()}</button></div>;
+  }
+  const [second$1, setSecond$1] = createSignal(0);
+  return <p><button onClick={() => setSecond$1(2)}>{second$1()}</button></p>;
+}
+`);
+  });
+
+  it('moves statements to the switch case that holds the call', () => {
+    const code = `
+function First() {
+  onSettled(first);
+  return <hr />;
+}
+function Second() {
+  onSettled(second);
+  return <br />;
+}
+export function App(props) {
+  switch (props.kind) {
+    case 1:
+      return <div><First /></div>;
+    default:
+      return <p><Second /></p>;
+  }
+}
+`;
+    expect(inlined(code)).toBe(`
+
+
+export function App(props) {
+  switch (props.kind) {
+    case 1:
+      onSettled(first);
+      return <div><hr /></div>;
+    default:
+      onSettled(second);
+      return <p><br /></p>;
+  }
+}
+`);
+  });
+
   it('only moves statements where the component is created once per host run', () => {
     const code = `
 function Item(props) {
