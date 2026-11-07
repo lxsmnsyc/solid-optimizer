@@ -75,7 +75,15 @@ function chartsOf(results: Results): Chart[] {
     const entry = results.timings[key];
     charts.push({ title, unit, pair: entry, noise: entry.noise });
   }
-  charts.push({ title: 'Templates cloned', unit: 'count', pair: results.client.nodesCloned });
+  const counts: [string, string][] = [
+    ['nodesCloned', 'Templates cloned'],
+    ['owners', 'Owners'],
+    ['computations', 'Computations'],
+    ['edges', 'Dependency edges'],
+  ];
+  for (const [key, title] of counts) {
+    charts.push({ title, unit: 'count', pair: results.client[key] });
+  }
   return charts;
 }
 
