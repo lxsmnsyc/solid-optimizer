@@ -1015,7 +1015,9 @@ class Inliner {
       if (view === null) {
         continue;
       }
-      const binding = scope.bindings.get(declarator.id.name);
+      // A body with its own scope (a parameter has a default) holds the declaration.
+      const body = (fn.body && this.context.scopes.scopes.get(fn.body)) ?? scope;
+      const binding = body.bindings.get(declarator.id.name);
       if (!view || !binding || binding.mutated) {
         return undefined;
       }

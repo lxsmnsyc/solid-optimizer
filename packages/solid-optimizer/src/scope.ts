@@ -14,6 +14,7 @@ import type {
   BindingPattern,
   Class,
   Directive,
+  FunctionBody,
   Function as FunctionNode,
   JSXElementName,
   ModuleExportName,
@@ -69,7 +70,11 @@ export interface ScopeAnalysis {
   readonly root: Scope;
   /** What each identifier reference resolves to. `undefined` means a global. */
   readonly references: Map<Node, Binding | undefined>;
-  /** The scope each scope-creating node opens. A function body shares its function's scope. */
+  /**
+   * The scope each scope-creating node opens. A function body shares its
+   * function's scope, unless a parameter has a default or a computed key: then
+   * the body opens its own scope inside the function's, as in the spec.
+   */
   readonly scopes: Map<Node, Scope>;
   /** Every identifier name in the program, for generating names that collide with none. */
   readonly names: Set<string>;
@@ -123,6 +128,50 @@ export function isWithinScope(scope: Scope, ancestor: Scope): boolean {
   return false;
 }
 
+/**
+ * Whether a parameter list holds an expression: a default value or a computed
+ * key, at any depth.
+ */
+function hasParameterExpressions(params: readonly (BindingPattern | ParamPattern)[]): boolean {
+  for (const param of params) {
+    if (hasPatternExpression(param)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasPatternExpression(pattern: BindingPattern | ParamPattern): boolean {
+  switch (pattern.type) {
+    case 'AssignmentPattern':
+      return true;
+    case 'ObjectPattern':
+      for (const property of pattern.properties) {
+        if (property.type === 'RestElement') {
+          if (hasPatternExpression(property.argument)) {
+            return true;
+          }
+        } else if (property.computed || hasPatternExpression(property.value)) {
+          return true;
+        }
+      }
+      return false;
+    case 'ArrayPattern':
+      for (const element of pattern.elements) {
+        if (element && hasPatternExpression(element)) {
+          return true;
+        }
+      }
+      return false;
+    case 'RestElement':
+      return hasPatternExpression(pattern.argument);
+    case 'TSParameterProperty':
+      return hasPatternExpression(pattern.parameter);
+    default:
+      return false;
+  }
+}
+
 function exportName(name: ModuleExportName): string {
   return name.type === 'Literal' ? name.value : name.name;
 }
@@ -137,6 +186,9 @@ class Analyzer {
   readonly names = new Set<string>();
 
   private readonly pending: PendingReference[] = [];
+
+  /** Function bodies with a scope split from the scope of their parameters. */
+  private readonly bodies = new Set<Node>();
 
   constructor(program: Program) {
     this.root = {
@@ -189,6 +241,12 @@ class Analyzer {
     let target = this.scope;
     if (kind === 'var') {
       while (!target.isFunction && target.parent) {
+        target = target.parent;
+      }
+      // A body `var` named like a parameter starts with the parameter's value.
+      // It is kept as one binding with the parameter, which the redeclaration
+      // below marks as mutated, so neither is folded.
+      if (this.bodies.has(target.node) && target.parent?.bindings.has(identifier.name)) {
         target = target.parent;
       }
     }
@@ -324,9 +382,25 @@ class Analyzer {
         this.declarePattern(param, 'param', node);
       }
       if (node.body) {
-        this.scopes.set(node.body, this.scope);
-        this.visitStatements(node.body.body);
+        this.visitBody(node.body, node.params);
       }
+    });
+  }
+
+  /**
+   * Visits the block body of a function. When a parameter holds an expression,
+   * the body gets its own scope, so the expression cannot see the body's
+   * declarations.
+   */
+  private visitBody(body: FunctionBody, params: ParamPattern[]): void {
+    if (!hasParameterExpressions(params)) {
+      this.scopes.set(body, this.scope);
+      this.visitStatements(body.body);
+      return;
+    }
+    this.bodies.add(body);
+    this.withScope(body, true, () => {
+      this.visitStatements(body.body);
     });
   }
 
@@ -423,8 +497,7 @@ class Analyzer {
             this.declarePattern(param, 'param', node);
           }
           if (node.body.type === 'BlockStatement') {
-            this.scopes.set(node.body, this.scope);
-            this.visitStatements(node.body.body);
+            this.visitBody(node.body, node.params);
           } else {
             this.visit(node.body);
           }
