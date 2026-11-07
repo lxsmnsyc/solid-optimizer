@@ -10,6 +10,7 @@ import type { PassContext, ResolvedOptions, Skip } from './context';
 import { fold } from './fold';
 import { inline } from './inline';
 import { inlineMemos } from './memo';
+import { repairNesting } from './nesting';
 import { removeProviders } from './provider';
 import { lowerConditionals } from './conditional';
 import type { ScopeAnalysis } from './scope';
@@ -324,6 +325,26 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
       if (!result) {
         break;
       }
+      current = result.code;
+      if (result.map !== undefined) {
+        maps.push(result.map);
+      }
+    }
+  }
+
+  // A pass can put an element straight inside a parent that cannot hold it,
+  // which Solid's JSX transform rejects. Only a changed module can have one
+  // that its source did not.
+  if (current !== code) {
+    const result = runPass(
+      parsedCurrent(),
+      filename,
+      resolved,
+      sourceMap,
+      repairNesting,
+      undefined,
+    );
+    if (result) {
       current = result.code;
       if (result.map !== undefined) {
         maps.push(result.map);

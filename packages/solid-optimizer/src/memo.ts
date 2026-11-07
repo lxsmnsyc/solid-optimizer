@@ -87,6 +87,7 @@ import type {
   Function as FunctionNode,
   JSXExpressionContainer,
   Node,
+  ObjectExpression,
   VariableDeclarator,
 } from 'oxc-parser';
 import { isFunctionNode, isIntrinsicTag, isPrimary, unwrap } from './ast';
@@ -108,30 +109,103 @@ const TRACKED_PROPS = new Map([
 ]);
 
 /**
- * Whether evaluating `node` always creates a new value, which reference
- * equality never finds equal to the last one.
+ * Global constructors whose instances are never thenable or async iterable.
  */
-function isFresh(node: Node): boolean {
+const SYNC_CONSTRUCTORS = new Set([
+  'Array',
+  'Date',
+  'Error',
+  'Map',
+  'RegExp',
+  'Set',
+  'URL',
+  'URLSearchParams',
+  'WeakMap',
+  'WeakSet',
+]);
+
+/**
+ * Whether an object literal can have a `then` method or `Symbol.asyncIterator`,
+ * its own or from a `__proto__` it sets.
+ */
+function mayBeThenable(node: ObjectExpression): boolean {
+  for (const property of node.properties) {
+    if (property.type === 'SpreadElement' || property.computed) {
+      return true;
+    }
+    const { key } = property;
+    let name: unknown;
+    if (key.type === 'Identifier') {
+      name = key.name;
+    } else if ('value' in key) {
+      name = key.value;
+    }
+    if (name === 'then' || name === '__proto__') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether evaluating `node` always creates a new value, which reference
+ * equality never finds equal to the last one. The value is never a promise
+ * or an async iterable, which a memo waits for and an inlined read does not.
+ * `isGlobal` tells whether a name is one the module does not declare.
+ */
+function isFresh(node: Node, isGlobal: (node: Node) => boolean): boolean {
   switch (node.type) {
-    case 'ObjectExpression':
     case 'ArrayExpression':
     case 'ArrowFunctionExpression':
     case 'FunctionExpression':
-    case 'ClassExpression':
-    case 'NewExpression':
     case 'JSXElement':
     case 'JSXFragment':
       return true;
+    case 'ObjectExpression':
+      return !mayBeThenable(node);
+    case 'NewExpression':
+      return (
+        node.callee.type === 'Identifier' &&
+        SYNC_CONSTRUCTORS.has(node.callee.name) &&
+        isGlobal(node.callee)
+      );
     case 'ParenthesizedExpression':
-      return isFresh(node.expression);
+      return isFresh(node.expression, isGlobal);
     case 'ConditionalExpression':
-      return isFresh(node.consequent) && isFresh(node.alternate);
+      return isFresh(node.consequent, isGlobal) && isFresh(node.alternate, isGlobal);
     case 'SequenceExpression': {
       const last = node.expressions.at(-1);
-      return last !== undefined && isFresh(last);
+      return last !== undefined && isFresh(last, isGlobal);
     }
     default:
       return false;
+  }
+}
+
+/**
+ * Whether `node` evaluates to a value that is never a promise or an async
+ * iterable. A memo waits for one of those, and an inlined read does not.
+ */
+function isSync(node: Node, isGlobal: (node: Node) => boolean): boolean {
+  switch (node.type) {
+    case 'Literal':
+    case 'TemplateLiteral':
+    case 'UnaryExpression':
+    case 'UpdateExpression':
+    case 'BinaryExpression':
+      return true;
+    case 'ParenthesizedExpression':
+      return isSync(node.expression, isGlobal);
+    case 'ConditionalExpression':
+      return isSync(node.consequent, isGlobal) && isSync(node.alternate, isGlobal);
+    case 'LogicalExpression':
+      return isSync(node.left, isGlobal) && isSync(node.right, isGlobal);
+    case 'SequenceExpression': {
+      const last = node.expressions.at(-1);
+      return last !== undefined && isSync(last, isGlobal);
+    }
+    default:
+      return isFresh(node, isGlobal);
   }
 }
 
@@ -497,8 +571,16 @@ class MemoInliner {
       if (constant !== undefined) {
         return this.inlineConstant(declarator, binding, constant);
       }
+      const isGlobal = (node: Node): boolean =>
+        this.context.scopes.references.get(node) === undefined;
       // A memo whose result can equal its last one stops updates, which is what it is for.
-      if (!alwaysNotifies && !isFresh(expression)) {
+      if (!alwaysNotifies && !isFresh(expression, isGlobal)) {
+        return undefined;
+      }
+      // A memo waits for a promise or an async iterable. The insert an inlined
+      // read becomes takes the value as it is.
+      if (alwaysNotifies && !isSync(expression, isGlobal)) {
+        this.reason = 'memo-async';
         return undefined;
       }
     }
