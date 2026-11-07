@@ -1,5 +1,16 @@
 # solid-optimizer
 
+## 1.0.0-next.7
+
+### Patch Changes
+
+- 7b8f5ce: A pass no longer puts an element where the HTML parser would move it, which made Solid's JSX transform fail with "The HTML provided is malformed". `<p><Box /></p>`, where `Box` returns a `<div>`, used to become `<p><div>…</div></p>` once `Box` was inlined. The same happened when `<Show>`, `<For>`, or `<Dynamic>` resolved to such an element. Each template is now checked the way Solid checks it, by parsing it as HTML, and an element that would move stays in `{}`, inserted at runtime as before.
+- 4f72e8d: Keep a memo whose value can be a promise or an async iterable. A memo waits for one, and the read it was inlined into took the value as it is, so Solid threw `SYNC_NODE_RECEIVED_ASYNC`. This covers `createMemo(() => new Promise(...))`, an object literal with `then`, and a memo with `equals: false` that returns a call or a member read. A memo with `equals: false` is still inlined when its value is a literal, a template, an operator result, or a fresh array, object, function, or JSX element.
+- dcd039e: Move a component's statements to the `return` that holds its call. A function with several `return`s put every copy's statements before the first one, so a later `return` read bindings from a block it could not see and threw a `ReferenceError`.
+- cdef3fc: A `<Show>` whose `fallback` is another `<Show>` that resolves to an expression no longer renders the expression's source as text. `<Show when={false} fallback={<Show when={false} fallback="a" />} />` rendered `"a"`, quotes included, because the outer `<Show>` read the inner one's already folded `"a"` as JSX.
+- f508d9e: End a component's moved statements with a semicolon. A last statement without one failed to parse when it moved into an arrow function that returns JSX, and it joined the next moved statement when that one started with a parenthesis.
+- 97b22e9: A text that a nested fold produced no longer merges with the JSX text beside it. `<span><Show when={true}><Show when={true}>a</Show></Show>` followed by `x` on the next line rendered `a x` instead of `ax`, because JSX turns a line break between two texts into a space once they are one text node. Nested fragments did the same.
+
 ## 1.0.0-next.6
 
 ### Minor Changes
