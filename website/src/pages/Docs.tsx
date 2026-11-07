@@ -450,11 +450,12 @@ const INLINE_REASONS: Reason[] = [
     text: <>The tag is not a component declared at the top of the same module or chunk.</>,
   },
   {
-    codes: ['copy-package', 'copy-cycle', 'copy-wrapper', 'copy-size'],
+    codes: ['copy-package', 'copy-cycle', 'copy-virtual', 'copy-wrapper', 'copy-size'],
     text: (
       <>
         Copying a component from another module. It comes from a package that{' '}
-        <code>optimizer.packages</code> does not list, the two modules import each other, the
+        <code>optimizer.packages</code> does not list, its module imports the importer back, the
+        copy would import a virtual module its specifier does not reach from the importer, the
         component only returns a call of another component in its module, or the copy was larger.
       </>
     ),

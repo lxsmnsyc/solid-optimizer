@@ -32,6 +32,7 @@ import { collectParents, forEachChild, isIntrinsicTag, parse } from '../ast';
 import { analyzeScopes } from '../scope';
 import { CONTEXT_SAFE_PRIMITIVES } from '../provider';
 import type { ImportedConstants } from '../constants';
+import { runtimeImportSources } from '../constants';
 import type { Primitive } from '../value';
 import { sharedGlobals } from './globals';
 import type { Skip } from '../context';
@@ -694,54 +695,93 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
    */
   const recorded = new Map<string, string>();
 
-  /** The modules of the project each module imports, read from its file. */
+  /**
+   * Whether components can be copied from a module: one of the app's, or
+   * one of a package listed in `optimizer.packages`.
+   */
+  const isCopyable = (id: string): boolean => {
+    const file = stripQuery(id).replaceAll('\\', '/');
+    if (!file.includes('/node_modules/')) {
+      return true;
+    }
+    for (const name of optimizer.packages ?? []) {
+      if (file.includes(`/node_modules/${name}/`)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** The modules each module imports, read from its file. */
   const localImports = new Map<string, Promise<string[]>>();
 
   /**
-   * The modules of the project a module imports, leaving out dependencies.
-   * They come from the file on disk, so they do not depend on the order
-   * modules are transformed in. Modules without JSX count too, since reading
-   * their constants can load a module with JSX.
+   * The code of a module as its file holds it. A module with no file, like
+   * a virtual module a plugin generates, is loaded instead, unless it has
+   * JSX: this plugin transforms such a module, so loading it could wait for
+   * the transform that asks. Its imports are then not followed.
+   */
+  async function readModuleCode(
+    context: Rollup.PluginContext,
+    id: string,
+  ): Promise<string | undefined> {
+    try {
+      return await readFile(stripQuery(id), 'utf8');
+    } catch {
+      if (isJSXModule(id)) {
+        return undefined;
+      }
+    }
+    try {
+      return (await context.load({ id })).code ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The modules a module imports at runtime that a transform can wait for:
+   * the app's, those of packages listed in `optimizer.packages`, and virtual
+   * modules. A transform only waits for a module it copies from, and it only
+   * copies from those, so a module of another package is never in a loop of
+   * transforms that wait for each other. A virtual module can re-export the
+   * app, so a listed package can import the app back through one, like a
+   * docs framework that imports its theme's layout.
+   *
+   * Imports only used as types are left out, since TypeScript drops them,
+   * and so are Solid's own modules and Node's built-ins. The imports come
+   * from the file on disk, so they do not depend on the order modules are
+   * transformed in. Modules without JSX count too, since reading their
+   * constants can load a module with JSX.
    */
   async function findLocalImports(context: Rollup.PluginContext, id: string): Promise<string[]> {
     let pending = localImports.get(id);
     if (!pending) {
       pending = (async () => {
-        let code: string;
-        try {
-          code = await readFile(stripQuery(id), 'utf8');
-        } catch {
+        const code = await readModuleCode(context, id);
+        if (code === undefined) {
           return [];
         }
         let program: Program;
         try {
-          program = parse(stripQuery(id), code);
+          // A loaded module is JavaScript, whatever its id says.
+          program = parse(
+            /\.[cm]?[jt]sx?$/.test(stripQuery(id)) ? stripQuery(id) : `${id}.js`,
+            code,
+          );
         } catch {
           return [];
         }
-        const sources = new Set<string>();
-        for (const statement of program.body) {
-          if (
-            (statement.type === 'ImportDeclaration' && statement.importKind !== 'type') ||
-            ((statement.type === 'ExportNamedDeclaration' ||
-              statement.type === 'ExportAllDeclaration') &&
-              statement.source &&
-              statement.exportKind !== 'type')
-          ) {
-            const value = statement.source?.value;
-            if (value !== undefined && !moduleSources.includes(value)) {
-              sources.add(value);
-            }
-          }
-        }
         const resolving = [];
-        for (const source of sources) {
-          resolving.push(context.resolve(source, id));
+        for (const source of runtimeImportSources(program)) {
+          if (!moduleSources.includes(source) && !source.startsWith('node:')) {
+            resolving.push(context.resolve(source, id));
+          }
         }
         const resolved = await Promise.all(resolving);
         const local: string[] = [];
         for (const target of resolved) {
-          if (target && !target.external && !target.id.includes('/node_modules/')) {
+          if (target && !target.external && isCopyable(target.id)) {
             local.push(target.id);
           }
         }
@@ -752,7 +792,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return pending;
   }
 
-  /** Whether `from` imports `to`, directly or through other modules of the project. */
+  /** Whether `from` imports `to`, directly or through other modules. */
   async function reaches(
     context: Rollup.PluginContext,
     from: string,
@@ -954,23 +994,6 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     readonly skips: Skip[] | undefined;
   }
 
-  /**
-   * Whether components can be copied from a module: one of the app's, or
-   * one of a package listed in `optimizer.packages`.
-   */
-  const isCopyable = (id: string): boolean => {
-    const file = stripQuery(id).replaceAll('\\', '/');
-    if (!file.includes('/node_modules/')) {
-      return true;
-    }
-    for (const name of optimizer.packages ?? []) {
-      if (file.includes(`/node_modules/${name}/`)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
   /** The listed packages already warned about, by environment. */
   const warnedPackages = new Set<string>();
 
@@ -1089,7 +1112,20 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
           skip('copy-external');
           return undefined;
         }
-        targets.set(dependency.source, target.external ? dependency.source : target.id);
+        if (!target.id.startsWith('\0')) {
+          targets.set(dependency.source, target.external ? dependency.source : target.id);
+          continue;
+        }
+        // A virtual module's id cannot be imported again, so the copy keeps
+        // the specifier, when it means the same module from the importer.
+        // oxlint-disable-next-line no-await-in-loop
+        const fromImporter = await context.resolve(dependency.source, id);
+        if (fromImporter?.id !== target.id) {
+          state.excluded.add(key);
+          skip('copy-virtual');
+          return undefined;
+        }
+        targets.set(dependency.source, dependency.source);
       }
     }
     const rename = new Map<string, string>();

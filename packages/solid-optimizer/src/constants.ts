@@ -203,6 +203,28 @@ export function namedImportSources(
 }
 
 /**
+ * The modules a module still imports once its types are stripped: the
+ * sources of `namedImportSources`, and imports for side effects only, like
+ * `import './setup'`.
+ */
+export function runtimeImportSources(
+  program: Program,
+  scopes: ScopeAnalysis = analyzeScopes(program),
+): string[] {
+  const sources = new Set(namedImportSources(program, scopes));
+  for (const statement of program.body) {
+    if (
+      statement.type === 'ImportDeclaration' &&
+      statement.importKind !== 'type' &&
+      statement.specifiers.length === 0
+    ) {
+      sources.add(statement.source.value);
+    }
+  }
+  return [...sources];
+}
+
+/**
  * Whether the module reads one of these import bindings as a value. Scope
  * analysis skips type positions, so a binding used only in types has no
  * references.

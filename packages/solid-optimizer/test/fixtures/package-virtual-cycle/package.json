@@ -1,0 +1,8 @@
+{
+  "name": "package-virtual-cycle",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "theme-host": "*"
+  }
+}
