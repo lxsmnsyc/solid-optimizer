@@ -299,6 +299,64 @@ describe('solid-optimizer/vite', () => {
     }
   });
 
+  describe('a listed package that imports the app back through a virtual module', () => {
+    // `theme-host` re-exports the app's `Layout` from a virtual module, like
+    // a docs framework does with its theme, and `Layout` renders the
+    // package's `Status`.
+    const layout = path.join(fixtures, 'package-virtual-cycle/src/Layout.tsx');
+    const virtualLayout: Plugin = {
+      name: 'virtual-layout',
+      resolveId(id) {
+        return id === 'virtual:theme-layout' ? '\0virtual:theme-layout' : null;
+      },
+      load(id) {
+        return id === '\0virtual:theme-layout'
+          ? `export { Layout } from ${JSON.stringify(layout)};`
+          : null;
+      },
+    };
+    const buildFixture = async (client: string, skips: string[]): Promise<string> => {
+      const chunks = await bundle(
+        'package-virtual-cycle',
+        {
+          optimizer: {
+            packages: ['theme-host'],
+            mode: 'module',
+            report: (report) => {
+              skips.push(...report.skips.map((skip) => `${skip.reason} ${skip.name}`));
+            },
+          },
+        },
+        { client },
+        {},
+        [virtualLayout],
+      );
+      return chunks.map((chunk) => chunk.code).join('\n');
+    };
+
+    it('skips a copy whose module waits for the importer through it', async () => {
+      // Copying `Status` into `NotFound` waits for the package's index. Reading
+      // the index's constants follows its re-export to `Layout`, which waits
+      // for `NotFound`. The walk now goes through the package and the virtual
+      // module, so the copy is skipped instead of the build never finishing.
+      const skips: string[] = [];
+      expect(await buildFixture('src/main.tsx', skips)).toContain('404');
+      expect(skips).toContain('copy-cycle Status (theme-host)');
+    }, 30_000);
+
+    it('copies an import of a virtual module with its specifier', async () => {
+      // `Root` imports `Layout` from the virtual module. Its copy in `App`
+      // cannot import the virtual module's id, which only the plugin knows.
+      const skips: string[] = [];
+      const code = await buildFixture('src/root.tsx', skips);
+      expect(code).toContain('404');
+      // `Root` is copied into `App`, importing `Layout` by its specifier.
+      expect(
+        skips.filter((skip) => skip.includes('Root') || skip.startsWith('copy-virtual')),
+      ).toEqual([]);
+    }, 30_000);
+  });
+
   it('keeps comma expressions in JSX valid through bundling', async () => {
     // Rolldown and `vite:oxc` print a comma expression in a JSX expression
     // container without its parentheses. A fold that keeps a side effect makes one.

@@ -4,6 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readModuleConstants } from '../src';
+import { parse } from '../src/ast';
+import { runtimeImportSources } from '../src/constants';
 import { optimize } from './utils';
 
 describe('readModuleConstants', () => {
@@ -213,5 +215,26 @@ describe('global constants', () => {
 const process = load();
 export const view = <p>{__DEV__ ? 'a' : 'b'}{process.env.API}{import.meta.env.SSR}{import.meta.env['MODE']}</p>;`;
     expect(optimize(code, { globalConstants })).toBe(code);
+  });
+});
+
+describe('runtimeImportSources', () => {
+  it('lists what stays imported once types are stripped', () => {
+    const program = parse(
+      'input.tsx',
+      [
+        "import type { Theme } from './theme';",
+        "import { Config } from './config';",
+        "import { type Props, Button } from './button';",
+        "import './setup';",
+        "export { Link } from './link';",
+        "export type { Route } from './route';",
+        'const config: Config = {};',
+        'export const App = (props: Props) => <Button<Theme> {...props} />;',
+      ].join('\n'),
+    );
+    // `Config` is only used as a type, without the `type` keyword, as in a
+    // theme that imports its own config entry.
+    expect(runtimeImportSources(program).toSorted()).toEqual(['./button', './link', './setup']);
   });
 });
