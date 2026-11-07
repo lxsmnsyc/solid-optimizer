@@ -297,12 +297,7 @@ Start with the client counts in step 1. They need only a small counting harness,
 
 Items 13 to 20 come from a brainstorm on 2026-11-06. Item 21 came from checking them against Hacker News. Each one needs to know what a Solid call does, which a bundler or minifier does not. None is measured yet. Run step 0's report and the size script on the demo, Hacker News, and `examples/kobalte` before each plan starts.
 
-Suggested order:
-
-1. Item 13, since it is small and every fold leaves more for it to remove.
-2. Items 14 and 15, which reuse `memo.ts` and make each other fold more.
-3. Item 17, which matters most for apps built on a component library. Item 16 is not planned.
-4. Items 18, 19, and 20, which depend on the build kind or on item 12's runtime numbers.
+Items 13, 14, 15, and 21 are done. Item 16 is not planned. Items 17 to 20 are parked: on 2026-11-07, none of the demo, Hacker News, Kobalte, or the tracker had a case for them. Take one up when an app shows a case.
 
 ## 13. Mark Solid's factory calls as free of side effects
 
@@ -364,6 +359,8 @@ Plan:
 
 ## 17. Constant props baked into a component every caller agrees on
 
+Status: parked until an app has a case. Checked on 2026-11-07: in chunk mode, the only components the size estimate keeps as calls are the tracker's `Avatar` and Hacker News's `Comment`, and each caller passes them a different value.
+
 When every call of a component passes the same constant for a prop, the component can fold that prop inside itself, and the calls can stop passing it:
 
 ```jsx
@@ -388,6 +385,8 @@ This is whole-program in module mode, which item 11 avoided. Keep it to chunk mo
 
 ## 18. `isServer` in builds that do not hydrate
 
+Status: parked until an app has a case. Checked on 2026-11-07: no app's bundle contains `isServer` or `import.meta.env.SSR`.
+
 A client build that does not hydrate always has `isServer === false` and `import.meta.env.SSR === false`. Folding them removes the server branches before Solid's JSX transform runs, so templates can merge. The bundler's own constant folding happens after the JSX is lowered, too late for that.
 
 Plan:
@@ -396,6 +395,8 @@ Plan:
 2. Hydrating builds keep both unfolded for now. A fold that removes a `<Show>` removes it in both builds, whichever branch stays, so the owner tree may still match. Check each fold rule before turning it on there.
 
 ## 19. Client-only code in server builds
+
+Status: parked until an app has a case. Checked on 2026-11-07: no app uses `onSettled`, `createEffect`, or `ref`.
 
 In a server build, `onMount`, `createEffect` bodies, `ref` callbacks, and `on*` handlers never run. Their imports stay in the server bundle, such as a chart library loaded inside `onMount`. A bundler cannot know these callbacks never run.
 
@@ -407,6 +408,8 @@ Plan:
 4. Measure the server bundle of a hydrating example, once item 12 adds one.
 
 ## 20. Handlers hoisted out of `<For>` rows
+
+Status: parked until an app has a case. Checked on 2026-11-07: every handler in a `<For>` row reads the row, such as the tracker's `issue.id` and `item.value`, or a signal the row creates, like `IssueRow`'s `starred`.
 
 `onClick={() => setSelected(null)}` in a `<For>` callback creates a new function for each row. When the function only reads module-level bindings, or bindings of the component around the `<For>`, it can move out of the callback and be created once.
 
