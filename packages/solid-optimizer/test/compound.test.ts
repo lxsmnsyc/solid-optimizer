@@ -43,6 +43,17 @@ describe('compound components', () => {
     expect(templateCount(out)).toBe(1);
   });
 
+  it('removes the compound when its parts stay calls', () => {
+    // `DialogTrigger` passes its props to a function, so it is not inlined.
+    // Its tag is renamed, and `Object.assign` no longer keeps `DialogTitle`,
+    // which nothing renders, for the bundler.
+    const out = compile(
+      `function DialogRoot(props) {\n  return <div>{props.children}</div>;\n}\nfunction DialogTrigger(props) {\n  return <button>{String(props)}</button>;\n}\nfunction DialogTitle(props) {\n  return <h2>{props.children}</h2>;\n}\nconst Dialog = Object.assign(DialogRoot, { Trigger: DialogTrigger, Title: DialogTitle });\nexport const view = <Dialog><Dialog.Trigger /></Dialog>;`,
+    );
+    expect(out).toContain('<DialogTrigger />');
+    expect(out).not.toContain('Object.assign');
+  });
+
   it('reads a string key and a shorthand part', () => {
     const out = compile(
       `${PARTS}\nconst Trigger = DialogTrigger;\nconst Dialog = Object.assign(DialogRoot, { 'Title': DialogTitle, Trigger });\nexport const view = <Dialog><Dialog.Title>Hi</Dialog.Title></Dialog>;`,

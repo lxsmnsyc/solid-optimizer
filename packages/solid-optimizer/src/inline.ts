@@ -2534,6 +2534,33 @@ class Inliner {
    * means the same. Libraries often export a component under a second name,
    * like `const Separator = SeparatorRoot`. The next pass inlines the calls.
    */
+  /**
+   * Removes a compound component nothing uses once its tags are renamed,
+   * whether or not its parts inline. `Object.assign` keeps every part it
+   * names, so the bundler could not drop a part the app never renders, like
+   * `Tabs.Indicator`. Nothing reads the members it gave the root, so
+   * dropping the call changes nothing else.
+   */
+  private removeUnusedCompounds(): boolean {
+    let removed = false;
+    for (const binding of this.context.scopes.root.bindings.values()) {
+      const compound = this.compoundTarget(binding);
+      if (!compound || binding.references.length > 0 || this.hasMemberRead(compound.root)) {
+        continue;
+      }
+      const statement = this.context.parents.get(binding.declaration);
+      if (
+        statement?.type === 'VariableDeclaration' &&
+        statement.declarations.length === 1 &&
+        this.context.parents.get(statement)?.type === 'Program'
+      ) {
+        this.context.s.remove(statement.start, statement.end);
+        removed = true;
+      }
+    }
+    return removed;
+  }
+
   private renameAliasTags(): boolean {
     let renamed = false;
     for (const binding of this.context.scopes.root.bindings.values()) {
@@ -2575,7 +2602,7 @@ class Inliner {
 
   run(): void {
     // The calls through an alias inline in the next pass, from the renamed tags.
-    if (this.renameAliasTags()) {
+    if (this.renameAliasTags() || this.removeUnusedCompounds()) {
       this.changed = true;
       return;
     }
