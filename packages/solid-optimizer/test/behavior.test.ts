@@ -701,7 +701,7 @@ describe('createMemo', () => {
         `function App() {
   const [name, setName] = createSignal('a');
   const badge = createMemo(() => <b>{name()}</b>);
-  const length = createMemo(() => name().length, { equals: false });
+  const length = createMemo(() => name().length * 2, { equals: false });
   return (
     <main>
       <button type="button" onClick={() => setName(name() + 'b')}>grow</button>
@@ -715,6 +715,41 @@ describe('createMemo', () => {
       ['button', 'button'],
     );
     expect(code).not.toContain('createMemo(');
+  });
+
+  it('renders a memo that returns a promise the same', async () => {
+    const code = await expectSameBehavior(
+      'memo-promise',
+      app(
+        `function Greeting(props) {
+  const greeting = createMemo(() => new Promise((resolve) => resolve('hi ' + props.name)));
+  const shout = createMemo(() => load(props.name), { equals: false });
+  return (
+    <div>
+      <p>{greeting()}</p>
+      <span>{shout()}</span>
+    </div>
+  );
+}
+function load(value) {
+  return new Promise((resolve) => setTimeout(() => resolve(value.toUpperCase()), 0));
+}
+function App() {
+  const [name, setName] = createSignal('a');
+  return (
+    <main>
+      <button type="button" onClick={() => setName(name() + 'b')}>grow</button>
+      <Loading fallback={<i>wait</i>}>
+        <Greeting name={name()} />
+      </Loading>
+    </main>
+  );
+}`,
+        "import { createMemo, createSignal, Loading } from 'solid-js';",
+      ),
+      ['button', 'button'],
+    );
+    expect(code.match(/createMemo\(/g)).toHaveLength(2);
   });
 
   it('keeps a memo read more than once', async () => {
