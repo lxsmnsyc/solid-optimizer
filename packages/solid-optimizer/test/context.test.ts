@@ -85,6 +85,26 @@ export function App() {
     expect(code).toContain('= count;');
   });
 
+  it('stores each value at the return that holds its provider', () => {
+    const code = `
+const Theme = createContext();
+function Label() {
+  const theme = useContext(Theme);
+  return <span class={theme.name}>label</span>;
+}
+export function App(props) {
+  if (props.dark) {
+    return <main><Theme value={{ name: 'dark' }}><Label /></Theme></main>;
+  }
+  return <div><Theme value={{ name: 'light' }}><Label /></Theme></div>;
+}
+`;
+    const output = contexts(code);
+    expect(output.indexOf("name: 'dark'")).toBeLessThan(output.indexOf('return <main>'));
+    expect(output.indexOf("name: 'light'")).toBeGreaterThan(output.indexOf('return <main>'));
+    expect(output).not.toContain('<Theme');
+  });
+
   it('answers a read with the nearest provider', () => {
     const code = contexts(`const Theme = createContext();
 const Label = () => <span>{useContext(Theme)}</span>;
