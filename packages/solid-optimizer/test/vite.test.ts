@@ -347,8 +347,13 @@ describe('solid-optimizer/vite', () => {
     it('copies an import of a virtual module with its specifier', async () => {
       // `Root` imports `Layout` from the virtual module. Its copy in `App`
       // cannot import the virtual module's id, which only the plugin knows.
-      const code = await buildFixture('src/root.tsx', []);
+      const skips: string[] = [];
+      const code = await buildFixture('src/root.tsx', skips);
       expect(code).toContain('404');
+      // `Root` is copied into `App`, importing `Layout` by its specifier.
+      expect(
+        skips.filter((skip) => skip.includes('Root') || skip.startsWith('copy-virtual')),
+      ).toEqual([]);
     }, 30_000);
   });
 
