@@ -7,8 +7,7 @@
  * whenever a replacement would put two texts that were apart next to each
  * other, an empty `{}` keeps them apart.
  */
-import type { JSXAttribute, JSXChild, JSXElement, JSXFragment, JSXText, Node } from 'oxc-parser';
-import { isFilteredText } from './ast';
+import type { JSXAttribute, JSXChild, JSXElement, JSXFragment, Node } from 'oxc-parser';
 import type MagicString from 'magic-string';
 
 /**
@@ -19,14 +18,14 @@ export interface Piece {
   readonly node: JSXChild;
   /** The replacement text, or `undefined` to keep the child as written. */
   text: string | undefined;
-  /** The JSX text the replacement starts with. */
-  startText: JSXText | undefined;
-  /** The JSX text the replacement ends with. */
-  endText: JSXText | undefined;
+  /** The JSX text the piece starts with, or `undefined` when it starts with a tag or a container. */
+  startText: string | undefined;
+  /** The JSX text the piece ends with. */
+  endText: string | undefined;
 }
 
 export function keptPiece(node: JSXChild): Piece {
-  const text = node.type === 'JSXText' ? node : undefined;
+  const text = node.type === 'JSXText' ? node.value : undefined;
   return { node, text: undefined, startText: text, endText: text };
 }
 
@@ -39,27 +38,43 @@ export function splicePiece(s: MagicString, node: JSXChild, children: readonly J
   if (!first || !last) {
     return replacedPiece(node, '');
   }
+  return replacedPiece(node, s.slice(first.start, last.end));
+}
+
+/**
+ * A piece that writes `text`, JSX children as source, in place of `node`.
+ *
+ * The texts it starts and ends with are read from `text` itself, not from
+ * the children it came from. A fold inside them in the same round can have
+ * turned a child that was an element into text, such as an inner `<Show>`.
+ * JSX text holds no `<`, `>`, `{`, or `}`, so the first and last of those
+ * mark where the text ends.
+ */
+export function replacedPiece(node: JSXChild, text: string): Piece {
+  const start = text.search(/[<{]/);
+  const end = Math.max(text.lastIndexOf('>'), text.lastIndexOf('}'));
+  const startText = start === -1 ? text : text.slice(0, start);
+  const endText = text.slice(end + 1);
   return {
     node,
-    text: s.slice(first.start, last.end),
-    startText: first.type === 'JSXText' ? first : undefined,
-    endText: last.type === 'JSXText' ? last : undefined,
+    text,
+    startText: startText === '' ? undefined : startText,
+    endText: endText === '' ? undefined : endText,
   };
 }
 
-export function replacedPiece(node: JSXChild, text: string): Piece {
-  return { node, text, startText: undefined, endText: undefined };
+/** Whether JSX drops this text: whitespace that contains a line break. */
+function isDroppedText(text: string): boolean {
+  return /^\s*$/.test(text) && /[\r\n]/.test(text);
 }
 
 /**
  * Whether two texts render differently as one text node than apart.
  * Two texts that JSX drops, like line breaks and indentation, still drop together.
  */
-function mergeChangesText(before: JSXText | undefined, after: JSXText | undefined): boolean {
+function mergeChangesText(before: string | undefined, after: string | undefined): boolean {
   return (
-    before !== undefined &&
-    after !== undefined &&
-    !(isFilteredText(before) && isFilteredText(after))
+    before !== undefined && after !== undefined && !(isDroppedText(before) && isDroppedText(after))
   );
 }
 
