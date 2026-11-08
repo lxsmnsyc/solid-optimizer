@@ -1,5 +1,16 @@
 # solid-optimizer
 
+## 1.0.0-next.9
+
+### Minor Changes
+
+- a41962c: Fold now removes a `const`, or a `let` nothing writes to, inside a function when nothing reads it and its initializer has no side effects. Folding often leaves such a declaration behind, like `const size = 'sm'` once every read of `size` became `"sm"`. The component then had a statement, so it did not inline where a statement has no place to go, such as a `<Show>` fallback. It now inlines there.
+
+### Patch Changes
+
+- a94017a: `fold` no longer replaces a `let` with its initial value when a TypeScript namespace body or an enum initializer writes to it. Namespace bodies and enum initializers are now part of the scope analysis. `namespace A.B {}` now declares `A`, and an enum initializer reads earlier members of the enum before outer bindings.
+- ebaf08d: `fold` no longer replaces a parameter default with a constant declared in the function body. When a parameter has a default or a computed key, the body now has its own scope, so `a = x` in `function C(props, a = x) { const x = "inner"; }` reads the outer `x`.
+
 ## 1.0.0-next.8
 
 ### Minor Changes
