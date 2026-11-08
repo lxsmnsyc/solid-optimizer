@@ -3,7 +3,8 @@
  * components it calls, as the passes after inlining would. Then it estimates
  * its size with `SizeEstimator`.
  */
-import MagicString from 'magic-string';
+import type { Content } from './text';
+import { Editor, getCode, join } from './text';
 import { collectParents, parse } from './ast';
 import type { PassContext, ResolvedOptions } from './context';
 import { fold } from './fold';
@@ -33,9 +34,9 @@ export interface CalledComponents {
 
 export interface Copy {
   /** The statements the copy hoists out of the JSX. */
-  readonly statements: readonly string[];
+  readonly statements: readonly Content[];
   /** The JSX that replaces the call site. */
-  readonly root: string;
+  readonly root: Content;
 }
 
 /**
@@ -56,14 +57,14 @@ export function copySize(
   measured?: { code: string },
 ): number {
   const calls = depth < MAX_DEPTH ? called : undefined;
-  let code = `${header}\n${calls?.declarations ?? ''}\nfunction ${WRAPPER}() {\n${copy.statements.join('\n')}\nreturn (${copy.root});\n}\n`;
+  let code = `${header}\n${calls?.declarations ?? ''}\nfunction ${WRAPPER}() {\n${join(copy.statements, '\n').code}\nreturn (${getCode(copy.root)});\n}\n`;
   // Constant props fold the copy's conditions, and can let the calls in it
   // inline, as later passes would.
   for (let round = 0; round < 4; round += 1) {
     let changed = false;
     for (const pass of calls ? [fold, calls.inline] : [fold]) {
       const program = parse(filename, code);
-      const s = new MagicString(code);
+      const s = new Editor(code, false);
       depth += 1;
       let passChanged: boolean;
       try {

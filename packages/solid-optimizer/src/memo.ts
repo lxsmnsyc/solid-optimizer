@@ -97,6 +97,8 @@ import { usesFunctionContext } from './inline';
 import type { Binding } from './scope';
 import { lookup, scopeAt } from './scope';
 import { compactLength } from './size';
+import type { Text } from './text';
+import { joinText } from './text';
 
 /**
  * Props of Solid's built-in components that are read inside a memo, once per update.
@@ -219,7 +221,7 @@ type MemoKind = 'createMemo' | 'children';
  * other than a regular expression, a template literal without expressions,
  * or a negated number.
  */
-function constantText(context: PassContext, node: Expression): string | undefined {
+function constantText(context: PassContext, node: Expression): Text | undefined {
   const expression = unwrap(node);
   switch (expression.type) {
     case 'Literal':
@@ -338,7 +340,7 @@ class MemoInliner {
   private inlineConstant(
     declarator: VariableDeclarator,
     binding: Binding,
-    text: string,
+    text: Text,
     kind: 'memo' | 'signal' = 'memo',
   ): true | undefined {
     const statement = this.context.parents.get(declarator);
@@ -370,7 +372,7 @@ class MemoInliner {
         parent?.type === 'ArrayExpression' ||
         parent?.type === 'Property' ||
         (parent?.type === 'CallExpression' && parent.callee !== call);
-      this.context.s.overwrite(call.start, call.end, bare ? text : `(${text})`);
+      this.context.s.overwrite(call.start, call.end, bare ? text : joinText`(${text})`);
       this.edited.push([call.start, call.end]);
     }
     this.context.s.remove(statement.start, statement.end);
@@ -642,7 +644,7 @@ class MemoInliner {
    * change what a read does, such as `unobserved`, so a signal with options
    * stays.
    */
-  private signalConstant(declarator: VariableDeclarator, binding: Binding): string | undefined {
+  private signalConstant(declarator: VariableDeclarator, binding: Binding): Text | undefined {
     const pattern = declarator.id;
     const init = declarator.init ? unwrap(declarator.init) : undefined;
     if (
@@ -750,7 +752,7 @@ class MemoInliner {
     // Minified, the arrow costs `const a=()=>body;`, 13 characters besides the
     // body, and each call `a()` costs 3. Copying adds the body to every call
     // but one, and removes the rest.
-    const length = compactLength(text);
+    const length = compactLength(text.code);
     if ((calls.length - 1) * length > calls.length * 3 + 13) {
       return;
     }
@@ -767,7 +769,11 @@ class MemoInliner {
       const parent = this.context.parents.get(call);
       const inContainer =
         parent?.type === 'JSXExpressionContainer' && body.type !== 'SequenceExpression';
-      this.context.s.overwrite(call.start, call.end, bare || inContainer ? text : `(${text})`);
+      this.context.s.overwrite(
+        call.start,
+        call.end,
+        bare || inContainer ? text : joinText`(${text})`,
+      );
       this.edited.push([call.start, call.end]);
     }
     this.context.s.remove(statement.start, statement.end);

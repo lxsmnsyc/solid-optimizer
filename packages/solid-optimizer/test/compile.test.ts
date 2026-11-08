@@ -105,8 +105,36 @@ export function App() {
       return originalLines[(original.line ?? 0) - 1]?.slice(original.column ?? 0) ?? '';
     };
     expect(trace('export function App')).toMatch(/^export function App/);
-    // Inlined JSX is a copy, so it maps to the call site it replaced.
-    expect(trace('<section>')).toMatch(/^<Panel/);
+    // A copy maps to the code it copies, not to the call site it replaced.
+    expect(trace('<section>')).toMatch(/^<section>/);
+    expect(trace('const [open$1')).toMatch(/^const \[open, setOpen\] = createSignal/);
+    expect(trace('"Settings"')).toMatch(/^"Settings" initial/);
+    expect(trace('onClick')).toMatch(/^onClick=\{\(\) => setOpen\(!open\(\)\)\}/);
+  });
+
+  // The padded input puts the copies past offset 65535, which takes both halves of an origin.
+  it.each([
+    ['the input', APP],
+    ['a long input', `${'// pad\n'.repeat(10_000)}${APP}`],
+  ])('maps every token of a copy to the token it copies in %s', (_, input) => {
+    const { code, map } = compile(input, { filename: 'app.jsx' });
+    if (!map) {
+      throw new Error('expected a map');
+    }
+    const tracer = new TraceMap(map.toString());
+    const originalLines = input.split('\n');
+    const mismatches: string[] = [];
+    for (const [index, line] of code.split('\n').entries()) {
+      for (const match of line.matchAll(/[A-Za-z_$][\w$]*|"[^"]*"|[<>{}()]/g)) {
+        const original = originalPositionFor(tracer, { line: index + 1, column: match.index });
+        const at = originalLines[(original.line ?? 0) - 1]?.slice(original.column ?? 0) ?? '';
+        // A renamed local maps to the name it renames, without the suffix.
+        if (!at.startsWith(match[0].replace(/\$\d+$/, ''))) {
+          mismatches.push(`${index + 1}:${match.index} ${match[0]}`);
+        }
+      }
+    }
+    expect(mismatches).toEqual([]);
   });
 
   it('parses TypeScript by file name', () => {
