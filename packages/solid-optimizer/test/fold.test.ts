@@ -486,6 +486,31 @@ describe('constants', () => {
     ).not.toContain('createComponent');
   });
 
+  it('resolves parameter expressions outside the function body', () => {
+    // A default reads the outer binding, not one the body declares.
+    expect(
+      folded(
+        'const x = "outer";\nexport function C(props, a = x) {\n  const x = "inner";\n  return <div title={a}>{x}</div>;\n}',
+      ),
+    ).toContain('a = "outer"');
+    expect(
+      folded(
+        'const x = "outer";\nexport const C = (props, a = x) => {\n  const x = "inner";\n  return <div title={a}>{x}</div>;\n};',
+      ),
+    ).toContain('a = "outer"');
+
+    // A computed key in a parameter pattern is a parameter expression too.
+    expect(
+      folded(
+        'const k = "outer";\nexport function C({ [k]: v }) {\n  const k = "inner";\n  return <div title={v}>{k}</div>;\n}',
+      ),
+    ).toContain('{ ["outer"]: v }');
+
+    // A body `var` named like a parameter starts with the argument, so neither folds.
+    const code = 'export function C(a = "one", b = a) {\n  var a;\n  return <div title={a} />;\n}';
+    expect(folded(code)).toBe(code);
+  });
+
   it('folds bindings that refer to each other', () => {
     // `A` reads `B` before it is declared, which throws at runtime. Folding
     // turns that into a value, the one deviation the fold accepts.
