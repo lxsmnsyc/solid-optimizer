@@ -232,7 +232,7 @@ Inlining accepts two differences:
 - A prop called as `props.name()` runs with its own receiver as `this`, not the props object.
 - Moved statements run before the host's JSX is created. The order of effect registration between siblings can change.
 
-Inlined JSX is a copy, so its source map points at the call site it replaced.
+The source map points each copied character at the one it copies, so inlined JSX maps to the component's own JSX and a prop value to the call site's attribute. Code a pass writes itself, such as a folded constant or a renamed local, maps to what it replaces.
 
 #### Only where it is smaller
 

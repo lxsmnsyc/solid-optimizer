@@ -71,7 +71,6 @@
  *   instead of while it is created. The order of `onSettled` and effect
  *   registration across siblings can change.
  */
-import MagicString from 'magic-string';
 import type {
   ArrayExpressionElement,
   ArrowFunctionExpression,
@@ -118,6 +117,8 @@ import { isWithinScope, lookup, scopeAt } from './scope';
 import { copySize } from './copy-size';
 import { SizeEstimator } from './size';
 import { evaluate, literalText } from './value';
+import type { Content, Editor, Text } from './text';
+import { getCode, join, joinText } from './text';
 
 type ComponentFunction = FunctionNode | ArrowFunctionExpression;
 
@@ -137,7 +138,7 @@ interface PropRead extends ReadCount {
  */
 interface ViewSource {
   /** The default of each key, as literal text, or `undefined` for the props. */
-  readonly defaults: ReadonlyMap<string, string> | undefined;
+  readonly defaults: ReadonlyMap<string, Text> | undefined;
   readonly hidden: ReadonlySet<string>;
 }
 
@@ -153,14 +154,14 @@ interface ViewRead extends PropRead {
 interface ResolvedSpread {
   readonly spread: ViewSpread;
   /** Each key and its default text, or `undefined` when the props hold it. */
-  readonly keys: ReadonlyMap<string, string | undefined>;
+  readonly keys: ReadonlyMap<string, Content | undefined>;
 }
 
 interface ResolvedViews {
   /** Reads of the props, including view reads the props answer. */
   readonly propReads: readonly PropRead[];
   /** View reads a default or nothing answers, and their text. */
-  readonly texts: ReadonlyMap<Node, string>;
+  readonly texts: ReadonlyMap<Node, Content>;
   readonly spreads: readonly ResolvedSpread[];
 }
 
@@ -207,8 +208,8 @@ interface PreparedSite {
   readonly element: JSXElement;
   /** Where the statements go, when there are any. */
   readonly host: { fn: Node; host: Host } | undefined;
-  readonly statements: string[];
-  readonly root: string;
+  readonly statements: Content[];
+  readonly root: Text;
 }
 
 function isWithin(node: Node, container: Node): boolean {
@@ -254,14 +255,14 @@ type Host =
  */
 type PropValue =
   /** Replaced with an expression at every read. */
-  | { readonly kind: 'expression'; readonly text: string; readonly primary: boolean }
+  | { readonly kind: 'expression'; readonly text: Content; readonly primary: boolean }
   /** JSX, spliced in place when read as a JSX child. */
-  | { readonly kind: 'jsx'; readonly text: string; readonly primary: boolean }
+  | { readonly kind: 'jsx'; readonly text: Content; readonly primary: boolean }
   /** JSX children, spliced in place when read as a JSX child. */
   | {
       readonly kind: 'children';
       readonly children: readonly JSXChild[];
-      readonly text: string;
+      readonly text: Content;
       readonly primary: boolean;
     };
 
@@ -657,14 +658,14 @@ function isAssignmentTarget(context: PassContext, node: Node): boolean {
 class Inliner {
   changed = false;
 
-  private readonly hosts = new Map<Node, { host: Host; texts: string[] }>();
+  private readonly hosts = new Map<Node, { host: Host; texts: Content[] }>();
 
   /**
    * Providers whose subtree is closed, so statements can move out through
    * them. Each maps to the text its reads become, or `undefined` when a
    * binding that never changes is read at each site.
    */
-  private readonly transparent = new Map<JSXElement, { provider: Provider; text?: string }>();
+  private readonly transparent = new Map<JSXElement, { provider: Provider; text?: Content }>();
 
   constructor(private readonly context: PassContext) {}
 
@@ -1164,7 +1165,7 @@ class Inliner {
       if (inner.type !== 'ObjectExpression') {
         return undefined;
       }
-      const defaults = new Map<string, string>();
+      const defaults = new Map<string, Text>();
       for (const property of inner.properties) {
         if (property.type !== 'Property' || property.kind !== 'init' || property.computed) {
           return undefined;
@@ -1182,7 +1183,7 @@ class Inliner {
         if (text === undefined || isReservedPropName(key)) {
           return undefined;
         }
-        defaults.set(key, text);
+        defaults.set(key, this.context.s.written(text, property.value.start));
       }
       sources.push({ defaults, hidden: new Set() });
     }
@@ -1334,7 +1335,7 @@ class Inliner {
     element: JSXElement,
     reads: readonly ReadCount[],
     fresh: (base: string) => string,
-    snapshots: string[],
+    snapshots: Content[],
   ): PropValue | undefined {
     const { children } = element;
     if (hasSpreadChild(children)) {
@@ -1345,10 +1346,10 @@ class Inliner {
     if (only === undefined) {
       return { kind: 'children', children: [], text: 'void 0', primary: false };
     }
-    let text: string;
+    let text: Content;
     let primary = true;
     if (significant.length > 1 || only.type === 'JSXText') {
-      text = `<>${this.context.s.slice(element.openingElement.end, element.closingElement?.start ?? element.end)}</>`;
+      text = joinText`<>${this.context.s.slice(element.openingElement.end, element.closingElement?.start ?? element.end)}</>`;
     } else if (only.type === 'JSXExpressionContainer') {
       if (only.expression.type === 'JSXEmptyExpression') {
         return undefined;
@@ -1356,7 +1357,10 @@ class Inliner {
       // A single expression is passed like an attribute value, such as a
       // render function that has to stay one function.
       const value = this.expressionValue(only.expression, 'children', reads, fresh, snapshots);
-      if (value.kind !== 'expression' || value.text !== getText(this.context, only.expression)) {
+      if (
+        value.kind !== 'expression' ||
+        getCode(value.text) !== getText(this.context, only.expression).code
+      ) {
         return value;
       }
       text = value.text;
@@ -1412,7 +1416,7 @@ class Inliner {
     attribute: JSXAttribute | undefined,
     reads: readonly ReadCount[],
     fresh: (base: string) => string,
-    snapshots: string[],
+    snapshots: Content[],
   ): PropValue | undefined {
     if (!attribute) {
       return UNDEFINED;
@@ -1427,7 +1431,11 @@ class Inliner {
         if (value.value.includes('&')) {
           return undefined;
         }
-        return { kind: 'expression', text: JSON.stringify(value.value), primary: true };
+        return {
+          kind: 'expression',
+          text: this.context.s.written(JSON.stringify(value.value), value.start),
+          primary: true,
+        };
       case 'JSXElement':
       case 'JSXFragment':
         return { kind: 'jsx', text: getText(this.context, value), primary: true };
@@ -1450,7 +1458,7 @@ class Inliner {
     name: string,
     reads: readonly ReadCount[],
     fresh: (base: string) => string,
-    snapshots: string[],
+    snapshots: Content[],
   ): PropValue {
     const text = getText(this.context, expression);
     const inner = unwrap(expression);
@@ -1467,7 +1475,7 @@ class Inliner {
       return { kind: 'expression', text, primary };
     }
     const local = fresh(name);
-    snapshots.push(`const ${local} = ${text};`);
+    snapshots.push(joinText`const ${local} = ${text};`);
     return { kind: 'expression', text: local, primary: true };
   }
 
@@ -1558,7 +1566,7 @@ class Inliner {
     }
 
     // What each prop reads as.
-    const snapshots: string[] = [];
+    const snapshots: Content[] = [];
     const fresh = (base: string): string => this.freshName(base);
     const readsByName = new Map<string, ReadCount[]>();
     const count = (name: string, read: ReadCount): void => {
@@ -1617,7 +1625,7 @@ class Inliner {
     }
 
     // Build the copy on the original code, so this pass's other edits stay out of it.
-    const copy = new MagicString(this.context.code);
+    const copy = this.context.s.fresh();
     this.renameLocals(copy, component, fresh);
     this.substituteProps(copy, views.propReads, values);
     this.substituteViews(copy, component, element, views, values);
@@ -1631,7 +1639,7 @@ class Inliner {
     if (first && last) {
       // The last statement can rely on a line break that it loses here.
       const text = copy.slice(first.start, last.end);
-      statements.push(text.endsWith(';') ? text : `${text};`);
+      statements.push(text.code.endsWith(';') ? text : joinText`${text};`);
     }
     return {
       element,
@@ -1642,7 +1650,7 @@ class Inliner {
   }
 
   /** Queues statements for a host. Each `return` gets its own, since their scopes can differ. */
-  private addToHost(found: { fn: Node; host: Host }, texts: readonly string[]): void {
+  private addToHost(found: { fn: Node; host: Host }, texts: readonly Content[]): void {
     const key = found.host.kind === 'return' ? found.host.statement : found.fn;
     const entry = this.hosts.get(key) ?? { host: found.host, texts: [] };
     entry.texts.push(...texts);
@@ -1664,8 +1672,8 @@ class Inliner {
    * provider above it answers, with the text each becomes. `undefined` when
    * a read cannot take the value there.
    */
-  private contextTexts(component: Component, element: JSXElement): Map<Node, string> | undefined {
-    const texts = new Map<Node, string>();
+  private contextTexts(component: Component, element: JSXElement): Map<Node, Content> | undefined {
+    const texts = new Map<Node, Content>();
     for (const { provider, text } of this.answeringProviders(element)) {
       for (const read of contextReads(this.context, component.fn, provider.context)) {
         const value = text ?? stableValueText(this.context, provider, element);
@@ -1682,8 +1690,8 @@ class Inliner {
    * The closed providers that answer context reads at `element`. The nearest
    * provider of each context answers its reads, closed or not.
    */
-  private answeringProviders(element: JSXElement): { provider: Provider; text?: string }[] {
-    const answering: { provider: Provider; text?: string }[] = [];
+  private answeringProviders(element: JSXElement): { provider: Provider; text?: Content }[] {
+    const answering: { provider: Provider; text?: Content }[] = [];
     const seen = new Set<Binding>();
     for (
       let node = this.context.parents.get(element);
@@ -1778,7 +1786,7 @@ class Inliner {
       const name = this.freshName(
         `${provider.context.name.charAt(0).toLowerCase()}${provider.context.name.slice(1)}Value`,
       );
-      this.addToHost(host, [`const ${name} = ${getText(this.context, provider.value)};`]);
+      this.addToHost(host, [joinText`const ${name} = ${getText(this.context, provider.value)};`]);
       this.context.s.overwrite(provider.value.start, provider.value.end, name);
       this.transparent.set(element, { provider, text: name });
       this.changed = true;
@@ -1806,7 +1814,7 @@ class Inliner {
     const has = (key: string): boolean =>
       attributes.has(key) || (key === 'children' && hasChildren);
     // The last source that has the key answers, even when its value is `undefined`.
-    const resolve = (view: View, key: string): string | undefined => {
+    const resolve = (view: View, key: string): Content | undefined => {
       for (let index = view.sources.length - 1; index >= 0; index -= 1) {
         const source = view.sources.at(index);
         if (!source || source.hidden.has(key)) {
@@ -1824,7 +1832,7 @@ class Inliner {
     };
 
     const propReads: PropRead[] = [...component.props];
-    const texts = new Map<Node, string>();
+    const texts = new Map<Node, Content>();
     for (const read of component.viewReads) {
       const text = resolve(read.view, read.name);
       if (text === undefined) {
@@ -1864,13 +1872,13 @@ class Inliner {
             names.add(
               attribute.name.type === 'JSXIdentifier'
                 ? attribute.name.name
-                : getText(this.context, attribute.name),
+                : getText(this.context, attribute.name).code,
             );
           }
         }
         taken.set(spread.element, names);
       }
-      const keys = new Map<string, string | undefined>();
+      const keys = new Map<string, Content | undefined>();
       for (const key of order) {
         // Children become the element's children, so it must have none of its own.
         const fits =
@@ -1893,39 +1901,39 @@ class Inliner {
    * view declarations.
    */
   private substituteViews(
-    copy: MagicString,
+    copy: Editor,
     component: Component,
     element: JSXElement,
     views: ResolvedViews,
     values: ReadonlyMap<string, PropValue>,
   ): void {
     for (const [member, text] of views.texts) {
-      const bare = text !== 'void 0' || acceptsAnyExpression(this.context, member);
-      copy.overwrite(member.start, member.end, bare ? text : `(${text})`);
+      const bare = getCode(text) !== 'void 0' || acceptsAnyExpression(this.context, member);
+      copy.overwrite(member.start, member.end, bare ? text : joinText`(${text})`);
     }
     for (const { spread, keys } of views.spreads) {
-      const parts: string[] = [];
-      let children: string | undefined;
+      const parts: Text[] = [];
+      let children: Content | undefined;
       for (const [key, text] of keys) {
         const value = values.get(key);
         if (key === 'children') {
           children = this.spreadChildren(element, text, value);
         } else {
-          parts.push(`${key}={${text ?? value?.text ?? 'void 0'}}`);
+          parts.push(joinText`${key}={${text ?? value?.text ?? 'void 0'}}`);
         }
       }
       const { attribute } = spread;
       if (parts.length === 0) {
         copy.remove(attribute.start, attribute.end);
       } else {
-        copy.overwrite(attribute.start, attribute.end, parts.join(' '));
+        copy.overwrite(attribute.start, attribute.end, join(parts, ' '));
       }
       if (children !== undefined) {
         const opening = spread.element.openingElement;
         // Read the tag from the copy, which holds the renamed locals.
         const tag = copy.slice(opening.name.start, opening.name.end);
         const close = this.context.code.lastIndexOf('/>', opening.end);
-        copy.overwrite(close, opening.end, `>${children}</${tag}>`);
+        copy.overwrite(close, opening.end, joinText`>${children}</${tag}>`);
       }
     }
     for (const declaration of component.viewDeclarations) {
@@ -1939,11 +1947,11 @@ class Inliner {
    */
   private spreadChildren(
     element: JSXElement,
-    text: string | undefined,
+    text: Content | undefined,
     value: PropValue | undefined,
-  ): string | undefined {
+  ): Content | undefined {
     if (text !== undefined) {
-      return text === 'void 0' ? undefined : `{${text}}`;
+      return getCode(text) === 'void 0' ? undefined : joinText`{${text}}`;
     }
     if (!value) {
       return undefined;
@@ -1951,14 +1959,10 @@ class Inliner {
     if (value.kind === 'children' && element.closingElement) {
       return this.context.s.slice(element.openingElement.end, element.closingElement.start);
     }
-    return `{${value.text}}`;
+    return joinText`{${value.text}}`;
   }
 
-  private renameLocals(
-    copy: MagicString,
-    component: Component,
-    fresh: (base: string) => string,
-  ): void {
+  private renameLocals(copy: Editor, component: Component, fresh: (base: string) => string): void {
     for (const local of component.locals) {
       const name = fresh(local.name);
       for (const node of [local.identifier, ...local.references]) {
@@ -1981,7 +1985,7 @@ class Inliner {
   }
 
   private substituteProps(
-    copy: MagicString,
+    copy: Editor,
     reads: readonly PropRead[],
     values: ReadonlyMap<string, PropValue>,
   ): void {
@@ -2008,7 +2012,11 @@ class Inliner {
         continue;
       }
       const bare = value.primary || acceptsAnyExpression(this.context, read.member);
-      copy.overwrite(read.member.start, read.member.end, bare ? value.text : `(${value.text})`);
+      copy.overwrite(
+        read.member.start,
+        read.member.end,
+        bare ? value.text : joinText`(${value.text})`,
+      );
     }
     for (const [parent, pieces] of spliced) {
       const children: Piece[] = [];
@@ -2245,7 +2253,7 @@ class Inliner {
     for (const component of components) {
       const statement = this.topLevelStatement(component.binding.declaration);
       if (statement) {
-        texts.push(getText(this.context, statement));
+        texts.push(getText(this.context, statement).code);
       }
     }
     return texts.join('\n');
@@ -2728,7 +2736,7 @@ class Inliner {
   ): { reason: string; name: string } | undefined {
     const tag = element.openingElement.name;
     if (tag.type === 'JSXMemberExpression') {
-      return { reason: 'member-tag', name: getText(this.context, tag) };
+      return { reason: 'member-tag', name: getText(this.context, tag).code };
     }
     if (tag.type !== 'JSXIdentifier' || !isCapitalized(tag.name)) {
       return undefined;
@@ -2770,13 +2778,13 @@ class Inliner {
     for (const { host, texts } of this.hosts.values()) {
       if (host.kind === 'return') {
         const indent = this.indentationAt(host.statement.start);
-        let written = '';
+        const written: Content[] = [];
         for (const text of texts) {
-          written += `${text}\n${indent}`;
+          written.push(text, `\n${indent}`);
         }
-        this.context.s.prependRight(host.statement.start, written);
+        this.context.s.prependRight(host.statement.start, join(written));
       } else {
-        this.context.s.prependRight(host.body.start, `{ ${texts.join(' ')} return `);
+        this.context.s.prependRight(host.body.start, joinText`{ ${join(texts, ' ')} return `);
         this.context.s.appendLeft(host.body.end, '; }');
       }
     }

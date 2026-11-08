@@ -8,7 +8,8 @@
  * other, an empty `{}` keeps them apart.
  */
 import type { JSXAttribute, JSXChild, JSXElement, JSXFragment, Node } from 'oxc-parser';
-import type MagicString from 'magic-string';
+import type { Content, Editor, Text } from './text';
+import { getCode, joinText } from './text';
 
 /**
  * What a JSX child turns into.
@@ -17,7 +18,7 @@ export interface Piece {
   /** The child the piece replaces. */
   readonly node: JSXChild;
   /** The replacement text, or `undefined` to keep the child as written. */
-  text: string | undefined;
+  text: Content | undefined;
   /** The JSX text the piece starts with, or `undefined` when it starts with a tag or a container. */
   startText: string | undefined;
   /** The JSX text the piece ends with. */
@@ -32,7 +33,7 @@ export function keptPiece(node: JSXChild): Piece {
 /**
  * A piece that splices `children` in place of `node`.
  */
-export function splicePiece(s: MagicString, node: JSXChild, children: readonly JSXChild[]): Piece {
+export function splicePiece(s: Editor, node: JSXChild, children: readonly JSXChild[]): Piece {
   const first = children.at(0);
   const last = children.at(-1);
   if (!first || !last) {
@@ -50,11 +51,12 @@ export function splicePiece(s: MagicString, node: JSXChild, children: readonly J
  * JSX text holds no `<`, `>`, `{`, or `}`, so the first and last of those
  * mark where the text ends.
  */
-export function replacedPiece(node: JSXChild, text: string): Piece {
-  const start = text.search(/[<{]/);
-  const end = Math.max(text.lastIndexOf('>'), text.lastIndexOf('}'));
-  const startText = start === -1 ? text : text.slice(0, start);
-  const endText = text.slice(end + 1);
+export function replacedPiece(node: JSXChild, text: Content): Piece {
+  const code = getCode(text);
+  const start = code.search(/[<{]/);
+  const end = Math.max(code.lastIndexOf('>'), code.lastIndexOf('}'));
+  const startText = start === -1 ? code : code.slice(0, start);
+  const endText = code.slice(end + 1);
   return {
     node,
     text,
@@ -83,12 +85,12 @@ function mergeChangesText(before: string | undefined, after: string | undefined)
  */
 function separate(previous: Piece, next: Piece, emptiesBetween: readonly Piece[]): void {
   if (next.text !== undefined) {
-    next.text = `{}${next.text}`;
+    next.text = joinText`{}${next.text}`;
     next.startText = undefined;
     return;
   }
   if (previous.text !== undefined) {
-    previous.text = `${previous.text}{}`;
+    previous.text = joinText`${previous.text}{}`;
     previous.endText = undefined;
     return;
   }
@@ -103,13 +105,13 @@ function separate(previous: Piece, next: Piece, emptiesBetween: readonly Piece[]
  * Writes the replaced pieces of a child list, adding `{}` wherever two texts
  * would otherwise merge.
  */
-export function writePieces(s: MagicString, pieces: readonly Piece[]): boolean {
+export function writePieces(s: Editor, pieces: readonly Piece[]): boolean {
   let changed = false;
   // The last piece that renders anything, and the empty pieces after it.
   let previous: Piece | undefined;
   let emptiesSincePrevious: Piece[] = [];
   for (const piece of pieces) {
-    if (piece.text === '') {
+    if (piece.text !== undefined && getCode(piece.text) === '') {
       emptiesSincePrevious.push(piece);
       continue;
     }
@@ -124,7 +126,7 @@ export function writePieces(s: MagicString, pieces: readonly Piece[]): boolean {
       continue;
     }
     changed = true;
-    if (piece.text === '') {
+    if (getCode(piece.text) === '') {
       s.remove(piece.node.start, piece.node.end);
     } else {
       s.overwrite(piece.node.start, piece.node.end, piece.text);
@@ -178,7 +180,7 @@ export function hasCallbackChild(children: readonly JSXChild[]): boolean {
 /**
  * The text between an element's tags, or an empty string for a self-closing element.
  */
-export function innerText(s: MagicString, node: JSXElement | JSXFragment): string {
+export function innerText(s: Editor, node: JSXElement | JSXFragment): Text | string {
   if (node.type === 'JSXFragment') {
     return s.slice(node.openingFragment.end, node.closingFragment.start);
   }

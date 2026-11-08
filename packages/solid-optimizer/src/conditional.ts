@@ -24,6 +24,8 @@ import type { PassContext } from './context';
 import { solidExport } from './context';
 import { findAttribute } from './jsx';
 import { lookup, scopeAt } from './scope';
+import type { Content, Text } from './text';
+import { join, joinText } from './text';
 
 /**
  * How a lowered `<Show>` or `<Switch>` is written where it stands.
@@ -55,7 +57,7 @@ export function lowerConditionals(context: PassContext): boolean {
         context.s.overwrite(
           node.start,
           node.end,
-          form === 'container' ? `{${ternary}}` : `<>{${ternary}}</>`,
+          form === 'container' ? joinText`{${ternary}}` : joinText`<>{${ternary}}</>`,
         );
         changed = true;
         return;
@@ -86,14 +88,14 @@ function builtInOf(context: PassContext, element: JSXElement): string | undefine
  * The ternary a `<Show>` or `<Switch>` lowers to, or `undefined` when its
  * props or children need the component.
  */
-function ternaryOf(context: PassContext, element: JSXElement): string | undefined {
+function ternaryOf(context: PassContext, element: JSXElement): Text | undefined {
   switch (builtInOf(context, element)) {
     case 'Show': {
       const branch = branchOf(context, element, ['when', 'fallback']);
       if (branch === undefined) {
         return undefined;
       }
-      return `${branch.when} ? ${branch.children} : ${branch.fallback ?? 'undefined'}`;
+      return joinText`${branch.when} ? ${branch.children} : ${branch.fallback ?? 'undefined'}`;
     }
     case 'Switch':
       return switchTernary(context, element);
@@ -105,12 +107,12 @@ function ternaryOf(context: PassContext, element: JSXElement): string | undefine
 /**
  * A `<Switch>` whose children are all `<Match>`es that lower, as a chain of ternaries.
  */
-function switchTernary(context: PassContext, element: JSXElement): string | undefined {
+function switchTernary(context: PassContext, element: JSXElement): Text | undefined {
   const props = propsOf(context, element, ['fallback']);
   if (props === undefined) {
     return undefined;
   }
-  let chain = '';
+  const chain: Content[] = [];
   let count = 0;
   for (const child of significantChildren(element.children)) {
     if (child.type !== 'JSXElement' || builtInOf(context, child) !== 'Match') {
@@ -120,14 +122,14 @@ function switchTernary(context: PassContext, element: JSXElement): string | unde
     if (branch === undefined) {
       return undefined;
     }
-    chain += `${branch.when} ? ${branch.children} : `;
+    chain.push(branch.when, ' ? ', branch.children, ' : ');
     count += 1;
   }
   // A `<Switch>` without a `<Match>` renders its fallback, which the fold pass resolves.
   if (count === 0) {
     return undefined;
   }
-  return `${chain}${props.get('fallback') ?? 'undefined'}`;
+  return join([...chain, props.get('fallback') ?? 'undefined']);
 }
 
 /**
@@ -196,8 +198,8 @@ function propsOf(
   context: PassContext,
   element: JSXElement,
   names: readonly string[],
-): Map<string, string> | undefined {
-  const props = new Map<string, string>();
+): Map<string, Text> | undefined {
+  const props = new Map<string, Text>();
   for (const attribute of element.openingElement.attributes) {
     if (
       attribute.type !== 'JSXAttribute' ||
@@ -217,9 +219,9 @@ function propsOf(
 }
 
 interface Branch {
-  readonly when: string;
-  readonly children: string;
-  readonly fallback: string | undefined;
+  readonly when: Text;
+  readonly children: Content;
+  readonly fallback: Text | undefined;
 }
 
 /**
@@ -278,7 +280,7 @@ function branchOf(
     : '';
   return {
     when,
-    children: significant.length > 0 ? `<>${inner}</>` : 'undefined',
+    children: significant.length > 0 ? joinText`<>${inner}</>` : 'undefined',
     fallback: props.get('fallback'),
   };
 }
@@ -291,7 +293,7 @@ function callbackBody(
   context: PassContext,
   element: JSXElement,
   callback: ArrowFunctionExpression,
-): string | undefined {
+): Text | undefined {
   // `<Show>` only passes the value to a callback that takes a parameter, and
   // calls it untracked. A body that is only JSX reads nothing as it is made.
   const param = callback.params.at(0);
@@ -317,7 +319,7 @@ function callbackBody(
     return undefined;
   }
   const when = value.expression;
-  const whenText = `(${context.s.slice(when.start, when.end)})`;
+  const whenText = joinText`(${context.s.slice(when.start, when.end)})`;
 
   // Each name `when` reads has to mean the same thing where the body reads the parameter.
   const names: Node[] = [];
@@ -327,7 +329,7 @@ function callbackBody(
   if (binding?.identifier !== param || binding.mutated || namesInTypes(body, param.name)) {
     return undefined;
   }
-  const edits: { start: number; end: number; text: string }[] = [];
+  const edits: { start: number; end: number; text: Text }[] = [];
   for (const reference of binding.references) {
     // A tag like `<C />` names a component, which an expression cannot replace.
     if (reference.type !== 'Identifier') {
@@ -353,19 +355,24 @@ function callbackBody(
     } else if (parent?.type === 'Property' && parent.shorthand) {
       return undefined;
     } else {
-      edits.push({ start: reference.start, end: reference.end, text: `(() => ${whenText})` });
+      edits.push({
+        start: reference.start,
+        end: reference.end,
+        text: joinText`(() => ${whenText})`,
+      });
     }
   }
 
   // Write the body with the edits, in order.
   edits.sort((a, b) => a.start - b.start);
-  let text = '';
+  const parts: Text[] = [];
   let at = body.start;
   for (const edit of edits) {
-    text += context.s.slice(at, edit.start) + edit.text;
+    parts.push(context.s.slice(at, edit.start), edit.text);
     at = edit.end;
   }
-  return text + context.s.slice(at, body.end);
+  parts.push(context.s.slice(at, body.end));
+  return join(parts);
 }
 
 /**
@@ -518,7 +525,7 @@ function significantChildren(children: readonly JSXChild[]): JSXChild[] {
  * The text of an attribute's value as an expression, or `undefined` when the
  * value is not supported.
  */
-function expressionText(context: PassContext, attribute: JSXAttribute): string | undefined {
+function expressionText(context: PassContext, attribute: JSXAttribute): Text | undefined {
   const { value } = attribute;
   if (value === null) {
     // A bare attribute is `true`. The fold pass resolves those.
@@ -529,7 +536,7 @@ function expressionText(context: PassContext, attribute: JSXAttribute): string |
       if (value.expression.type === 'JSXEmptyExpression') {
         return undefined;
       }
-      return `(${context.s.slice(value.expression.start, value.expression.end)})`;
+      return joinText`(${context.s.slice(value.expression.start, value.expression.end)})`;
     case 'JSXElement':
     case 'JSXFragment':
       return context.s.slice(value.start, value.end);

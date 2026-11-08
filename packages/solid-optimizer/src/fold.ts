@@ -56,7 +56,6 @@ import type {
   VariableDeclaration,
   WhileStatement,
 } from 'oxc-parser';
-import MagicString from 'magic-string';
 import type { Parents } from './ast';
 import {
   forEachChild,
@@ -96,6 +95,8 @@ import {
   literalText,
   truthiness,
 } from './value';
+import type { Content, Editor, Text } from './text';
+import { getCode, join, joinText } from './text';
 
 /**
  * The control-flow components this pass resolves.
@@ -110,11 +111,11 @@ type Fold =
   /** JSX children, spliced in. */
   | { readonly kind: 'children'; readonly children: readonly JSXChild[] }
   /** An element or fragment, as source text. */
-  | { readonly kind: 'jsx'; readonly text: string }
+  | { readonly kind: 'jsx'; readonly text: Content }
   /** An expression, such as a `fallback` prop's value. */
   | {
       readonly kind: 'expression';
-      readonly text: string;
+      readonly text: Content;
       readonly primary: boolean;
     }
   | { readonly kind: 'empty' };
@@ -218,8 +219,8 @@ function containsHoistedDeclaration(statement: Node): boolean {
 }
 
 /** The source text of each node. */
-function getTexts(context: PassContext, nodes: readonly Node[]): string[] {
-  const texts: string[] = [];
+function getTexts(context: PassContext, nodes: readonly Node[]): Text[] {
+  const texts: Text[] = [];
   for (const node of nodes) {
     texts.push(getText(context, node));
   }
@@ -291,15 +292,15 @@ function isValueArgument(call: CallExpression): boolean {
 }
 
 type ConstantItem =
-  | { readonly kind: 'primitive'; readonly text: string }
-  | { readonly kind: 'object'; readonly keys: ReadonlyMap<string, string> };
+  | { readonly kind: 'primitive'; readonly text: Text }
+  | { readonly kind: 'object'; readonly keys: ReadonlyMap<string, Text> };
 
 /**
  * The text of an expression that always gives the same primitive: a literal
  * other than a regular expression, a template literal without expressions,
  * or a negated number.
  */
-function primitiveText(context: PassContext, node: Expression): string | undefined {
+function primitiveText(context: PassContext, node: Expression): Text | undefined {
   let expression: Expression = node;
   while (expression.type === 'ParenthesizedExpression') {
     expression = expression.expression;
@@ -443,8 +444,8 @@ class Folder {
     );
   }
 
-  private replace(node: Node, text: string): void {
-    if (getText(this.context, node) === text) {
+  private replace(node: Node, text: Content): void {
+    if (getText(this.context, node).code === getCode(text)) {
       return;
     }
     this.context.s.overwrite(node.start, node.end, text);
@@ -558,15 +559,15 @@ class Folder {
    * Keeps `value`, evaluating `discarded` first when it has side effects.
    * `(discarded, value)` runs it in the same order and yields the same result.
    */
-  private keepAfter(target: Node, discarded: Expression | undefined, value: Expression): string {
+  private keepAfter(target: Node, discarded: Expression | undefined, value: Expression): Text {
     const parts = discarded ? effectfulParts(discarded) : [];
     if (parts.length === 0) {
       const text = getText(this.context, value);
-      return needsParensAt(target, value, this.context.parents) ? `(${text})` : text;
+      return needsParensAt(target, value, this.context.parents) ? joinText`(${text})` : text;
     }
     const texts = getTexts(this.context, parts);
     texts.push(getText(this.context, value));
-    return `(${texts.join(', ')})`;
+    return joinText`(${join(texts, ', ')})`;
   }
 
   private foldLogical(node: LogicalExpression): void {
@@ -759,7 +760,7 @@ class Folder {
         }
         return {
           kind: 'expression',
-          text: JSON.stringify(value.value),
+          text: this.context.s.written(JSON.stringify(value.value), value.start),
           primary: true,
         };
       case 'JSXElement':
@@ -788,7 +789,7 @@ class Folder {
    */
   private foldedJSX(node: JSXElement | JSXFragment): Fold {
     const text = getText(this.context, node);
-    if (text.startsWith('<')) {
+    if (text.code.startsWith('<')) {
       return { kind: 'jsx', text };
     }
     return { kind: 'expression', text, primary: false };
@@ -878,7 +879,8 @@ class Folder {
     }
     // A fold inside the row in this pass would be lost, so it waits for the next pass.
     if (
-      this.context.s.slice(body.start, body.end) !== this.context.code.slice(body.start, body.end)
+      this.context.s.slice(body.start, body.end).code !==
+      this.context.code.slice(body.start, body.end)
     ) {
       return undefined;
     }
@@ -896,9 +898,9 @@ class Folder {
     }
     const itemParam = params.at(0);
     const indexParam = params.at(1);
-    const rows: string[] = [];
+    const rows: Text[] = [];
     for (const [index, item] of list.items.entries()) {
-      const copy = new MagicString(this.context.code);
+      const copy = this.context.s.fresh();
       // With `keyed={false}` the item is an accessor and the index a number, and the other way around otherwise.
       if (
         (itemParam && !this.substituteItem(copy, itemParam, item, byIndex)) ||
@@ -908,7 +910,7 @@ class Folder {
       }
       rows.push(copy.slice(body.start, body.end));
     }
-    const text = `<>${rows.join('')}</>`;
+    const text = joinText`<>${join(rows)}</>`;
     if (!this.unrollingPays(element, text, list.declaration)) {
       return undefined;
     }
@@ -996,7 +998,7 @@ class Folder {
     if (node.type !== 'ObjectExpression') {
       return undefined;
     }
-    const keys = new Map<string, string>();
+    const keys = new Map<string, Text>();
     for (const property of node.properties) {
       if (
         property.type !== 'Property' ||
@@ -1021,7 +1023,7 @@ class Folder {
    * `false` when a read is not one the value can take the place of.
    */
   private substituteItem(
-    copy: MagicString,
+    copy: Editor,
     param: Binding,
     item: ConstantItem,
     accessor: boolean,
@@ -1077,17 +1079,14 @@ class Folder {
   }
 
   /** A value's text in place of `node`, with parentheses unless it fills a JSX container. */
-  private valueAt(node: Node, text: string): string {
-    return this.context.parents.get(node)?.type === 'JSXExpressionContainer' ? text : `(${text})`;
+  private valueAt(node: Node, text: Content): Content {
+    return this.context.parents.get(node)?.type === 'JSXExpressionContainer'
+      ? text
+      : joinText`(${text})`;
   }
 
   /** Writes an item's index over each read of the row's index parameter. */
-  private substituteIndex(
-    copy: MagicString,
-    param: Binding,
-    index: number,
-    accessor: boolean,
-  ): boolean {
+  private substituteIndex(copy: Editor, param: Binding, index: number, accessor: boolean): boolean {
     for (const reference of param.references) {
       let read: Node = reference;
       if (accessor) {
@@ -1110,14 +1109,14 @@ class Folder {
    * Whether the copies are estimated to be no larger, once lowered, than
    * the loop and the list it no longer needs.
    */
-  private unrollingPays(element: JSXElement, text: string, declaration: Node | undefined): boolean {
+  private unrollingPays(element: JSXElement, text: Text, declaration: Node | undefined): boolean {
     const inTemplate = this.joinsParentTemplate(element);
     const loop =
       new SizeEstimator(this.context.code).jsx(element, inTemplate) +
       (declaration
         ? compactLength(this.context.code.slice(declaration.start, declaration.end))
         : 0);
-    const code = `const __so_rows__ = ${text};`;
+    const code = `const __so_rows__ = ${text.code};`;
     const program = parse(this.context.filename, code);
     const statement = program.body.at(0);
     const init =
@@ -1262,16 +1261,16 @@ class Folder {
     if (tag === undefined) {
       return undefined;
     }
-    const attributes: string[] = [];
+    const attributes: Content[] = [tag];
     for (const attribute of element.openingElement.attributes) {
       if (attribute !== component) {
         attributes.push(getText(this.context, attribute));
       }
     }
-    const opening = [tag, ...attributes].join(' ');
+    const opening = join(attributes, ' ');
     const text = element.closingElement
-      ? `<${opening}>${innerText(this.context.s, element)}</${tag}>`
-      : `<${opening} />`;
+      ? joinText`<${opening}>${innerText(this.context.s, element)}</${tag}>`
+      : joinText`<${opening} />`;
     return { kind: 'jsx', text };
   }
 
@@ -1286,14 +1285,14 @@ class Folder {
     this.replace(element, this.expressionText(resolved));
   }
 
-  private expressionText(resolved: Fold): string {
+  private expressionText(resolved: Fold): Content {
     switch (resolved.kind) {
       case 'empty':
         return 'null';
       case 'jsx':
         return resolved.text;
       case 'expression':
-        return resolved.primary ? resolved.text : `(${resolved.text})`;
+        return resolved.primary ? resolved.text : joinText`(${resolved.text})`;
       default: {
         const significant = getSignificant(resolved.children);
         const only = significant.at(0);
@@ -1311,7 +1310,7 @@ class Folder {
         if (!first || !last) {
           return 'null';
         }
-        return `<>${this.context.s.slice(first.start, last.end)}</>`;
+        return joinText`<>${this.context.s.slice(first.start, last.end)}</>`;
       }
     }
   }
@@ -1353,7 +1352,7 @@ class Folder {
           pieces.push(replacedPiece(child, resolved.text));
           break;
         case 'expression':
-          pieces.push(replacedPiece(child, `{${resolved.text}}`));
+          pieces.push(replacedPiece(child, joinText`{${resolved.text}}`));
           break;
         default:
           pieces.push(replacedPiece(child, ''));
@@ -1378,7 +1377,7 @@ class Folder {
    * constant or a binding nothing reassigns, so reading it again where the
    * parameter was gives the same value.
    */
-  private reducedCall(expression: Expression | JSXEmptyExpression): string | undefined {
+  private reducedCall(expression: Expression | JSXEmptyExpression): Text | undefined {
     if (expression.type !== 'CallExpression' || expression.optional) {
       return undefined;
     }
@@ -1403,7 +1402,8 @@ class Folder {
     }
     // A fold inside the body in this pass would be lost, so it waits for the next pass.
     if (
-      this.context.s.slice(body.start, body.end) !== this.context.code.slice(body.start, body.end)
+      this.context.s.slice(body.start, body.end).code !==
+      this.context.code.slice(body.start, body.end)
     ) {
       return undefined;
     }
@@ -1411,7 +1411,7 @@ class Folder {
     if (!scope) {
       return undefined;
     }
-    const copy = new MagicString(this.context.code);
+    const copy = this.context.s.fresh();
     for (const [index, param] of params.entries()) {
       const arg = args.at(index);
       if (param.type !== 'Identifier' || !arg || arg.type === 'SpreadElement') {
@@ -1434,14 +1434,18 @@ class Folder {
         const parent = this.context.parents.get(reference);
         const shorthand =
           parent?.type === 'Property' && parent.shorthand && parent.value === reference;
-        copy.overwrite(reference.start, reference.end, shorthand ? `${param.name}: ${text}` : text);
+        copy.overwrite(
+          reference.start,
+          reference.end,
+          shorthand ? joinText`${param.name}: ${text}` : text,
+        );
       }
     }
     return copy.slice(body.start, body.end);
   }
 
   /** The text of an argument that reads the same wherever it is copied. */
-  private argumentText(arg: Expression): string | undefined {
+  private argumentText(arg: Expression): Content | undefined {
     let node: Expression = arg;
     while (node.type === 'ParenthesizedExpression') {
       node = node.expression;
@@ -1453,7 +1457,7 @@ class Folder {
         return node.expressions.length === 0 ? getText(this.context, node) : undefined;
       case 'UnaryExpression':
         return node.operator === '-' && node.argument.type === 'Literal'
-          ? `(${getText(this.context, node)})`
+          ? joinText`(${getText(this.context, node)})`
           : undefined;
       case 'Identifier': {
         const binding = this.context.scopes.references.get(node);
@@ -1598,27 +1602,27 @@ class Folder {
     return true;
   }
 
-  private replaceStatement(statement: Node, text: string): void {
-    if (text === '') {
+  private replaceStatement(statement: Node, text: Content): void {
+    if (getCode(text) === '') {
       this.context.s.remove(statement.start, statement.end);
       this.changed = true;
       return;
     }
-    this.replace(statement, continuesPreviousStatement(text) ? `;${text}` : text);
+    this.replace(statement, continuesPreviousStatement(getCode(text)) ? joinText`;${text}` : text);
   }
 
   /**
    * A statement that keeps a discarded test's side effects, or `undefined`
    * when skipping the test changes nothing.
    */
-  private discardedTest(test: Expression): string | undefined {
+  private discardedTest(test: Expression): Text | undefined {
     const parts = effectfulParts(test);
     const first = parts.at(0);
     if (first === undefined) {
       return undefined;
     }
-    const text = getTexts(this.context, parts).join(', ');
-    return startsLikeStatement(first) ? `(${text});` : `${text};`;
+    const text = join(getTexts(this.context, parts), ', ');
+    return startsLikeStatement(first) ? joinText`(${text});` : joinText`${text};`;
   }
 
   /**
@@ -1640,7 +1644,7 @@ class Folder {
     if (kept?.type === 'FunctionDeclaration') {
       return undefined;
     }
-    const parts: string[] = [];
+    const parts: Text[] = [];
     const effect = this.discardedTest(statement.test);
     if (effect !== undefined) {
       parts.push(effect);
@@ -1648,7 +1652,7 @@ class Folder {
     if (kept) {
       parts.push(getText(this.context, kept));
     }
-    this.replaceStatement(statement, parts.join(' '));
+    this.replaceStatement(statement, join(parts, ' '));
     return kept;
   }
 

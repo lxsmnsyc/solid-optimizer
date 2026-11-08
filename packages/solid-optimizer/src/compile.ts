@@ -1,7 +1,6 @@
-import type { SourceMap } from '@jridgewell/remapping';
+import type { DecodedSourceMap, SourceMap } from '@jridgewell/remapping';
 import type { Program } from 'oxc-parser';
 import remapping from '@jridgewell/remapping';
-import MagicString from 'magic-string';
 import type { Parents } from './ast';
 import { collectParents, parse } from './ast';
 import type { ImportedConstants } from './constants';
@@ -16,6 +15,7 @@ import { lowerConditionals } from './conditional';
 import type { ScopeAnalysis } from './scope';
 import { analyzeScopes } from './scope';
 import { terminateStatements } from './terminate';
+import { Editor } from './text';
 import type { Primitive } from './value';
 
 export interface CompileOptions {
@@ -202,7 +202,7 @@ type Pass = (context: PassContext) => boolean;
 
 interface PassResult {
   code: string;
-  map: string | undefined;
+  map: DecodedSourceMap | undefined;
 }
 
 /** A parse of some code, which passes that change nothing can share. */
@@ -230,7 +230,7 @@ function runPass(
   const context: PassContext = {
     code,
     filename,
-    s: new MagicString(code),
+    s: new Editor(code, sourceMap),
     program: parsed.program,
     parents: parsed.parents,
     // A pass adds the names it gives out, so each pass starts from the parse's own.
@@ -243,9 +243,7 @@ function runPass(
   }
   return {
     code: context.s.toString(),
-    map: sourceMap
-      ? context.s.generateMap({ source: filename, hires: true, includeContent: true }).toString()
-      : undefined,
+    map: sourceMap ? context.s.generateMap(filename) : undefined,
   };
 }
 
@@ -278,7 +276,7 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
     passes.push(inlineMemos);
   }
 
-  const maps: string[] = [];
+  const maps: DecodedSourceMap[] = [];
   let current = code;
   // A pass that changes nothing leaves the code as it was, so the next pass
   // reuses the parse instead of parsing the same code again.

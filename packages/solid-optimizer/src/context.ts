@@ -1,4 +1,4 @@
-import type MagicString from 'magic-string';
+import type { Editor, Text } from './text';
 import type { Node, Program } from 'oxc-parser';
 import type { Parents } from './ast';
 import type { ResolvedImportedConstants } from './constants';
@@ -92,7 +92,7 @@ export interface PassContext {
   readonly code: string;
   /** The file name, which picks the parser. */
   readonly filename: string;
-  readonly s: MagicString;
+  readonly s: Editor;
   readonly program: Program;
   readonly parents: Parents;
   readonly scopes: ScopeAnalysis;
@@ -116,6 +116,6 @@ export function recordSkip(
 /**
  * The current text of `node`, including the edits made inside it so far.
  */
-export function getText(context: PassContext, node: Node): string {
+export function getText(context: PassContext, node: Node): Text {
   return context.s.slice(node.start, node.end);
 }
