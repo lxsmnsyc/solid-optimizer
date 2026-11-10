@@ -249,6 +249,41 @@ function stripQuery(id: string): string {
 }
 
 /**
+ * The extensions `options.extensions` registers, and whether each holds
+ * TypeScript, read the way `@solidjs/vite-plugin` reads them. A string
+ * that contains `tsx` makes every registered extension TypeScript, as it does there.
+ * `.tsrx` is left out: the official plugin compiles it on its own path, and
+ * the parser here does not read it.
+ */
+function readExtensions(extensions: Options['extensions']): Map<string, boolean> {
+  const list = extensions ?? [];
+  let anyTSX = false;
+  for (const extension of list) {
+    if (typeof extension === 'string' && extension.includes('tsx')) {
+      anyTSX = true;
+    }
+  }
+  const registered = new Map<string, boolean>();
+  for (const extension of list) {
+    const [name, extensionOptions] =
+      typeof extension === 'string' ? [extension, undefined] : extension;
+    if (name === '.tsrx') {
+      continue;
+    }
+    const typescript = anyTSX || extensionOptions?.typescript === true;
+    registered.set(name, (registered.get(name) ?? false) || typescript);
+  }
+  return registered;
+}
+
+/** The extension of an id, with its leading dot, as the official plugin reads it. */
+function readExtension(id: string): string {
+  const file = stripQuery(id);
+  const index = file.lastIndexOf('.');
+  return index < 0 ? '' : file.slice(index);
+}
+
+/**
  * Chains the maps of each step into one, or `null` when the build writes no
  * source maps, since chaining the maps of a large chunk takes a while.
  */
@@ -429,11 +464,29 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     return client.generate === 'dom' && client.hydratable !== true;
   };
 
+  /** The extensions the official plugin lowers besides the JSX ones. */
+  const extensions = readExtensions(solidOptions.extensions);
+
+  /** Whether the official plugin lowers the module, so this plugin optimizes it. */
   const isJSXModule = (id: string): boolean => {
     filter ??= createFilter(solidOptions.include, solidOptions.exclude, {
       resolve: config?.root,
     });
-    return filter(id) && JSX_MODULE.test(stripQuery(id));
+    return filter(id) && (JSX_MODULE.test(stripQuery(id)) || extensions.has(readExtension(id)));
+  };
+
+  /**
+   * The file name the parser reads a module's code under. The parser picks
+   * its dialect from the extension, so a registered one borrows `.tsx` or
+   * `.jsx`, like the official plugin does when it lowers the module.
+   */
+  const parserFilename = (id: string): string => {
+    const file = stripQuery(id);
+    const typescript = extensions.get(readExtension(id));
+    if (typescript === undefined || JSX_MODULE.test(file)) {
+      return file;
+    }
+    return `${file}${typescript ? '.tsx' : '.jsx'}`;
   };
 
   /** Modules that keep their JSX, which the bundler must parse as JSX. */
@@ -605,15 +658,16 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     id: string,
   ): Promise<CompileOptions> {
     const filename = stripQuery(id);
+    const parsedAs = parserFilename(id);
     // The dev server cannot give back the code of a loaded module.
     if (optimizer.fold === false || !isBuild()) {
-      return { ...compileOptions, filename, sourceMap: wantsMaps() };
+      return { ...compileOptions, filename: parsedAs, sourceMap: wantsMaps() };
     }
-    const { imports } = readModuleConstants(code, { filename });
+    const { imports } = readModuleConstants(code, { filename: parsedAs });
     const imported = await importedConstants(context, imports, filename, new Set([filename]), id);
     return {
       ...compileOptions,
-      filename,
+      filename: parsedAs,
       sourceMap: wantsMaps(),
       importedConstants: imported.constants,
       globalConstants: globals,
@@ -842,7 +896,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     if (code === undefined) {
       return undefined;
     }
-    const stripped = await transformWithOxc(code, stripQuery(target), {
+    const stripped = await transformWithOxc(code, parserFilename(target), {
       jsx: 'preserve',
       sourcemap: false,
     });
@@ -1052,7 +1106,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       // oxlint-disable-next-line no-await-in-loop
       const code = await state.load(resolved.id);
       const reexport =
-        code === undefined ? undefined : readReexport(code, stripQuery(resolved.id), imported);
+        code === undefined ? undefined : readReexport(code, parserFilename(resolved.id), imported);
       if (!reexport) {
         break;
       }
@@ -1084,7 +1138,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     }
     const component = readExportedComponent(
       loaded,
-      stripQuery(resolved.id),
+      parserFilename(resolved.id),
       imported,
       moduleSources,
     );
@@ -1159,7 +1213,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     load: (target: string) => Promise<string | undefined>,
     copySkips?: Skip[],
   ): Promise<{ code: string; maps: string[]; skipped?: Skip[] } | undefined> {
-    const filename = stripQuery(id);
+    const filename = parserFilename(id);
     const maps: string[] = [];
     let skipped: Skip[] | undefined;
     const excluded = new Set<string>();
@@ -1352,7 +1406,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
     source: string,
     id: string,
   ): Promise<Rollup.TransformResult> {
-    const filename = stripQuery(id);
+    const filename = parserFilename(id);
     const solidCompiler = getCompiler();
     const maps: (string | null | undefined)[] = [];
     let code = source;
@@ -1458,7 +1512,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       maps.push(protectedRefs.map);
     }
 
-    code = await resolveLazyModuleUrls(context, code, filename);
+    code = await resolveLazyModuleUrls(context, code, stripQuery(id));
     preserved.add(id);
     return { code, map: combineMaps(wantsMaps(), maps) };
   }
@@ -1507,7 +1561,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       if ((chunkMode() && isClient(this)) || !isJSXModule(id)) {
         return null;
       }
-      const filename = stripQuery(id);
+      const filename = parserFilename(id);
       const sourceOptions = await moduleOptions(this, source, id);
       const result = compile(source, sourceOptions);
       let code = result.code;
@@ -1684,7 +1738,7 @@ export default function solidOptimizer(options: Options = {}): Plugin[] {
       }
       // `vite:oxc` prints JSX like Rolldown does, without the parentheses a
       // comma expression needs in a JSX expression container.
-      const repaired = repairJSXSequences(code, stripQuery(id));
+      const repaired = repairJSXSequences(code, parserFilename(id));
       return repaired
         ? { code: repaired.code, map: repaired.map, moduleType: 'jsx' }
         : { code, moduleType: 'jsx' };

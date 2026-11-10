@@ -1,0 +1,15 @@
+import { Show } from 'solid-js';
+import { Title } from './Title.view';
+
+const DEBUG = false;
+
+export function App() {
+  return (
+    <main>
+      <Title label="Hello" />
+      <Show when={DEBUG}>
+        <pre>debug</pre>
+      </Show>
+    </main>
+  );
+}

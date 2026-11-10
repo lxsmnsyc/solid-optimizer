@@ -289,6 +289,42 @@ describe('solid-optimizer/vite', () => {
     }
   });
 
+  it('optimizes modules with the extensions the official plugin registers', async () => {
+    const extensions: Options['extensions'] = ['.view'];
+    for (const mode of ['auto', 'module'] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const chunks = await bundle('extensions', { extensions, optimizer: { mode } });
+      const code = chunks.map((chunk) => chunk.code).join('\n');
+      expect(code).not.toContain('debug');
+      expect(code).not.toContain('loud');
+      if (mode === 'auto') {
+        // Chunk mode inlines `Title` into `App`'s template.
+        expect(code.match(/template\(`/g)).toHaveLength(1);
+      }
+      // oxlint-disable-next-line no-await-in-loop
+      const { app } = await run(chunks);
+      expect(app.innerHTML.replaceAll(/<!--[^>]*-->/g, '')).toBe(
+        '<main><h1 class="title">Hello</h1></main>',
+      );
+    }
+  });
+
+  it('parses a registered TypeScript extension as TypeScript', async () => {
+    // The official plugin leaves the types of `.tview` in, and `vite:oxc`
+    // only strips the standard extensions, so the bundler rejects the module
+    // either way. The optimizer must not be the one that fails.
+    const extensions: Options['extensions'] = [['.tview', { typescript: true }]];
+    for (const optimizer of [false, { mode: 'auto' }, { mode: 'module' }] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      const error: unknown = await bundle('extensions-typescript', { extensions, optimizer }).then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+      expect(String(error)).toContain('Title.tview');
+      expect(String(error)).not.toContain('[solid-optimizer]');
+    }
+  });
+
   it('does not load a module imported only for its types', async () => {
     // `./config` imports a package that does not resolve. TypeScript drops the
     // import, so only loading it for its constants would bring it into the build.
