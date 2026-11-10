@@ -1,0 +1,5 @@
+const LOUD = false;
+
+export function Title(props) {
+  return <h1 class={LOUD ? 'loud' : 'title'}>{props.label}</h1>;
+}

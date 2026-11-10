@@ -1,0 +1,9 @@
+interface TitleProps {
+  label: string;
+}
+
+const LOUD: boolean = false;
+
+export function Title(props: TitleProps) {
+  return <h1 class={LOUD ? 'loud' : 'title'}>{props.label}</h1>;
+}
