@@ -48,7 +48,7 @@ function Hero(): JSX.Element {
       <div class="hero-glow" aria-hidden="true" />
       <a class="eyebrow" href={NPM} target="_blank" rel="noopener noreferrer">
         <span class="pulse" />
-        1.0.0-next · SolidJS 2.0
+        1.0 · SolidJS 2.0
       </a>
       <h1>
         Fewer templates.

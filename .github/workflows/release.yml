@@ -4,8 +4,7 @@ name: Release
 # from the pending changesets. Once that pull request is merged, the next push
 # publishes the versions that are not on npm yet.
 #
-# While Changesets is in pre mode, versions are prereleases like `1.0.0-next.0`,
-# published under the `next` tag. Solid 1 fixes release from the `0.x` branch.
+# Releases publish under the `latest` tag. Solid 1 fixes release from the `0.x` branch.
 on:
   push:
     branches:

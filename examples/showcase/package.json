@@ -7,9 +7,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@solidjs/compiler": "2.0.0-rc.21",
-    "@solidjs/web": "2.0.0-rc.21",
-    "solid-js": "2.0.0-rc.21",
+    "@solidjs/compiler": "2.0.0",
+    "@solidjs/web": "2.0.0",
+    "solid-js": "2.0.0",
     "solid-optimizer": "workspace:*"
   },
   "devDependencies": {

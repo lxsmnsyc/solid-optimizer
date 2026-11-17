@@ -12,7 +12,7 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "node", "@solidjs/vite-plugin/virtual-solid-manifest"]
+    "types": ["vite/client", "node", "@solidjs/vite-plugin/virtual-modules"]
   },
   "include": ["src", "scripts", "vite.config.ts"]
 }

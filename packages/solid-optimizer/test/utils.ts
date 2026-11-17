@@ -12,12 +12,13 @@ export function optimize(code: string, options: CompileOptions = {}): string {
 /**
  * Lowers JSX with Solid's own JSX transform, as a bundler plugin would after optimizing.
  */
-export function lower(code: string, generate: 'dom' | 'ssr' = 'dom'): string {
+export function lower(code: string, generate: 'dom' | 'ssr' = 'dom', builtIns?: string[]): string {
   return transform(code, {
     filename: 'input.jsx',
     moduleName: '@solidjs/web',
     generate,
     hydratable: true,
+    builtIns,
   }).code;
 }
 
