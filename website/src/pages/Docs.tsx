@@ -211,12 +211,11 @@ function GettingStarted(): JSX.Element {
 
       <Section id="install" title="Install">
         <p>
-          The Solid 2.0 version is published under the <code>next</code> tag. The{' '}
-          <code>latest</code> version is for Solid 1.x.
+          This version is for Solid 2.0. Solid 1.x users stay on <code>solid-optimizer@0</code>.
         </p>
-        <Block code="npm i -D solid-optimizer@next" lang="bash" />
-        <Block code="pnpm add -D solid-optimizer@next" lang="bash" />
-        <Block code="yarn add -D solid-optimizer@next" lang="bash" />
+        <Block code="npm i -D solid-optimizer" lang="bash" />
+        <Block code="pnpm add -D solid-optimizer" lang="bash" />
+        <Block code="yarn add -D solid-optimizer" lang="bash" />
         <p>
           <code>@solidjs/vite-plugin</code> and <code>vite</code> are peer dependencies of the Vite
           plugin.

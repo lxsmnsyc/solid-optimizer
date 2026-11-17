@@ -3,7 +3,7 @@ import { For } from 'solid-js';
 
 export const REPOSITORY = 'https://github.com/lxsmnsyc/solid-optimizer';
 export const NPM = 'https://www.npmjs.com/package/solid-optimizer';
-export const INSTALL = 'npm i -D solid-optimizer@next';
+export const INSTALL = 'npm i -D solid-optimizer';
 
 export type Page = 'home' | 'docs' | 'repl';
 

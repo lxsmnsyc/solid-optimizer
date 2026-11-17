@@ -15,6 +15,13 @@ function lowered(code: string): string {
   return lower(folded(code));
 }
 
+// Solid 2.0 lowers a `<Show>` that stays after the fold to a conditional, so
+// the tests that look for a kept `<Show>` lower with no built-ins and see the
+// component call.
+function lowerKept(code: string): string {
+  return lower(folded(code), 'dom', []);
+}
+
 function countTemplates(code: string): number {
   return templateCount(folded(code));
 }
@@ -44,17 +51,17 @@ describe('control-flow components', () => {
 
     // A reassigned binding is not a constant.
     expect(
-      lowered(
+      lowerKept(
         'let DEBUG = false;\nDEBUG = true;\nexport const view = <div><Show when={DEBUG}><b /></Show></div>;',
       ),
     ).toContain('createComponent');
   });
 
   it('keeps <Show> with function children or a spread', () => {
-    expect(lowered('const view = <Show when={true}>{v => <div>{v()}</div>}</Show>;')).toContain(
+    expect(lowerKept('const view = <Show when={true}>{v => <div>{v()}</div>}</Show>;')).toContain(
       'createComponent',
     );
-    expect(lowered('const view = <Show when={true} {...rest}><div /></Show>;')).toContain(
+    expect(lowerKept('const view = <Show when={true} {...rest}><div /></Show>;')).toContain(
       'createComponent',
     );
   });
@@ -351,7 +358,7 @@ export const nav = <nav><For each={LINKS}>{(link) => <a>{link.label}</a>}</For><
 
   it('keeps a component prop that has side effects', () => {
     // Solid reads `when` inside a memo, so evaluating it here would change when it runs.
-    expect(lowered('export const v = <Show when={[effect()]}><b /></Show>;')).toContain(
+    expect(lowerKept('export const v = <Show when={[effect()]}><b /></Show>;')).toContain(
       'createComponent',
     );
     expect(lowered('export const l = <For each={effects() && null}><b /></For>;')).toContain(
@@ -435,37 +442,37 @@ describe('constants', () => {
 
   it('folds constants declared in any scope', () => {
     expect(
-      lowered(
+      lowerKept(
         'export function App() {\n  const DEBUG = false;\n  return <div><Show when={DEBUG}><b>panel</b></Show></div>;\n}',
       ),
     ).not.toContain('panel');
     expect(
-      lowered(
+      lowerKept(
         'export function App() {\n  const N = 2;\n  const render = () => <div><Show when={N > 1}><b>panel</b></Show></div>;\n  return render();\n}',
       ),
     ).not.toContain('createComponent');
 
     // An unwritten `let` is a constant. A written one is not.
     expect(
-      lowered(
+      lowerKept(
         'export function App() {\n  let DEBUG = false;\n  return <Show when={DEBUG}><b /></Show>;\n}',
       ),
     ).not.toContain('createComponent');
     expect(
-      lowered(
+      lowerKept(
         'export function App() {\n  let DEBUG = false;\n  DEBUG = flag();\n  return <Show when={DEBUG}><b /></Show>;\n}',
       ),
     ).toContain('createComponent');
 
     // A parameter shadows the outer constant.
     expect(
-      lowered(
+      lowerKept(
         'const DEBUG = false;\nexport function App(DEBUG) {\n  return <Show when={DEBUG}><b /></Show>;\n}',
       ),
     ).toContain('createComponent');
 
     // Two unrelated bindings of the same name resolve on their own.
-    const independent = lowered(
+    const independent = lowerKept(
       'export function A() {\n  const FLAG = true;\n  return <Show when={FLAG}><b /></Show>;\n}\nexport function B(FLAG) {\n  return <Show when={FLAG}><i /></Show>;\n}',
     );
     expect(independent).toContain('<b');
@@ -473,14 +480,14 @@ describe('constants', () => {
 
     // A declaration does not reach a reference outside its scope.
     expect(
-      lowered(
+      lowerKept(
         'function inner() {\n  const OUTSIDE = false;\n  return OUTSIDE;\n}\nexport const view = <Show when={OUTSIDE}><b /></Show>;',
       ),
     ).toContain('createComponent');
 
     // A use above its declaration still folds, since the function runs later.
     expect(
-      lowered(
+      lowerKept(
         'export function App() {\n  return <Show when={DEBUG}><b /></Show>;\n}\nconst DEBUG = false;',
       ),
     ).not.toContain('createComponent');

@@ -12,18 +12,18 @@ The website, [solid-optimizer.vercel.app](https://solid-optimizer.vercel.app), s
 
 ## Install
 
-The Solid 2.0 version is published under the `next` tag. The `latest` version is for Solid 1.x, which only gets fixes now, from the [`0.x` branch](https://github.com/lxsmnsyc/solid-optimizer/tree/0.x).
+This version is for Solid 2.0. Solid 1.x users stay on `solid-optimizer@0`, which only gets fixes now, from the [`0.x` branch](https://github.com/lxsmnsyc/solid-optimizer/tree/0.x).
 
 ```bash
-npm i -D solid-optimizer@next
+npm i -D solid-optimizer
 ```
 
 ```bash
-yarn add -D solid-optimizer@next
+yarn add -D solid-optimizer
 ```
 
 ```bash
-pnpm add -D solid-optimizer@next
+pnpm add -D solid-optimizer
 ```
 
 ## Usage
