@@ -1,5 +1,75 @@
 # solid-optimizer
 
+## 1.0.0
+
+### Major Changes
+
+- b7340c5: Support Solid 2.0. The optimizer targets `solid-js` 2 and `@solidjs/web`, and `solid-optimizer/vite` needs `@solidjs/vite-plugin` `^3.0.0` and `vite` 8 or 9. Solid 1.x users stay on `solid-optimizer@0`, which gets fixes from the `0.x` branch.
+
+  The Babel plugin is replaced with a `compile` function. It runs on JSX before Solid's JSX transform. It inlines components into the JSX that uses them, so Solid creates fewer templates. It also folds constants and resolves `<Show>`, `<For>`, `<Repeat>`, `<Switch>`, and `<Dynamic>` when their props are constants. The SSR call removals from the Babel plugin are gone.
+
+  Add `solid-optimizer/vite`, which replaces `@solidjs/vite-plugin` and takes the same options. Client builds that do not hydrate optimize each bundled chunk as a whole, so components inline across modules in the same chunk. Other builds optimize each module before Solid's JSX transform. Modules whose extension is listed in the `extensions` option, like `.mdx`, are optimized too, and an extension listed with `typescript: true` is parsed as TypeScript. `.tsrx` stays out, since the official plugin compiles it on its own path.
+
+### Minor Changes
+
+- 1883777: Build faster and map code exactly. The parser hands over its AST through shared memory, a pass that changes nothing no longer makes the next one parse again, and source maps are only made when the build writes them. The source map points each copied character at the character it copies: inlined JSX maps to the component's own JSX, a hoisted statement maps to where the component declares it, and a prop value maps to the call site's attribute.
+- 1883777: Optimize code-split builds as well as single-chunk ones.
+
+  - In chunk mode, components imported from other modules inline before bundling. The bundler then drops them and the runtime code only they used.
+  - Each chunk is built with every component inlined that can be too, and the smaller of the two is kept, minified and gzipped. `examples/kobalte` drops from 18.20 kB to 12.28 kB gzipped.
+  - The members that JSX tags like `<Button.Root>` read from a namespace import are imported by name, so the bundle does not build a namespace object for them.
+  - A `ref` that names a variable, like `let el; <input ref={el} />`, keeps working in client builds that keep JSX through bundling. A chunk is still optimized when a component inlined there turns a spread into attributes that no module in the chunk used. Parentheses that Rolldown drops from `{(a, b)}` are put back.
+  - The server entry a plugin generates, like the one `@solidjs/vite-plugin` generates with `start`, is read through its virtual module, so the server build inlines as many components as the client build and hydration meets the same markup.
+
+- 1883777: Fold more constants.
+
+  - `define` entries and `import.meta.env` values fold in every build, module mode included, when all build environments share the value. `import.meta.env.SSR` never folds, so a server build and its client build fold the same values. `compile` takes them as `globalConstants`.
+  - Constants imported from other modules fold. `compile` takes them in `importedConstants`, and `readModuleConstants` reads them from a module. `solid-optimizer/vite` loads each imported module through the bundler, so a branch they fold away is gone before bundling, along with the built-ins and `lazy()` chunks only it used. A module is not loaded when the importer only uses its bindings as types.
+  - Constants exported from a module with JSX fold in module mode as well as chunk mode, and a server build and its hydrating client build fold the same ones.
+  - A `createMemo` whose computation folds to a literal becomes the literal at every call.
+  - A signal that nothing writes becomes its value. When the setter is left out, as in `const [size] = createSignal(3)`, or nothing references it, and the value is a literal with no options, every call of the getter becomes the literal. This also works at module scope, and an exported getter stays. A memo whose value can be a promise or an async iterable is kept.
+  - `createSignal` and `createStore` are marked `/* @__PURE__ */` when their first argument is a literal, an object, or an array, so the bundler drops one that folding left unused.
+
+- 1883777: Lower control flow to cheaper code.
+
+  - A `<Show>` without `keyed` becomes a ternary, which Solid's JSX transform compiles to one memo instead of a component and three memos. A `<Switch>` of such `<Match>`es becomes a chain of ternaries. The front page of `examples/hackernews` creates 186 computations instead of 402, and the demo's builds are 270 to 290 B smaller gzipped. Set `conditionals: false`, or `optimizer.conditionals: false` in the Vite plugin, to keep both.
+  - A `<Show>` or `<Match>` with a callback child, like `{(user) => <Avatar user={user()} />}`, becomes a ternary too, when `when` reads names, members, and signal or memo getters. The tracker example's optimized build holds 10.7% less heap per mounted app.
+  - `<Dynamic component={Card}>` becomes `<Card>` when `Card` is a component declared at the top level that nothing reassigns, so it can inline like any other call.
+  - `<For>` over a constant list, including one written with `as const` or `satisfies`, unrolls into one copy of its row per item when that is no larger. The rows join the template around them.
+
+- 4625ca6: Inline the components of headless libraries like Kobalte, which render through an alias, a `ref` array, `<Dynamic>`, and context.
+
+  - A call through an alias, like `<Separator />` with `const Separator = SeparatorRoot`, inlines as a call of the component it names. An alias nothing uses is removed with the component.
+  - Compound components inline, like `const Dialog = Object.assign(DialogRoot, { Trigger: DialogTrigger })`. `<Dialog>` is a call of `DialogRoot` and `<Dialog.Trigger>` is a call of `DialogTrigger`, when nothing writes to a member of the compound or of its root. The compound's statement goes away with its parts when nothing else reads it. This works where the compound and its calls are in one module or chunk.
+  - A `ref` array at a call site can hold `void 0` and `untrack(() => target)`, like `ref={[setRef, untrack(() => merged.ref)]}` once the call site passes no `ref`.
+  - `untrack(() => value)` folds to the value when the value is a constant.
+  - Context providers whose readers are all visible are removed, and each `useContext` read gets the provider's value. Compound components like tabs and accordions merge into one template. Set `contexts: false` to turn it off. A provider stays around a value built from props by a function the optimizer does not know, like `mergeDefaultProps()`, or around a function declared outside it.
+  - The size estimate measures a copy with the calls in it inlined, when the copy is what lets them inline, such as a call that spreads a `merge()` or `omit()` view.
+
+- 1883777: Inline more components, and only where the output does not grow.
+
+  - A component is inlined only where its copies are no larger than the calls and declaration they replace, so the optimized output is never larger than the plain one because of inlining. The Vite plugin counts which modules use each export, so a component copied from another module only counts its declaration when the importer is its only user. `alwaysInline` restores inlining every component that can be. The size estimate sees the top-level constants a copy folds, so a component that renders a constant list passed by name, like `rows={ROWS}`, inlines where that makes the output smaller.
+  - Components imported from other modules inline in client, server, and hydrating builds. The server and client builds copy the same components, so the hydration keys still match. A component that only returns a call of a component from its own module, like an icon that wraps `<Icon>`, is not copied, since the copy saves nothing.
+  - A component that spreads its props onto an element, like `<div {...props} />`, inlines. The spread becomes the attributes and children each call site passes.
+  - A component that reads its props through `merge()` and `omit()` inlines. Each call site resolves the defaults it does not pass, and a spread of the rest becomes the attributes it passes.
+  - A component called with a `ref` it forwards to an element, like `<Field ref={el} />` with `<input ref={props.ref} />`, inlines. The call site's `ref` moves to that element.
+  - A component with statements inlines inside the child callback of `<For>` or `<Repeat>`, the child callback of `<Show>` or `<Match>` that takes the value, and the callback given to `render`. These callbacks run untracked once per item or value, like a component.
+  - A component that has statements keeps the call when they assign to something declared outside it, like a counter at the top of the module, since a copy's statements run before the JSX around the call. `optimizer.report` gives these calls the reason `component-write`.
+  - Solid's `children` helper becomes its JSX when it is read once as an element's child, so a component that resolves `props.children` this way merges its children into its template.
+  - A derived arrow like `const label = () => (props.open ? 'Close' : 'Open')` becomes its body at each call, so a constant can fold and join the template. With more than one call, the body is copied only when that is no larger.
+  - A call of an arrow function whose body is JSX becomes that JSX, when it is an element's child and its arguments are constants. A render prop called with a constant, such as `props.children(1)`, joins the template once the component is inlined.
+  - Fold removes a `const`, or a `let` nothing writes to, inside a function when nothing reads it and its initializer has no side effects, so the component has no statement left and inlines where a statement has no place to go, such as a `<Show>` fallback.
+  - A pass does not put an element where the HTML parser would move it, like a `<div>` inside a `<p>`. Each template is checked the way Solid checks it, and an element that would move stays in `{}`, inserted at runtime.
+
+- 7a31faa: Add `optimizer.packages`, a list of packages whose components are copied into the modules that use them, like `['@kobalte/core']`.
+
+  - A copy follows re-exports, like a library entry's `export { t as Button } from './button.jsx'`, and aliases, like `const Button = ButtonRoot`.
+  - Copies from a listed package inline wherever they can be, so the bundler drops the originals and the runtime code only they used, even when the package lands in another chunk. The `vendor` build of `examples/kobalte` drops from 19.00 kB to 13.75 kB gzipped. `compile` takes `alwaysInlineComponents`, the components to inline wherever they can be.
+  - A listed package that is external in a build, like a server build that leaves it to Node, gets a warning, since its components are not copied there.
+  - A build does not hang when a listed package imports the app back through a virtual module, like SolidBase does with its theme's layout. Such a copy is skipped as `copy-cycle`. A copied component that imports a virtual module imports it by its specifier, and when the specifier means another module from the importer, the copy is skipped as `copy-virtual`.
+
+- 1883777: Add `optimizer.report`, which lists each component call, provider, and memo the optimizer left alone, and why. `compile` takes `report` and returns the list in `skipped`. A package's own modules are left out, since the app cannot change what they leave alone. The app's calls of a package's components are still reported.
+
 ## 1.0.0-next.10
 
 ### Patch Changes
