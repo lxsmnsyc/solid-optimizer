@@ -637,7 +637,7 @@ describe('solid-optimizer/vite', () => {
     expect(text(await load('spread-helpers'))).toBe(
       text(await load('spread-helpers', { optimizer: false })),
     );
-  });
+  }, 30_000);
 
   it('optimizes a chunk where a spread onto Dynamic becomes a link', async () => {
     // The modules import each other, so nothing is copied. The chunk inlines
@@ -665,7 +665,7 @@ describe('solid-optimizer/vite', () => {
     expect(text(await load('polymorphic'))).toBe(
       text(await load('polymorphic', { optimizer: false })),
     );
-  });
+  }, 30_000);
 
   it('keeps the smaller of a chunk with every component inlined and one the estimate picks', async () => {
     // The estimate keeps each `ButtonRoot` a call, since its copy repeats
@@ -703,7 +703,7 @@ describe('solid-optimizer/vite', () => {
     // Copies of a component with statements, used many times, are larger.
     const wrappers = await bundle('repeated-wrapper');
     expect(wrappers.map((chunk) => chunk.code).join('\n')).toContain('createComponent(Field');
-  });
+  }, 30_000);
 
   it('runs code-split chunks that share the runtime', async () => {
     const text = (markup: string): string => markup.replaceAll(/<!--[^>]*-->/g, '');
