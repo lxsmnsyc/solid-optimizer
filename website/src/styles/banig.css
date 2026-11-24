@@ -195,6 +195,10 @@ kbd {
   transform: none;
   background: var(--surface-strong);
 }
+/* On ink, surface-strong is as light or dark as the on-ink text, so a quiet hover uses an on-ink wash. */
+:is(.hero, .not-found, .toast, .tile[data-tone='ink']) .button[data-variant='quiet']:hover {
+  background: color-mix(in srgb, var(--on-ink) 14%, transparent);
+}
 .button[data-variant='danger'] {
   background: var(--danger);
   box-shadow: none;
@@ -530,30 +534,6 @@ textarea.field-input {
 .code-copy[data-state='failed'] {
   background: var(--danger);
   color: var(--on-danger);
-}
-/* The label shows as a tooltip to the left, on hover, focus and after a click. */
-.code-copy::before {
-  content: attr(aria-label);
-  position: absolute;
-  top: 50%;
-  right: calc(100% + 8px);
-  translate: 0 -50%;
-  padding: 5px 12px;
-  border-radius: var(--radius-full);
-  background: var(--ink);
-  color: var(--on-ink);
-  font: 500 13px/18px var(--font-sans);
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transform: translateX(2px);
-  transition:
-    opacity var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
-}
-.code-copy:is(:hover, :focus-visible, [data-state='done'], [data-state='failed'])::before {
-  opacity: 1;
-  transform: none;
 }
 @media (pointer: coarse) {
   .code-copy::after {
@@ -1396,10 +1376,6 @@ textarea.field-input {
   background: var(--accent-fill);
   color: var(--on-accent);
 }
-.hero .install .code-copy::before {
-  background: var(--on-ink);
-  color: var(--ink);
-}
 
 /* RowTitle: section heading of a landing grid, sitting on bg above its tiles */
 .row-title {
@@ -2010,8 +1986,7 @@ textarea.field-input {
   .toast[data-state='closed'],
   .search-dialog[data-state='closed'],
   .drawer[data-state='closed'],
-  .field-error[hidden],
-  .code-copy::before {
+  .field-error[hidden] {
     transform: none;
   }
 }
