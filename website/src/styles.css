@@ -46,9 +46,18 @@ button {
 /* REPL */
 
 .repl {
+  position: relative;
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   overflow: hidden;
+}
+
+/* Banig Playground: the toast sits in the tile's corner. */
+.repl-toasts {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--z-toast);
 }
 
 .repl-toolbar {
