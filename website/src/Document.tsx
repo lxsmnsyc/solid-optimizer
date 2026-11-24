@@ -41,7 +41,10 @@ export function Document(props: { route: Route; children: JSX.Element }): JSX.El
         <meta property="og:image" content={image} />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="solid-optimizer: Fewer templates. Same app." />
+        <meta
+          property="og:image:alt"
+          content="solid-optimizer: Same Solid app. 2× faster server rendering."
+        />
         <meta name="twitter:card" content="summary_large_image" />
         <HydrationScript />
         {/* The server rewrites this path to the built entry. */}
