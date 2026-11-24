@@ -1,5 +1,12 @@
 # solid-optimizer
 
+## 1.1.0
+
+### Minor Changes
+
+- db1c820: - The output JSX no longer holds empty `{}` children, strings in braces such as `class={'card'}`, or fragments around one element in a conditional branch. Solid's JSX transform lowers it to the same code as before.
+  - New `tidy` option, on by default, to turn that off.
+
 ## 1.0.0
 
 ### Major Changes
