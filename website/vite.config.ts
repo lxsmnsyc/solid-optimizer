@@ -49,7 +49,7 @@ export default defineConfig({
   // The site is built with the optimizer it shows. Start mode renders each
   // page on the server, and `scripts/prerender.ts` writes them out as HTML,
   // which the client hydrates. See src/entry-server.tsx and src/entry-client.tsx.
-  plugins: [content(), solid({ ssr: true, start: true }), isolatePreview()],
+  plugins: [content(SITE_URL), solid({ ssr: true, start: true }), isolatePreview()],
   define: {
     'import.meta.env.SITE_URL': JSON.stringify(SITE_URL),
   },

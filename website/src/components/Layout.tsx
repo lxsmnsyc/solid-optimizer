@@ -189,7 +189,23 @@ function MenuDrawer(props: { page: Page; slug?: string }): JSX.Element {
   );
 }
 
+/** The platform of the system: the client hints where there are any, else the user agent. */
+function readPlatform(): string {
+  // `userAgentData` is not in every browser or in the DOM types of every TypeScript version.
+  const hints: unknown = Reflect.get(navigator, 'userAgentData');
+  const platform: unknown =
+    typeof hints === 'object' && hints !== null ? Reflect.get(hints, 'platform') : '';
+  return typeof platform === 'string' && platform !== '' ? platform : navigator.userAgent;
+}
+
 export function Header(props: { page: Page; slug?: string }): JSX.Element {
+  // The search key hint names the key of the system, once the page knows it.
+  const [shortcut, setShortcut] = createSignal('Ctrl K');
+  onSettled(() => {
+    if (/mac|iphone|ipad/i.test(readPlatform())) {
+      setShortcut('⌘K');
+    }
+  });
   return (
     <>
       <a class="skip" href="#main">
@@ -202,7 +218,20 @@ export function Header(props: { page: Page; slug?: string }): JSX.Element {
             solid-optimizer
             <span class="wordmark-version">v{VERSION}</span>
           </a>
-          <div class="site-header-slot" />
+          <div class="site-header-slot">
+            {/* src/search/bind.ts opens the search bar from this button, `/` and Ctrl or Cmd+K. */}
+            <button
+              type="button"
+              class="search-trigger"
+              aria-haspopup="dialog"
+              aria-keyshortcuts="Control+K Meta+K /"
+              aria-label="Search the docs"
+            >
+              <Icon name="search" />
+              <span>Search docs</span>
+              <kbd class="kbd">{shortcut()}</kbd>
+            </button>
+          </div>
           <nav class="pills site-nav" aria-label="Site">
             <For each={LINKS}>
               {(link) => (
