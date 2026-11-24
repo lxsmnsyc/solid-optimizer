@@ -138,7 +138,7 @@ solid-optimizer: what stays as written in client
 
 Each line is a pass, a reason, how many times it happened, and the names it happened to. A package's own modules are compiled too, but what they leave alone is not reported, since the app cannot change it. The app's calls of a package's components are. In chunk mode, a chunk is reported as a whole, so it also lists the package code bundled into it.
 
-`skip.pass` is `'inline'`, `'contexts'` for the provider pass, or `'memos'`. The [Report](https://solid-optimizer.vercel.app/docs/#report) section of the docs lists every reason code and what it means.
+`skip.pass` is `'inline'`, `'contexts'` for the provider pass, or `'memos'`. The [Report reasons](https://solid-optimizer.vercel.app/docs/reference/reasons/) page of the docs lists every reason code and what it means.
 
 ### Limits
 

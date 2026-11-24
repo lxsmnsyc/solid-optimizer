@@ -10,6 +10,8 @@ export interface Route {
   readonly description: string;
   /** The file the build writes, when it is not `index.html` in the path's folder. */
   readonly file?: string;
+  /** A docs page's slug: its path under `/docs/`, '' for the first page. */
+  readonly slug?: string;
 }
 
 export const ROUTES: readonly Route[] = [
@@ -19,13 +21,6 @@ export const ROUTES: readonly Route[] = [
     title: 'solid-optimizer · compile-time optimizer for SolidJS',
     description:
       'solid-optimizer inlines components, removes context providers, and folds control flow in SolidJS 2.0 JSX at build time.',
-  },
-  {
-    id: 'docs',
-    path: '/docs/',
-    title: 'Docs · solid-optimizer',
-    description:
-      'How to set up and configure solid-optimizer, its Vite plugin, and what each pass does.',
   },
   {
     id: 'repl',
@@ -47,7 +42,11 @@ export const ROUTES: readonly Route[] = [
 /** The route of the page shown for a path that has no page. */
 export const NOT_FOUND: Route = ROUTES[ROUTES.length - 1];
 
-/** Finds the route of a path. `/docs` and `/docs/index.html` find `/docs/`. */
+/**
+ * Finds the route of a path. `/repl` and `/repl/index.html` find `/repl/`. A
+ * path under `/docs/` finds a docs route with its slug; whether that doc
+ * exists, and its title, come from `lib/docs.ts`, which reads the docs at build time.
+ */
 export function findRoute(pathname: string): Route | undefined {
   let path = pathname.replace(/index\.html$/, '');
   if (!path.endsWith('/')) {
@@ -57,6 +56,15 @@ export function findRoute(pathname: string): Route | undefined {
     if (route.path === path) {
       return route;
     }
+  }
+  if (path.startsWith('/docs/')) {
+    return {
+      id: 'docs',
+      path,
+      title: 'Docs · solid-optimizer',
+      description: '',
+      slug: path.slice('/docs/'.length, -1),
+    };
   }
   return undefined;
 }

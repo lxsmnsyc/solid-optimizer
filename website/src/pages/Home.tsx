@@ -223,7 +223,7 @@ const QUESTIONS: Question[] = [
     answer: (
       <>
         The Vite plugin compiles the server and client builds the same way, so both render the same
-        tree. See <a href="/docs/#hydration">Hydration</a>.
+        tree. See <a href="/docs/concepts/hydration/">Hydration</a>.
       </>
     ),
   },
@@ -232,7 +232,8 @@ const QUESTIONS: Question[] = [
     answer: (
       <>
         A component only inlines where its copies are no larger than its calls. See{' '}
-        <a href="/docs/#only-where-smaller">Only where it is smaller</a>.
+        <a href="/docs/concepts/component-inlining/#only-where-smaller">Only where it is smaller</a>
+        .
       </>
     ),
   },
@@ -241,7 +242,7 @@ const QUESTIONS: Question[] = [
     answer: (
       <>
         Turn on <code>optimizer.report</code>. It lists what stayed as written and why. See{' '}
-        <a href="/docs/#report">Report</a>.
+        <a href="/docs/guides/report/">Report</a>.
       </>
     ),
   },
@@ -299,7 +300,7 @@ export function Home(): JSX.Element {
             <div class="code-block">
               <Code code={VITE_USAGE} />
             </div>
-            <a class="usage-link" href="/docs/#setup">
+            <a class="usage-link" href="/docs/guides/vite-plugin/">
               Set up the Vite plugin
               <Icon name="arrow-right" class="icon-arrow" />
             </a>

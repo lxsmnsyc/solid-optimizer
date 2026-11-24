@@ -1134,322 +1134,6 @@ button {
   min-height: 0;
 }
 
-/* Docs */
-
-.docs {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 56px;
-  max-width: var(--page-width);
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.docs-toc {
-  position: sticky;
-  top: 64px;
-  align-self: start;
-  max-height: calc(100vh - 64px);
-  overflow-y: auto;
-}
-
-/* On wide screens the contents are always shown, so the toggle is hidden. */
-@media (min-width: 901px) {
-  .docs-toc > summary {
-    display: none;
-  }
-
-  .docs-toc::details-content {
-    content-visibility: visible;
-    block-size: auto;
-  }
-}
-
-.docs-nav {
-  display: grid;
-  gap: 24px;
-  padding: 40px 0;
-}
-
-.docs-nav-group {
-  display: grid;
-  gap: 2px;
-}
-
-.docs-nav-title {
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.docs-nav a {
-  padding: 5px 12px;
-  color: var(--muted);
-  font-size: 14px;
-  transition:
-    color var(--duration-fast),
-    background-color var(--duration-fast);
-}
-
-.docs-nav a:hover {
-  color: var(--text);
-}
-
-.docs-nav a.current {
-  border-left-color: var(--accent-strong);
-  color: var(--text);
-}
-
-.docs-content {
-  min-width: 0;
-  max-width: 780px;
-  padding: 40px 0 0;
-  font-size: 15.5px;
-}
-
-.docs-title {
-  margin: 0 0 8px;
-  font-size: clamp(36px, 5vw, 48px);
-  font-weight: 640;
-  letter-spacing: -0.035em;
-}
-
-.docs-part {
-  margin: 72px 0 0;
-  padding-top: 24px;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.doc-section {
-  padding-top: 32px;
-}
-
-.doc-section h2 {
-  margin: 0 0 12px;
-  font-size: 26px;
-  font-weight: 620;
-  letter-spacing: -0.02em;
-}
-
-.doc-section h2 a:hover {
-  color: var(--text);
-}
-
-.doc-section h3 {
-  margin: 32px 0 8px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.doc-section p,
-.doc-section li {
-  color: var(--muted);
-}
-
-.doc-section p {
-  margin: 12px 0;
-}
-
-.doc-section ul {
-  display: grid;
-  gap: 6px;
-  margin: 12px 0;
-  padding-left: 20px;
-}
-
-.doc-section li::marker {
-  color: var(--accent-strong);
-}
-
-.doc-section a:not(h2 a) {
-  color: var(--accent-strong);
-  text-decoration: underline;
-  text-decoration-color: var(--accent-strong);
-  text-underline-offset: 3px;
-}
-
-.doc-section a:not(h2 a):hover {
-  text-decoration-color: currentColor;
-}
-
-.docs-content :not(pre) > code {
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.88em;
-}
-
-.doc-code {
-  margin: 16px 0;
-  border-radius: var(--radius-row);
-  background: var(--bg-elevated);
-  overflow: hidden;
-}
-
-.doc-code + .doc-code {
-  margin-top: -6px;
-}
-
-.doc-code-title {
-  padding: 8px 14px;
-  background: var(--bg);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.doc-code .code {
-  padding: 14px 16px;
-  overflow-x: auto;
-}
-
-.doc-compare {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 16px 0;
-}
-
-.doc-compare .doc-code {
-  margin: 0;
-}
-
-.doc-compare .doc-code:last-child {
-}
-
-.doc-compare .doc-code:last-child .doc-code-title {
-  color: var(--accent-strong);
-}
-
-.doc-options {
-  display: grid;
-  margin: 16px 0;
-  border-radius: var(--radius-row);
-  overflow: hidden;
-}
-
-.doc-option {
-  padding: 14px 18px;
-  scroll-margin-top: 80px;
-}
-
-.doc-option + .doc-option {
-}
-
-.doc-option:target {
-  background: var(--accent-tint);
-}
-
-.doc-option-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
-}
-
-.docs-content .doc-option-name {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.docs-content .doc-option-type {
-  background: none;
-  color: var(--syn-type);
-  font-size: 13px;
-}
-
-.doc-option-default {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.doc-option p {
-  margin: 8px 0 0;
-  font-size: 14.5px;
-}
-
-.doc-table {
-  width: 100%;
-  margin: 12px 0;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.doc-table th,
-.doc-table td {
-  padding: 10px 12px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.doc-table thead th {
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.doc-table td {
-  color: var(--muted);
-}
-
-.doc-table td:first-child {
-  width: 38%;
-}
-
-.doc-table td:first-child code {
-  display: inline-block;
-  margin: 0 4px 4px 0;
-}
-
-.doc-note {
-  margin: 16px 0;
-  padding: 16px 18px;
-  border-radius: var(--radius-row);
-  background: var(--warning-tint);
-}
-
-.doc-note strong {
-  color: var(--syn-type);
-  font-weight: 600;
-}
-
-.doc-note p {
-  margin: 6px 0 0;
-}
-
-.doc-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 16px 0;
-}
-
-.doc-card {
-  padding: 18px 20px;
-  border-radius: var(--radius-row);
-  background: var(--bg-elevated);
-}
-
-.doc-card h3 {
-  margin: 0;
-}
-
-.doc-card p {
-  margin: 8px 0 0;
-  font-size: 14.5px;
-}
-
 @media (max-width: 900px) {
   .totals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1482,61 +1166,6 @@ button {
   .repl-page {
     height: auto;
   }
-
-  .docs {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-  }
-
-  .docs-toc {
-    z-index: 5;
-    margin: 0 -24px;
-    padding: 0 24px;
-    background: var(--bg);
-  }
-
-  .docs-toc > summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 0;
-    color: var(--text);
-    font-size: 14px;
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .docs-toc > summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .docs-toc > summary::after {
-    content: '';
-    width: 7px;
-    height: 7px;
-    transform: translateY(-2px) rotate(45deg);
-    transition: transform var(--duration-fast);
-  }
-
-  .docs-toc[open] > summary::after {
-    transform: translateY(2px) rotate(-135deg);
-  }
-
-  .docs-nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 8px 0 20px;
-  }
-
-  /* Links land below the folded contents as well as the header. */
-  .doc-section,
-  .doc-option {
-    scroll-margin-top: 48px;
-  }
-
-  .doc-compare,
-  .doc-cards {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .total-arrow,
@@ -1566,8 +1195,6 @@ button {
 }
 
 /* Banig underlines links in prose. These links are navigation, not prose. */
-.docs-nav a,
-.doc-section h2 a,
 .showcase-repl,
 .landing-hero .chip {
   text-decoration: none;
@@ -1967,11 +1594,102 @@ button {
   place-items: center;
 }
 
-/* Banig hides the nav links below 48rem and moves them into the mobile drawer.
-   The drawer comes with the docs split; until then the links stay in the nav. */
-@media (max-width: 48rem) {
-  .site-nav .pill:not(.icon-pill) {
-    display: inline-flex;
+/* Docs pages: Banig's DocsLayout (styles/banig.css) holds the layout. These
+   are the parts of a rendered doc that Banig leaves to the site. */
+
+.docs-main .doc-head h1 {
+  margin-top: 12px;
+}
+
+.docs-main .lead {
+  max-width: var(--prose-width);
+  margin: 0;
+  color: var(--muted);
+}
+
+.prose > :first-child {
+  margin-top: 32px;
+}
+
+.prose :is(.code-block, .compare, .callout, .table-scroll) {
+  margin: 24px 0;
+}
+
+.prose .code-block .twinkleplop {
+  margin: 0;
+  padding: 44px 28px 24px;
+  overflow-x: auto;
+  font-size: 12.8px;
+  line-height: 1.75;
+  tab-size: 2;
+}
+
+.prose .compare .code-block {
+  margin: 0;
+  background: transparent;
+}
+
+.prose .compare .code-block .twinkleplop {
+  padding-top: 12px;
+}
+
+.prose .compare .code-lang,
+.prose .compare .code-copy {
+  display: none;
+}
+
+.prose .callout > div > :first-child {
+  margin-top: 0;
+}
+
+.prose .callout-title {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.prose a {
+  color: var(--text);
+}
+
+.heading-anchor {
+  margin-left: 8px;
+  position: static;
+}
+
+.doc-foot {
+  display: grid;
+  gap: 24px;
+  margin-top: 64px;
+}
+
+.doc-foot .pager {
+  margin-top: 0;
+}
+
+.drawer-head .drawer-wordmark {
+  font-size: 22px;
+}
+
+.drawer-links {
+  margin: 0 0 20px;
+}
+
+/* The drawer and its scrim only exist below 48rem, where the menu button shows. */
+@media (min-width: 48.01rem) {
+  .drawer,
+  .scrim[data-for='drawer'] {
+    display: none;
+  }
+}
+
+/* The wordmark stays on one line; on the narrowest screens the version chip gives way. */
+.wordmark {
+  white-space: nowrap;
+}
+
+@media (max-width: 28rem) {
+  .wordmark-version {
+    display: none;
   }
 }
 

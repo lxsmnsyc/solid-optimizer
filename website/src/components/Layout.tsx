@@ -1,6 +1,7 @@
 import type { JSX } from '@solidjs/web';
-import { For, createSignal, onSettled } from 'solid-js';
+import { For, Show, createSignal, onSettled } from 'solid-js';
 import pkg from 'solid-optimizer/package.json';
+import { DocsNav } from './DocsNav';
 import { Icon } from './Icon';
 
 export const REPOSITORY = 'https://github.com/lxsmnsyc/solid-optimizer';
@@ -86,7 +87,109 @@ function ThemeButton(): JSX.Element {
   );
 }
 
-export function Header(props: { page: Page }): JSX.Element {
+/**
+ * Banig's MobileDrawer: below 48rem the nav links hide and this holds them,
+ * with the docs sections on docs pages. It stays mounted, so opening and
+ * closing reverse from wherever they are.
+ */
+function MenuDrawer(props: { page: Page; slug?: string }): JSX.Element {
+  const [open, setOpen] = createSignal(false);
+  let drawer: HTMLElement | undefined;
+  let opener: HTMLButtonElement | undefined;
+
+  function show(): void {
+    setOpen(true);
+    requestAnimationFrame(() => {
+      drawer?.querySelector<HTMLElement>('a, button')?.focus();
+    });
+  }
+
+  function hide(): void {
+    setOpen(false);
+    opener?.focus();
+  }
+
+  onSettled(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && open()) {
+        hide();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+    };
+  });
+
+  return (
+    <>
+      <button
+        type="button"
+        class="icon-button menu-button"
+        aria-label="Open menu"
+        title="Open menu"
+        aria-expanded={open() ? 'true' : 'false'}
+        aria-controls="menu-drawer"
+        onClick={show}
+        ref={(element) => {
+          opener = element;
+        }}
+      >
+        <Icon name="menu" />
+      </button>
+      <div
+        id="menu-drawer"
+        class="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        data-state={open() ? 'open' : 'closed'}
+        inert={!open()}
+        ref={(element) => {
+          drawer = element;
+        }}
+      >
+        <div class="drawer-head">
+          <span class="wordmark drawer-wordmark">solid-optimizer</span>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close menu"
+            title="Close menu"
+            onClick={hide}
+          >
+            <Icon name="x" />
+          </button>
+        </div>
+        <ul class="sidebar-list drawer-links">
+          <li>
+            <a href="/" aria-current={props.page === 'home' ? 'page' : undefined}>
+              Home
+            </a>
+          </li>
+          <For each={LINKS}>
+            {(link) => (
+              <li>
+                <a
+                  href={link.href}
+                  aria-current={link.page === props.page && !props.slug ? 'page' : undefined}
+                >
+                  {link.label}
+                </a>
+              </li>
+            )}
+          </For>
+        </ul>
+        <Show when={props.page === 'docs'}>
+          <DocsNav slug={props.slug} />
+        </Show>
+      </div>
+      <div class="scrim" data-for="drawer" data-state={open() ? 'open' : 'closed'} onClick={hide} />
+    </>
+  );
+}
+
+export function Header(props: { page: Page; slug?: string }): JSX.Element {
   return (
     <>
       <a class="skip" href="#main">
@@ -123,6 +226,7 @@ export function Header(props: { page: Page }): JSX.Element {
               <Icon name="github" />
             </a>
             <ThemeButton />
+            <MenuDrawer page={props.page} slug={props.slug} />
           </nav>
         </div>
       </header>
