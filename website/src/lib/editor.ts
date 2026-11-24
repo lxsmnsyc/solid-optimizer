@@ -9,17 +9,17 @@ import { basicSetup } from 'codemirror';
 // Colors come from the CSS variables twinkleplop uses too, so the editor and
 // the output panes match.
 const HIGHLIGHT = HighlightStyle.define([
-  { tag: [tags.keyword, tags.operatorKeyword, tags.modifier], color: 'var(--syntax-keyword)' },
-  { tag: [tags.string, tags.special(tags.string), tags.regexp], color: 'var(--syntax-string)' },
-  { tag: [tags.number, tags.bool, tags.null], color: 'var(--syntax-number)' },
-  { tag: tags.comment, color: 'var(--syntax-comment)', fontStyle: 'italic' },
+  { tag: [tags.keyword, tags.operatorKeyword, tags.modifier], color: 'var(--syn-keyword)' },
+  { tag: [tags.string, tags.special(tags.string), tags.regexp], color: 'var(--syn-string)' },
+  { tag: [tags.number, tags.bool, tags.null], color: 'var(--syn-number)' },
+  { tag: tags.comment, color: 'var(--syn-comment)', fontStyle: 'italic' },
   {
     tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
-    color: 'var(--syntax-function)',
+    color: 'var(--syn-function)',
   },
-  { tag: [tags.className, tags.typeName], color: 'var(--syntax-type)' },
-  { tag: [tags.propertyName, tags.attributeName], color: 'var(--syntax-property)' },
-  { tag: [tags.tagName, tags.angleBracket], color: 'var(--syntax-tag)' },
+  { tag: [tags.className, tags.typeName], color: 'var(--syn-type)' },
+  { tag: [tags.propertyName, tags.attributeName], color: 'var(--syn-attr)' },
+  { tag: [tags.tagName, tags.angleBracket], color: 'var(--syn-tag)' },
 ]);
 
 const THEME = EditorView.theme(
@@ -27,7 +27,7 @@ const THEME = EditorView.theme(
     '&': {
       height: '100%',
       backgroundColor: 'transparent',
-      color: 'var(--fg)',
+      color: 'var(--text)',
       fontSize: '13px',
     },
     '.cm-scroller': {
@@ -35,26 +35,28 @@ const THEME = EditorView.theme(
       fontVariantLigatures: 'none',
       lineHeight: '1.7',
     },
-    '.cm-content': { caretColor: 'var(--accent)', padding: '14px 0' },
+    '.cm-content': { caretColor: 'var(--accent-strong)', padding: '14px 0' },
     '.cm-gutters': {
       backgroundColor: 'transparent',
-      color: 'var(--fg-faint)',
+      color: 'var(--muted)',
       border: 'none',
     },
     '.cm-activeLine, .cm-activeLineGutter': {
-      backgroundColor: 'var(--active-line)',
+      backgroundColor: 'var(--surface-strong)',
     },
     '&.cm-focused': { outline: 'none' },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
-      backgroundColor: 'var(--selection) !important',
+      backgroundColor: 'var(--accent-tint) !important',
     },
-    '.cm-cursor': { borderLeftColor: 'var(--accent)' },
+    '.cm-cursor': { borderLeftColor: 'var(--accent-strong)' },
+    // Banig: no borders. A tooltip is a raised tile on the editor's well.
     '.cm-tooltip': {
-      backgroundColor: 'var(--surface-2)',
-      border: '1px solid var(--border)',
+      backgroundColor: 'var(--bg-elevated)',
+      border: 'none',
+      borderRadius: 'var(--radius-row)',
     },
   },
-  { dark: true },
+  // The colors are tokens that follow the site's theme, so the editor is not marked dark or light.
 );
 
 /** A fresh editor state for one file, with its own undo history. */
