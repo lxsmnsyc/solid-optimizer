@@ -50,6 +50,7 @@ const NAVIGATION: Group[] = [
       { id: 'inline', label: 'Component inlining' },
       { id: 'contexts', label: 'Context inlining' },
       { id: 'memos', label: 'Memo inlining' },
+      { id: 'conditionals', label: 'Show and Switch lowering' },
       { id: 'fold', label: 'Folding and control flow' },
     ],
   },
@@ -217,8 +218,8 @@ function GettingStarted(): JSX.Element {
         <Block code="pnpm add -D solid-optimizer" lang="bash" />
         <Block code="yarn add -D solid-optimizer" lang="bash" />
         <p>
-          <code>@solidjs/vite-plugin</code> and <code>vite</code> are peer dependencies of the Vite
-          plugin.
+          <code>@solidjs/vite-plugin</code> and <code>vite</code> are optional peer dependencies.
+          Only <code>solid-optimizer/vite</code> needs them.
         </p>
       </Section>
 
@@ -292,8 +293,9 @@ const VITE_OPTIONS: Option[] = [
     default: "'auto'",
     text: (
       <>
-        <code>'auto'</code> uses chunk mode for client builds that do not hydrate, and module mode
-        for everything else. <code>'module'</code> never keeps JSX through bundling.
+        <code>'auto'</code> uses chunk mode for client builds that do not hydrate and set neither{' '}
+        <code>babel</code> nor <code>compiler: 'babel'</code>, and module mode for everything else,
+        serving included. <code>'module'</code> never keeps JSX through bundling.
       </>
     ),
   },
@@ -363,6 +365,17 @@ const VITE_OPTIONS: Option[] = [
     text: <>Memo inlining.</>,
   },
   {
+    name: 'optimizer.conditionals',
+    type: 'boolean',
+    default: 'true',
+    text: (
+      <>
+        <code>&lt;Show&gt;</code> and <code>&lt;Switch&gt;</code> lowering. Works like the{' '}
+        <a href="#option-conditionals">compile option</a>.
+      </>
+    ),
+  },
+  {
     name: 'optimizer.fold',
     type: 'boolean',
     default: 'true',
@@ -396,11 +409,23 @@ const INLINE_REASONS: Reason[] = [
       'component-params',
       'component-body',
       'component-return',
+      'component-directive',
       'component-async',
       'component-recursive',
       'component-this',
     ],
-    text: <>The component’s own shape is not supported.</>,
+    text: (
+      <>
+        The component’s own shape is not supported: more than one parameter, a body that does not
+        end in its only <code>return</code> of JSX, a directive like <code>'use strict'</code>, an
+        async or generator function, a call of itself, or a use of <code>this</code> or{' '}
+        <code>arguments</code>.
+      </>
+    ),
+  },
+  {
+    codes: ['component-mutated'],
+    text: <>Something assigns to the component’s name after its declaration.</>,
   },
   {
     codes: ['component-write'],
@@ -413,8 +438,25 @@ const INLINE_REASONS: Reason[] = [
     ),
   },
   {
-    codes: ['call-spread', 'call-namespace'],
-    text: <>The call site passes a spread or a namespaced attribute.</>,
+    codes: ['call-spread', 'call-namespace', 'call-duplicate'],
+    text: <>The call site passes a spread, a namespaced attribute, or the same attribute twice.</>,
+  },
+  {
+    codes: ['call-children'],
+    text: (
+      <>
+        The call site passes both a <code>children</code> attribute and children between its tags.
+      </>
+    ),
+  },
+  {
+    codes: ['call-this'],
+    text: (
+      <>
+        An attribute or a child at the call site uses <code>this</code> or <code>arguments</code>,
+        which would mean something else inside the copy.
+      </>
+    ),
   },
   {
     codes: ['call-ref', 'ref-use'],
@@ -422,6 +464,19 @@ const INLINE_REASONS: Reason[] = [
       <>
         The call’s <code>ref</code> is an expression other than a name, a function, or an array of
         them, or the component uses <code>props.ref</code> other than as a <code>ref</code>.
+      </>
+    ),
+  },
+  {
+    codes: ['prop-value'],
+    text: <>A prop’s value cannot take the place of the component’s reads of it.</>,
+  },
+  {
+    codes: ['shadowed'],
+    text: (
+      <>
+        A name the component reads from its module is declared again around the call, so the copy
+        would read the wrong binding.
       </>
     ),
   },
@@ -436,6 +491,15 @@ const INLINE_REASONS: Reason[] = [
     ),
   },
   {
+    codes: ['context-value'],
+    text: (
+      <>
+        The component reads a context that a removed provider answers, and the read cannot take the
+        provider’s value at the call.
+      </>
+    ),
+  },
+  {
     codes: ['size'],
     text: (
       <>
@@ -445,34 +509,149 @@ const INLINE_REASONS: Reason[] = [
     ),
   },
   {
-    codes: ['lazy', 'imported', 'nested', 'not-a-function'],
-    text: <>The tag is not a component declared at the top of the same module or chunk.</>,
-  },
-  {
-    codes: ['copy-package', 'copy-cycle', 'copy-virtual', 'copy-wrapper', 'copy-size'],
+    codes: ['lazy', 'not-a-function', 'imported', 'nested', 'global', 'member-tag'],
     text: (
       <>
-        Copying a component from another module. It comes from a package that{' '}
-        <code>optimizer.packages</code> does not list, its module imports the importer back, the
-        copy would import a virtual module its specifier does not reach from the importer, the
-        component only returns a call of another component in its module, or the copy was larger.
+        The tag is not a component declared at the top of the same module or chunk: a{' '}
+        <code>lazy()</code> component, a binding that is not a function, an import, a component
+        declared inside a function, a global, or a tag like <code>&lt;Menu.Item&gt;</code> that is
+        not a known compound component.
       </>
     ),
   },
 ];
 
-const OTHER_REASONS: Reason[] = [
+const COPY_REASONS: Reason[] = [
   {
-    codes: ['open-component', 'open-call', 'open-new', 'open-spread', 'open-outer'],
-    text: <>Provider pass: code under the provider that it cannot see into.</>,
+    codes: ['copy-external', 'copy-package'],
+    text: (
+      <>
+        The component’s module is external to the bundle, or is in a package that{' '}
+        <code>optimizer.packages</code> does not list.
+      </>
+    ),
   },
   {
-    codes: ['provider-value', 'provider-undefined', 'provider-shape'],
-    text: <>Provider pass: a value or a provider it cannot handle.</>,
+    codes: ['copy-not-jsx'],
+    text: <>The component’s module is not one the official plugin lowers.</>,
   },
   {
-    codes: ['memo-reads', 'memo-read-place', 'memo-constant'],
-    text: <>Memo pass: a memo it keeps, because of how often or where it is read.</>,
+    codes: ['copy-cycle'],
+    text: <>The component’s module imports the importer back, directly or through other modules.</>,
+  },
+  {
+    codes: ['copy-shape'],
+    text: <>The export is not a component the inline pass can read.</>,
+  },
+  {
+    codes: ['copy-wrapper'],
+    text: <>The component only returns a call of another component in its module.</>,
+  },
+  {
+    codes: ['copy-virtual'],
+    text: (
+      <>
+        The copy would import a virtual module that its specifier does not reach from the importer.
+      </>
+    ),
+  },
+  {
+    codes: ['copy-size', 'copy-no-host', 'copy-left'],
+    text: (
+      <>
+        The copy was made but did not inline. <code>copy-</code> comes before the inline reason,
+        such as <code>copy-size</code>. <code>copy-left</code> means no reason was recorded.
+      </>
+    ),
+  },
+  {
+    codes: ['missing-helper'],
+    text: (
+      <>
+        Chunk mode: the chunk needs a runtime helper that no module in it imports, so the chunk is
+        lowered as written. The build also prints a warning.
+      </>
+    ),
+  },
+];
+
+const PROVIDER_REASONS: Reason[] = [
+  {
+    codes: ['open-component', 'open-call', 'open-new', 'open-spread', 'open-outer', 'open-other'],
+    text: (
+      <>
+        Code under the provider that the pass cannot see into: a component that does not inline, a
+        call of an unknown function, <code>new</code>, a spread, another component’s props, or
+        anything else that could read the context.
+      </>
+    ),
+  },
+  {
+    codes: ['provider-nested'],
+    text: <>A provider of the same context sits under this one.</>,
+  },
+  {
+    codes: ['provider-value'],
+    text: <>A read cannot take the provider’s value as written where it reads it.</>,
+  },
+  {
+    codes: ['provider-undefined', 'provider-shape'],
+    text: (
+      <>
+        The provider’s <code>value</code> could be <code>undefined</code>, or the tag has attributes
+        other than <code>value</code>.
+      </>
+    ),
+  },
+];
+
+const MEMO_REASONS: Reason[] = [
+  {
+    codes: ['memo-computation', 'memo-options'],
+    text: (
+      <>
+        The memo’s computation is not a function that returns one expression, or it has options
+        other than <code>{'{ equals: false }'}</code>.
+      </>
+    ),
+  },
+  {
+    codes: ['memo-async'],
+    text: (
+      <>
+        A memo with <code>equals: false</code> may return a promise or an async iterable.
+      </>
+    ),
+  },
+  {
+    codes: ['memo-reads', 'memo-read', 'memo-read-place'],
+    text: (
+      <>
+        The memo is read more than once, read other than as a call with no arguments, or read
+        somewhere other than the whole of a tracked JSX expression.
+      </>
+    ),
+  },
+  {
+    codes: ['memo-declaration'],
+    text: <>The declaration holds more than one binding, or is not inside a function.</>,
+  },
+  {
+    codes: ['memo-scope'],
+    text: (
+      <>
+        A name the computation reads means something else at the read, or the computation uses{' '}
+        <code>this</code>.
+      </>
+    ),
+  },
+  {
+    codes: ['children-dynamic'],
+    text: (
+      <>
+        A <code>children()</code> helper whose computation returns something other than JSX.
+      </>
+    ),
   },
 ];
 
@@ -574,7 +753,10 @@ export function App() {
       <Section id="vite-options" title="Options">
         <p>
           The plugin takes every option of <code>@solidjs/vite-plugin</code>, plus{' '}
-          <code>optimizer</code>.
+          <code>optimizer</code>. The optimizer reads some of them too:{' '}
+          <code>solid.moduleName</code> for where Solid’s built-ins come from,{' '}
+          <code>solid.builtIns</code> for their names, and <code>extensions</code> for which modules
+          it optimizes.
         </p>
         <Options options={VITE_OPTIONS} />
       </Section>
@@ -596,12 +778,23 @@ export function App() {
           the app cannot change it. The app’s calls of a package’s components are. In chunk mode, a
           chunk is reported as a whole, so it also lists the package code bundled into it.
         </p>
+        <p>
+          <code>skip.pass</code> is <code>'inline'</code>, <code>'contexts'</code> for the provider
+          pass, or <code>'memos'</code>.
+        </p>
         <h3>Inline pass</h3>
         <Reasons reasons={INLINE_REASONS} />
-        <h3>Provider and memo passes</h3>
-        <Reasons reasons={OTHER_REASONS} />
+        <h3>Copies from other modules</h3>
         <p>
-          The memo pass reports a few more reasons. See{' '}
+          The Vite plugin reports these with the pass <code>'inline'</code>.
+        </p>
+        <Reasons reasons={COPY_REASONS} />
+        <h3>Provider pass</h3>
+        <Reasons reasons={PROVIDER_REASONS} />
+        <h3>Memo pass</h3>
+        <Reasons reasons={MEMO_REASONS} />
+        <p>
+          See{' '}
           <a href={STRATEGY} target="_blank" rel="noopener noreferrer">
             strategy.md
           </a>{' '}
@@ -629,7 +822,11 @@ export function App() {
             packages <code>optimizer.packages</code> lists.
           </li>
           <li>
-            <code>.tsrx</code> modules are lowered by the official plugin and are not optimized.
+            The plugin optimizes the modules the official plugin lowers: <code>.jsx</code> and{' '}
+            <code>.tsx</code> (with their <code>.m</code> and <code>.c</code> forms), plus the{' '}
+            <code>extensions</code> it registers, such as <code>.mdx</code>, filtered by{' '}
+            <code>include</code> and <code>exclude</code>. <code>.tsrx</code> modules are the
+            exception: the official plugin lowers them on its own path, and they are not optimized.
           </li>
         </ul>
       </Section>
@@ -677,8 +874,8 @@ const COMPILE_OPTIONS: Option[] = [
     default: "'input.jsx'",
     text: (
       <>
-        Picks the parser and names the source in the source map. <code>.ts</code> and{' '}
-        <code>.tsx</code> parse as TypeScript. Anything else parses as JSX.
+        Picks the parser and names the source in the source map. <code>.ts</code>, <code>.tsx</code>
+        , <code>.mts</code>, and <code>.cts</code> parse as TypeScript. Anything else parses as JSX.
       </>
     ),
   },
@@ -738,6 +935,17 @@ const COMPILE_OPTIONS: Option[] = [
     ),
   },
   {
+    name: 'conditionals',
+    type: 'boolean',
+    default: 'true',
+    text: (
+      <>
+        Replaces a <code>&lt;Show&gt;</code> or <code>&lt;Switch&gt;</code> with a ternary. See{' '}
+        <a href="#conditionals">Show and Switch lowering</a>.
+      </>
+    ),
+  },
+  {
     name: 'fold',
     type: 'boolean',
     default: 'true',
@@ -766,6 +974,28 @@ const COMPILE_OPTIONS: Option[] = [
     text: <>The modules Solid’s built-ins are imported from.</>,
   },
   {
+    name: 'builtInAliases',
+    type: 'Record<string, string>',
+    text: (
+      <>
+        Top-level names that refer to Solid’s built-ins, mapped to the built-in’s name, like{' '}
+        <code>{"{ Show$1: 'Show' }"}</code>. A bundler can rename a built-in in a chunk, or declare
+        it instead of importing it.
+      </>
+    ),
+  },
+  {
+    name: 'constantVars',
+    type: 'boolean',
+    default: 'false',
+    text: (
+      <>
+        Treats a top-level <code>var</code> that nothing writes to as a constant. Bundlers turn
+        top-level <code>const</code> into <code>var</code>, so turn this on for bundled chunks.
+      </>
+    ),
+  },
+  {
     name: 'importedConstants',
     type: 'Record<string, Record<string, Primitive>>',
     text: (
@@ -785,6 +1015,17 @@ const COMPILE_OPTIONS: Option[] = [
         <code>{"{ __DEV__: false, 'import.meta.env.MODE': 'production' }"}</code>. A path starts at{' '}
         <code>import.meta</code> or at a name the module does not declare, and folds like a
         constant.
+      </>
+    ),
+  },
+  {
+    name: 'importedContexts',
+    type: 'Record<string, string[]>',
+    text: (
+      <>
+        The exports of imported modules that are contexts made by <code>createContext</code>, keyed
+        by the import specifier as the code writes it. A provider of an imported context can then be
+        removed like a local one.
       </>
     ),
   },
@@ -823,7 +1064,8 @@ const COMPILE_OPTIONS: Option[] = [
     text: (
       <>
         Records what the inline, provider, and memo passes leave alone, and why. The result lists
-        them in <code>skipped</code>, each with its pass, a reason code, and a name. See{' '}
+        them in <code>skipped</code>, each with its pass (<code>'inline'</code>,{' '}
+        <code>'contexts'</code>, or <code>'memos'</code>), a reason code, and a name. See{' '}
         <a href="#report">Report</a>.
       </>
     ),
@@ -1094,6 +1336,44 @@ return <p>{size() * 2}</p>;`}
           <code>children(() =&gt; props.children)</code> leaves once it is inlined with JSX
           children.
         </p>
+      </Section>
+
+      <Section id="conditionals" title="Show and Switch lowering">
+        <p>
+          A <code>&lt;Show&gt;</code> without <code>keyed</code> becomes a ternary. Solid’s JSX
+          transform compiles the ternary to one memo, where <code>&lt;Show&gt;</code> costs a
+          component call, a props object, and three memos.
+        </p>
+        <Compare
+          before={`<Show when={props.user} fallback={<a href="/login">Sign in</a>}>
+  {(user) => <b>{user().name}</b>}
+</Show>`}
+          after={`<>
+  {props.user
+    ? <b>{props.user.name}</b>
+    : <a href="/login">Sign in</a>}
+</>`}
+        />
+        <ul>
+          <li>
+            A callback child becomes its body, with each read of its parameter written as{' '}
+            <code>when</code> again. This only happens when <code>when</code> reads names, members,
+            and signal or memo getters, so reading it again gives the same value.
+          </li>
+          <li>
+            A <code>&lt;Switch&gt;</code> whose children are all <code>&lt;Match&gt;</code>es that
+            lower becomes a chain of ternaries. Each later condition gets its own memo, read only
+            when the ones before it are falsy, as <code>&lt;Switch&gt;</code> reads them.
+          </li>
+          <li>
+            A spread attribute, <code>keyed</code>, or a callback child whose body could render
+            differently keeps the component.
+          </li>
+          <li>
+            <code>&lt;Show&gt;</code>’s accessor throws when it is read after the condition turns
+            falsy. The lowered code reads the falsy value instead.
+          </li>
+        </ul>
       </Section>
 
       <Section id="fold" title="Folding and control flow">
