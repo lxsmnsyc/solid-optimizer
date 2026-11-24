@@ -19,7 +19,7 @@ export function App() {
     expect(inlined(code)).toBe(`
 
 export function App() {
-  return <main><h1 class="title">{"Hello"}</h1><p>body</p></main>;
+  return <main><h1 class="title">Hello</h1><p>body</p></main>;
 }
 `);
     expect(templateCount(code)).toBe(2);
@@ -113,7 +113,7 @@ export function App() {
 }
 `;
     const output = inlined(code);
-    expect(output).toContain('<span>Hi {}\n    there\n  {}!</span>');
+    expect(output).toContain('<span>Hi \n    there\n  {}!</span>');
     expect(lower(output)).toContain('_$template(`<span>Hi there!`)');
     expect(lower(code)).toContain('Hi <!$><!/>!');
   });
@@ -273,7 +273,7 @@ render(() => <Row name="root" />, document.body);
       '{(item) => { const [on$1, setOn$1] = createSignal(false); return <li onClick={() => setOn$1(!on$1())}>{item.name}</li>; }}',
     );
     expect(output).toContain(
-      'render(() => { const [on$5, setOn$5] = createSignal(false); return <li onClick={() => setOn$5(!on$5())}>{"root"}</li>; }, document.body);',
+      'render(() => { const [on$5, setOn$5] = createSignal(false); return <li onClick={() => setOn$5(!on$5())}>root</li>; }, document.body);',
     );
   });
 
@@ -477,7 +477,7 @@ const Button = (props) => <button><Icon name={props.icon} />{props.children}</bu
 export const App = () => <nav><Button icon="home">Home</Button></nav>;
 `;
     const output = inlined(code);
-    expect(output).toContain('<nav><button><i class={"home"} />Home</button></nav>');
+    expect(output).toContain('<nav><button><i class="home" />Home</button></nav>');
     expect(output).not.toContain('Icon');
     expect(output).not.toContain('Button');
     expect(templateCount(output)).toBe(1);
@@ -500,7 +500,7 @@ export function Home() {
     const output = inlined(code);
     expect(output).toContain('const [count$1, setCount$1] = createSignal(0);');
     expect(output).toContain(
-      'return <section><p>{count$1()} <button><i class={"plus"} />Add</button></p></section>;',
+      'return <section><p>{count$1()} <button><i class="plus" />Add</button></p></section>;',
     );
     expect(templateCount(output)).toBe(1);
   });
@@ -519,7 +519,7 @@ export function App() {
 `;
     const output = optimize(code, { fold: false, filename: 'app.tsx' });
     expect(output).not.toContain('function Box');
-    expect(output).toContain('<main><div>{"a"}</div></main>');
+    expect(output).toContain('<main><div>a</div></main>');
   });
 
   it('waits for a component whose body still has calls to inline', () => {
@@ -548,7 +548,7 @@ export function App() {
     expect(output).toContain('fallback={<Home />}');
     expect(output).toContain("const [count$1] = createSignal(0, { name: 'count' });");
     expect(output).toContain(
-      '<section><p>{count$1()}<button><i class={"plus"} />Add</button></p></section>',
+      '<section><p>{count$1()}<button><i class="plus" />Add</button></p></section>',
     );
   });
 
@@ -564,7 +564,7 @@ export const App = () => <div><Title text="a" /><Other text="b" /></div>;
     const output = inlined(code);
     expect(output).toContain('export function Title(props)');
     expect(output).toContain('const Other = (props)');
-    expect(output).toContain('<div><h1>{"a"}</h1><h2>{"b"}</h2></div>');
+    expect(output).toContain('<div><h1>a</h1><h2>b</h2></div>');
   });
 
   it('bails on shapes it cannot keep equivalent', () => {
@@ -645,7 +645,7 @@ export const App = (props) => <Show when={props.on} fallback={<Card />}><Plain /
     const output = optimize(code, { alwaysInline: true });
     expect(output).not.toContain('<Card');
     expect(output).not.toContain('<Plain');
-    expect(output).toContain('<div class={"sm"}>card</div>');
-    expect(output).toContain('<div class={"sm"}>plain</div>');
+    expect(output).toContain('<div class="sm">card</div>');
+    expect(output).toContain('<div class="sm">plain</div>');
   });
 });

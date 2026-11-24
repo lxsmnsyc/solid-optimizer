@@ -15,6 +15,7 @@ import { lowerConditionals } from './conditional';
 import type { ScopeAnalysis } from './scope';
 import { analyzeScopes } from './scope';
 import { terminateStatements } from './terminate';
+import { tidyJSX } from './tidy';
 import { Editor } from './text';
 import type { Primitive } from './value';
 
@@ -136,6 +137,15 @@ export interface CompileOptions {
    * @default 10
    */
   maxPasses?: number;
+  /**
+   * Tidy the JSX the passes write: drop empty braces, write strings in
+   * braces as plain JSX, and unwrap fragments that hold one element. It only
+   * changes how the output reads: Solid's JSX transform lowers it to the same
+   * code. It runs only on a module the passes changed.
+   *
+   * @default true
+   */
+  tidy?: boolean;
   /**
    * Generate a source map.
    *
@@ -362,6 +372,19 @@ export function compile(code: string, options: CompileOptions = {}): CompileResu
       current = result.code;
       if (result.map !== undefined) {
         maps.push(result.map);
+      }
+    }
+    // The passes leave empty braces, strings in braces and one-element
+    // fragments behind. Tidying them changes nothing Solid's JSX transform
+    // makes, but the output reads like code a person wrote.
+    const tidied =
+      (options.tidy ?? true)
+        ? runPass(parsedCurrent(), filename, resolved, sourceMap, tidyJSX, undefined)
+        : undefined;
+    if (tidied) {
+      current = tidied.code;
+      if (tidied.map !== undefined) {
+        maps.push(tidied.map);
       }
     }
   }

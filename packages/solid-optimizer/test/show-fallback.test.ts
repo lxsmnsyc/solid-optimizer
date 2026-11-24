@@ -16,7 +16,7 @@ describe('a fallback that a fold already resolved', () => {
       lastLine(
         'import { Show } from \'solid-js\';\nexport const v = <span><Show when={false} fallback={<Show when={false} fallback="a" />} /></span>;',
       ),
-    ).toBe('export const v = <span>{"a"}</span>;');
+    ).toBe('export const v = <span>a</span>;');
   });
 
   it('splices an expression fallback as an expression', () => {

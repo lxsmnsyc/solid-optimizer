@@ -181,7 +181,7 @@ describe('memo inlining', () => {
     );
     expect(output).not.toContain('createMemo(() =>');
     expect(output).toContain(
-      "return <p title={'big'} onClick={() => log(3)}>{(3) * 2}{(3).toFixed(1)}{(-1) ** 2}</p>;",
+      'return <p title="big" onClick={() => log(3)}>{(3) * 2}{(3).toFixed(1)}{(-1) ** 2}</p>;',
     );
   });
 
@@ -254,9 +254,7 @@ describe('signals that are never written', () => {
       ),
     );
     expect(output).not.toContain('createSignal(');
-    expect(output).toContain(
-      "return <p title={'big'} onClick={() => log(3)}>{(3) * 2}{-1}{`px`}</p>;",
-    );
+    expect(output).toContain('return <p title="big" onClick={() => log(3)}>{(3) * 2}{-1}px</p>;');
   });
 
   it('replaces reads of a signal at module scope', () => {
@@ -266,7 +264,7 @@ export const View = () => <main class={theme()} />;
 `);
     expect(output).toBe(`${imports}
 
-export const View = () => <main class={'dark'} />;
+export const View = () => <main class="dark" />;
 `);
   });
 
@@ -338,7 +336,7 @@ describe('derived arrows', () => {
 export const View = () => <p title={label()}>{label()}{label()}</p>;
 `);
     expect(output).toBe(`
-export const View = () => <p title={'x'}>{'x'}{'x'}</p>;
+export const View = () => <p title="x">xx</p>;
 `);
   });
 

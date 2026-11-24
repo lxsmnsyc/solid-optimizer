@@ -18,7 +18,7 @@ describe('the JSX it writes', () => {
         'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.a} fallback={<b />}><i /></Show></div>;',
       ),
     ).toBe(
-      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.a) ? <><i /></> : (<b />)}</div>;',
+      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.a) ? <i /> : (<b />)}</div>;',
     );
   });
 
@@ -28,7 +28,7 @@ describe('the JSX it writes', () => {
         'import { Show } from "solid-js";\nfunction View(p) { return <Show when={p.a}><i /></Show>; }',
       ),
     ).toBe(
-      'import { Show } from "solid-js";\nfunction View(p) { return <>{(p.a) ? <><i /></> : undefined}</>; }',
+      'import { Show } from "solid-js";\nfunction View(p) { return <>{(p.a) ? <i /> : undefined}</>; }',
     );
   });
 
@@ -38,7 +38,7 @@ describe('the JSX it writes', () => {
         'import { Show } from "solid-js";\nconst view = (p) => <Card>\n  <Show when={p.a}><i /></Show>\n</Card>;',
       ),
     ).toBe(
-      'import { Show } from "solid-js";\nconst view = (p) => <Card>\n  <>{(p.a) ? <><i /></> : undefined}</>\n</Card>;',
+      'import { Show } from "solid-js";\nconst view = (p) => <Card>\n  <>{(p.a) ? <i /> : undefined}</>\n</Card>;',
     );
   });
 
@@ -47,7 +47,7 @@ describe('the JSX it writes', () => {
       'import { Show } from "solid-js";\nconst view = (p) => <div><Show when={p.a}><i /><Show when={p.b}><b /></Show></Show></div>;',
     );
     expect(code).toBe(
-      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.a) ? <><i />{(p.b) ? <><b /></> : undefined}</> : undefined}</div>;',
+      'import { Show } from "solid-js";\nconst view = (p) => <div>{(p.a) ? <><i />{(p.b) ? <b /> : undefined}</> : undefined}</div>;',
     );
     expect(lower(code)).not.toContain('createComponent');
   });
@@ -157,7 +157,7 @@ describe('the JSX it writes', () => {
         'import { Show } from "solid-js";\nconst view = (p) => <svg:g><Show when={p.a}><i /></Show></svg:g>;',
       ),
     ).toBe(
-      'import { Show } from "solid-js";\nconst view = (p) => <svg:g>{(p.a) ? <><i /></> : undefined}</svg:g>;',
+      'import { Show } from "solid-js";\nconst view = (p) => <svg:g>{(p.a) ? <i /> : undefined}</svg:g>;',
     );
   });
 
@@ -186,7 +186,7 @@ describe('the JSX it writes', () => {
       'import { Show } from "solid-js";\nconst view = (p: { a?: string }) => <div><Show when={p.a!}><i /></Show></div>;',
       { filename: 'view.tsx', inline: false },
     );
-    expect(result.code).toContain('<div>{(p.a!) ? <><i /></> : undefined}</div>');
+    expect(result.code).toContain('<div>{(p.a!) ? <i /> : undefined}</div>');
     expect(result.map?.sources).toEqual(['view.tsx']);
   });
 
@@ -211,9 +211,7 @@ describe('<Switch>', () => {
       lowered(
         `${SWITCH}const view = (p) => <div><Switch fallback={<u />}><Match when={p.a}><i /></Match><Match when={p.b}>b</Match></Switch></div>;`,
       ),
-    ).toBe(
-      `${SWITCH}const view = (p) => <div>{(p.a) ? <><i /></> : (p.b) ? <>b</> : (<u />)}</div>;`,
-    );
+    ).toBe(`${SWITCH}const view = (p) => <div>{(p.a) ? <i /> : (p.b) ? <>b</> : (<u />)}</div>;`);
   });
 
   it('wraps the chain in a fragment outside an element', () => {
@@ -221,7 +219,7 @@ describe('<Switch>', () => {
       lowered(
         `${SWITCH}function View(p) { return <Switch><Match when={p.a}><i /></Match></Switch>; }`,
       ),
-    ).toBe(`${SWITCH}function View(p) { return <>{(p.a) ? <><i /></> : undefined}</>; }`);
+    ).toBe(`${SWITCH}function View(p) { return <>{(p.a) ? <i /> : undefined}</>; }`);
   });
 
   it('compiles to memos and no component, on the client and the server', () => {

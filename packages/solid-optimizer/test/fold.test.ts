@@ -196,22 +196,18 @@ ${declarations.replace('= lazy(', '= /* @__PURE__ */ lazy(')}export const view =
 export const nav = <nav><For each={LINKS}>{(link) => <a href={link.href}>{link.label}</a>}</For></nav>;`),
     )
       .toBe(`${imports}const LINKS = [{ href: '/', label: 'Home' }, { href: '/docs', label: 'Docs' }];
-export const nav = <nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a></nav>;`);
+export const nav = <nav><a href="/">Home</a><a href="/docs">Docs</a></nav>;`);
     expect(
       folded(
         `${imports}export const list = <ul><For each={['a', 'b']}>{(x, i) => <li data-i={i()}>{x}</li>}</For></ul>;`,
       ),
-    ).toBe(
-      `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
-    );
+    ).toBe(`${imports}export const list = <ul><li data-i={0}>a</li><li data-i={1}>b</li></ul>;`);
     // With `keyed={false}`, the item is an accessor and the index a number.
     expect(
       folded(
         `${imports}export const list = <ul><For each={['a', 'b']} keyed={false}>{(x, i) => <li data-i={i}>{x()}</li>}</For></ul>;`,
       ),
-    ).toBe(
-      `${imports}export const list = <ul><li data-i={0}>{'a'}</li><li data-i={1}>{'b'}</li></ul>;`,
-    );
+    ).toBe(`${imports}export const list = <ul><li data-i={0}>a</li><li data-i={1}>b</li></ul>;`);
     expect(
       countTemplates(
         `${imports}export const list = <ul><For each={[1, 2, 3]}>{(x) => <li>{x}</li>}</For></ul>;`,
@@ -227,14 +223,14 @@ export const nav = <nav><a href={'/'}>{'Home'}</a><a href={'/docs'}>{'Docs'}</a>
 export const nav = <nav><For each={LINKS}>{(link) => <a>{link.label}</a>}</For></nav>;`,
         { filename: 'nav.tsx', inline: false },
       );
-      expect(code).toContain("<nav><a>{'Home'}</a><a>{'Docs'}</a></nav>");
+      expect(code).toContain('<nav><a>Home</a><a>Docs</a></nav>');
     }
     expect(
       optimize(
         `${imports}export const list = <ul><For each={['a', 'b'] as const}>{(x) => <li>{x}</li>}</For></ul>;`,
         { filename: 'list.tsx', inline: false },
       ),
-    ).toContain("<ul><li>{'a'}</li><li>{'b'}</li></ul>");
+    ).toContain('<ul><li>a</li><li>b</li></ul>');
   });
 
   it('keeps <For> over a list it cannot unroll the same', () => {
@@ -292,7 +288,7 @@ export const nav = <nav><For each={LINKS}>{(link) => <a>{link.label}</a>}</For><
 
   it('splices a fragment that is a JSX child', () => {
     const code = folded('const view = <div>a<><b />c</>d</div>;');
-    expect(code).toBe('const view = <div>a<b />c{}d</div>;');
+    expect(code).toBe('const view = <div>a<b />cd</div>;');
     expect(lower(code)).toContain('_$template(`<div>a<b></b>cd`)');
   });
 
@@ -433,7 +429,7 @@ export const a = untrack(() => 'span');`;
 describe('constants', () => {
   it('folds constant expressions into attributes', () => {
     expect(folded('const view = <div id={"a" + "b"} tabindex={1 + 2} />;')).toBe(
-      'const view = <div id={"ab"} tabindex={3} />;',
+      'const view = <div id="ab" tabindex={3} />;',
     );
     const code = lowered('const view = <div id={"a" + "b"} tabindex={1 + 2} />;');
     expect(code).toContain('id=ab');
@@ -552,7 +548,7 @@ describe('constants', () => {
       'let a = "one";\nnamespace N { var a = "two"; }\nexport function C() { return <div title={a} />; }',
       'let a = "one";\ndeclare namespace N { let a: string; }\nexport function C() { return <div title={a} />; }',
     ]) {
-      expect(foldedTS(code)).toContain('title={"one"}');
+      expect(foldedTS(code)).toContain('title="one"');
     }
 
     // An enum initializer reads the earlier member, not the outer binding.
@@ -561,7 +557,7 @@ describe('constants', () => {
         'const X = "outer";\nenum E { X = 1, Y = X }\nexport const view = <div title={X} />;',
       ),
     ).toBe(
-      'const X = "outer";\nenum E { X = 1, Y = X }\nexport const view = <div title={"outer"} />;',
+      'const X = "outer";\nenum E { X = 1, Y = X }\nexport const view = <div title="outer" />;',
     );
   });
 
@@ -653,7 +649,7 @@ describe('dead code', () => {
   it('removes a declaration whose reads all folded', () => {
     expect(
       folded("function Card() {\n  const size = 'sm';\n  return <div class={size} />;\n}"),
-    ).toBe('function Card() {\n  \n  return <div class={"sm"} />;\n}');
+    ).toBe('function Card() {\n  \n  return <div class="sm" />;\n}');
     expect(
       folded(
         "const BIG = false;\nfunction Card() {\n  let size = 'sm';\n  if (BIG) size = 'lg';\n  return <div class={size} />;\n}",

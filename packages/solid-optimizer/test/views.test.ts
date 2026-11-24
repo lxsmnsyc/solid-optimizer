@@ -18,7 +18,7 @@ describe('merge() and omit()', () => {
 }
 export const App = () => <main><Button size="lg">Save</Button><Button type="submit">Go</Button></main>;`);
     expect(code).toContain(
-      '<main><button type={"button"} class={"lg"}>Save</button><button type={"submit"} class={"md"}>Go</button></main>',
+      '<main><button type="button" class="lg">Save</button><button type="submit" class="md">Go</button></main>',
     );
     expect(code).not.toContain('merge(');
   });
@@ -52,7 +52,7 @@ export function App() {
   return <Input label="Name" value={value()} onInput={(e) => setValue(e.target.value)} />;
 }`);
     expect(code).toContain(
-      '<label>{"Name"}<input value={value()} onInput={(e) => setValue(e.target.value)} /></label>',
+      '<label>Name<input value={value()} onInput={(e) => setValue(e.target.value)} /></label>',
     );
   });
 
@@ -65,7 +65,7 @@ export function App() {
   return <main><Box id="a" class={tone()} onClick={() => setTone('light')}><p>hi</p></Box></main>;
 }`);
     expect(code).toMatch(
-      /<main><div id=\{"a"\} class=\{tone\(\)\} onClick=\{\(\) => setTone\('light'\)\}\s*><p>hi<\/p><\/div><\/main>/,
+      /<main><div id="a" class=\{tone\(\)\} onClick=\{\(\) => setTone\('light'\)\}\s*><p>hi<\/p><\/div><\/main>/,
     );
     expect(code).not.toContain('function Box');
   });
@@ -75,7 +75,7 @@ export function App() {
   return <label title={props.label}><input {...props} /></label>;
 }
 export const App = () => <main><Field label="Name" value="x" /></main>;`);
-    expect(code).toContain('<label title={"Name"}><input label={"Name"} value={"x"} /></label>');
+    expect(code).toContain('<label title="Name"><input label="Name" value="x" /></label>');
   });
 
   it('orders keys where the last source that carries them puts them', () => {
@@ -85,7 +85,7 @@ export const App = () => <main><Field label="Name" value="x" /></main>;`);
   return <div>{merged.label}<input {...rest} /></div>;
 }
 export const App = () => <Field label="A" placeholder="x" />;`);
-    expect(code).toContain('<input kind={"text"} placeholder={"x"} />');
+    expect(code).toContain('<input kind="text" placeholder="x" />');
   });
 
   it('passes children through a spread onto an element without children', () => {
@@ -95,7 +95,7 @@ export const App = () => <Field label="A" placeholder="x" />;`);
   return <div class={props.tone} {...rest} />;
 }
 export const App = () => <Box tone="dark"><p>hi</p></Box>;`),
-    ).toMatch(/<div class=\{"dark"\}\s*><p>hi<\/p><\/div>/);
+    ).toMatch(/<div class="dark"\s*><p>hi<\/p><\/div>/);
   });
 
   it('renames the closing tag it adds for children passed through a spread', () => {
@@ -108,7 +108,7 @@ ${IMPORTS}function Alert(props) {
 export default function App() {
   return <Alert class="alert">Saved</Alert>;
 }`);
-    expect(code).toMatch(/<(Root\$\d+) class=\{"alert"\} role="alert"\s*>Saved<\/\1>/);
+    expect(code).toMatch(/<(Root\$\d+) class="alert" role="alert"\s*>Saved<\/\1>/);
   });
 
   it('evaluates a static value once when a spread and a read share it', () => {

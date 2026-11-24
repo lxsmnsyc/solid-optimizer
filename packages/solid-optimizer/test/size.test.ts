@@ -41,7 +41,7 @@ const FIRST = [{ on: true, label: 'x' }];
 const SECOND = [{ on: false, label: 'y' }];
 export const App = () => <main><Rows rows={FIRST} /><Rows rows={SECOND} /></main>;`);
     expect(code).not.toContain('<Rows');
-    expect(code).toContain("<li class={'row row-on is-highlighted'} title={'x'}>");
+    expect(code).toContain('<li class="row row-on is-highlighted" title="x">');
   });
 
   it('keeps a component with code of its own that many calls would repeat', () => {

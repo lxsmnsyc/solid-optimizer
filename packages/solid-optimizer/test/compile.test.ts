@@ -54,7 +54,7 @@ export function App() {
   return (
     <main>
       <section>
-      <h1>{"Settings"}</h1>
+      <h1>Settings</h1>
       
       <button onClick={() => setOpen$1(!open$1())}>toggle</button>
     </section>
@@ -108,7 +108,8 @@ export function App() {
     // A copy maps to the code it copies, not to the call site it replaced.
     expect(trace('<section>')).toMatch(/^<section>/);
     expect(trace('const [open$1')).toMatch(/^const \[open, setOpen\] = createSignal/);
-    expect(trace('"Settings"')).toMatch(/^"Settings" initial/);
+    // The tidied text maps to the string it was written as at the call site.
+    expect(trace('Settings')).toMatch(/^"Settings" initial/);
     expect(trace('onClick')).toMatch(/^onClick=\{\(\) => setOpen\(!open\(\)\)\}/);
   });
 
@@ -128,8 +129,10 @@ export function App() {
       for (const match of line.matchAll(/[A-Za-z_$][\w$]*|"[^"]*"|[<>{}()]/g)) {
         const original = originalPositionFor(tracer, { line: index + 1, column: match.index });
         const at = originalLines[(original.line ?? 0) - 1]?.slice(original.column ?? 0) ?? '';
-        // A renamed local maps to the name it renames, without the suffix.
-        if (!at.startsWith(match[0].replace(/\$\d+$/, ''))) {
+        // A renamed local maps to the name it renames, without the suffix,
+        // and a string the tidy step wrote as text maps to the string.
+        const token = match[0].replace(/\$\d+$/, '');
+        if (!at.startsWith(token) && !at.startsWith(`"${token}"`)) {
           mismatches.push(`${index + 1}:${match.index} ${match[0]}`);
         }
       }
@@ -168,7 +171,7 @@ export { App as t };
 
 
 function App() {
-	return <nav><svg class={"logo"} /><a href="/">Home</a></nav>;
+	return <nav><svg class="logo" /><a href="/">Home</a></nav>;
 }
 export { App as t };
 `);
