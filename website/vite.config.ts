@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import solid from 'solid-optimizer/vite';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
 
 const require = createRequire(import.meta.url);
@@ -11,6 +12,25 @@ const ISOLATION_HEADERS = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
+
+/**
+ * `preview.headers` misses the index page of a folder, such as `/repl/`, so the
+ * REPL there is not isolated. This sets the headers on every preview response.
+ * Vercel sets them in vercel.json.
+ */
+function isolatePreview(): Plugin {
+  return {
+    name: 'isolate-preview',
+    configurePreviewServer(server) {
+      server.middlewares.use((_request, response, next) => {
+        for (const [name, value] of Object.entries(ISOLATION_HEADERS)) {
+          response.setHeader(name, value);
+        }
+        next();
+      });
+    },
+  };
+}
 
 // `oxc-parser` loads its WebAssembly binding by name. The binding is a
 // dependency of this site, not of the parser, so point the name at it.
@@ -28,7 +48,7 @@ export default defineConfig({
   // The site is built with the optimizer it shows. Start mode renders each
   // page on the server, and `scripts/prerender.ts` writes them out as HTML,
   // which the client hydrates. See src/entry-server.tsx and src/entry-client.tsx.
-  plugins: [solid({ ssr: true, start: true })],
+  plugins: [solid({ ssr: true, start: true }), isolatePreview()],
   define: {
     'import.meta.env.SITE_URL': JSON.stringify(SITE_URL),
   },
