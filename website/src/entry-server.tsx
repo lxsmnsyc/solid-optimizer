@@ -4,22 +4,21 @@ import manifest from 'virtual:solid-manifest';
 import { Document } from './Document';
 import { Docs } from './pages/Docs';
 import { Home } from './pages/Home';
+import { NotFound } from './pages/NotFound';
 import { ReplPage } from './pages/ReplPage';
 import type { Route } from './routes';
-import { findRoute } from './routes';
+import { NOT_FOUND, findRoute } from './routes';
 
 const PAGES: Record<Route['id'], () => JSX.Element> = {
   home: Home,
   docs: Docs,
   repl: ReplPage,
+  'not-found': NotFound,
 };
 
-/** Renders the page at the request's path. The build prerenders every route through this. */
+/** Renders the page at the request's path, or the not-found page. The build prerenders every route through this. */
 export function render(request: Request): Response | ReturnType<typeof renderToStream> {
-  const route = findRoute(new URL(request.url).pathname);
-  if (!route) {
-    return new Response('Not found', { status: 404 });
-  }
+  const route = findRoute(new URL(request.url).pathname) ?? NOT_FOUND;
   const Page = PAGES[route.id];
   return renderToStream(
     () => (

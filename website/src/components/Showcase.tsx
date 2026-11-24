@@ -4,6 +4,7 @@ import examples from '../showcase.json';
 import type { Language } from '../lib/highlight';
 import { highlight } from '../lib/highlight';
 import { replLink } from '../repl/share';
+import { Icon } from './Icon';
 
 type Example = (typeof examples)[number];
 type Side = Example['plain'];
@@ -69,8 +70,8 @@ function Totals(): JSX.Element {
             <div class="total">
               <span class="total-values">
                 <span class="total-before">{formatStat(before, stat)}</span>
-                <span class="total-arrow" aria-hidden="true">
-                  →
+                <span class="total-arrow">
+                  <Icon name="arrow-right" />
                 </span>
                 <span class="total-after">{formatStat(after, stat)}</span>
               </span>
@@ -184,7 +185,7 @@ export function Showcase(): JSX.Element {
               >
                 <span class="showcase-item-title">{item.title}</span>
                 <span class="showcase-item-delta">
-                  {item.plain.templates} → {item.after.templates} templates ·{' '}
+                  {item.plain.templates} to {item.after.templates} templates ·{' '}
                   {formatSaving(item.plain.gzip, item.after.gzip) || '0%'} gzip
                 </span>
               </button>
@@ -227,7 +228,8 @@ export function Showcase(): JSX.Element {
             />
           </div>
           <a class="showcase-repl" href={replLink([{ name: 'App.tsx', code: example().source }])}>
-            Open this example in the REPL →
+            Open this example in the REPL
+            <Icon name="arrow-right" class="icon-arrow" />
           </a>
         </div>
       </div>

@@ -44,7 +44,9 @@ for (const route of ROUTES) {
   if (!response.ok) {
     throw new Error(`Prerendering ${route.path} failed: the handler answered ${response.status}`);
   }
-  const file = path.join(CLIENT, route.path, 'index.html');
+  const file = route.file
+    ? path.join(CLIENT, route.file)
+    : path.join(CLIENT, route.path, 'index.html');
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, await response.text());
   process.stdout.write(`Wrote ${path.relative(ROOT, file)}\n`);

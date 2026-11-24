@@ -2,6 +2,7 @@ import type { JSX } from '@solidjs/web';
 import { For } from 'solid-js';
 import { Benchmarks } from '../components/Benchmarks';
 import { Code, CopyButton } from '../components/Code';
+import { Icon } from '../components/Icon';
 import { Footer, Header, INSTALL, NPM } from '../components/Layout';
 import { Showcase } from '../components/Showcase';
 
@@ -23,7 +24,7 @@ function TemplateStack(): JSX.Element {
         <span class="stack-count">5 templates</span>
       </div>
       <div class="stack-arrow">
-        <span />
+        <Icon name="arrow-right" />
       </div>
       <div class="stack-column optimized">
         <span class="stack-label">solid-optimizer → @solidjs/compiler</span>
@@ -43,11 +44,8 @@ function TemplateStack(): JSX.Element {
 
 function Hero(): JSX.Element {
   return (
-    <section class="hero" id="top">
-      <div class="hero-grid" aria-hidden="true" />
-      <div class="hero-glow" aria-hidden="true" />
-      <a class="eyebrow" href={NPM} target="_blank" rel="noopener noreferrer">
-        <span class="pulse" />
+    <section class="landing-hero" id="top">
+      <a class="chip" href={NPM} target="_blank" rel="noopener noreferrer">
         1.0 · SolidJS 2.0
       </a>
       <h1>
@@ -60,14 +58,14 @@ function Hero(): JSX.Element {
         control flow before Solid's JSX transform runs. More markup lands in fewer templates.
       </p>
       <div class="hero-actions">
-        <a class="button primary" href="/docs/">
+        <a class="button" data-variant="primary" href="/docs/">
           Get started
+          <Icon name="arrow-right" class="icon-arrow" />
         </a>
-        <a class="button secondary" href="/repl/">
+        <a class="button" data-variant="quiet" href="/repl/">
           Open the REPL
         </a>
-        <div class="install">
-          <span class="prompt">$</span>
+        <div class="landing-install">
           <code>{INSTALL}</code>
           <CopyButton text={INSTALL} />
         </div>
@@ -144,8 +142,8 @@ function Passes(): JSX.Element {
               <p>{pass.text}</p>
               <div class="pass-code">
                 <Code code={pass.before} />
-                <span class="pass-arrow" aria-hidden="true">
-                  ↓
+                <span class="pass-arrow">
+                  <Icon name="arrow-down" />
                 </span>
                 <Code code={pass.after} class="after" />
               </div>
@@ -219,10 +217,11 @@ function Closing(): JSX.Element {
         Paste a few modules and compare the output, the templates, and the size.
       </p>
       <div class="hero-actions">
-        <a class="button primary" href="/repl/">
+        <a class="button" data-variant="primary" href="/repl/">
           Open the REPL
+          <Icon name="arrow-right" class="icon-arrow" />
         </a>
-        <a class="button secondary" href="/docs/">
+        <a class="button" data-variant="quiet" href="/docs/">
           Read the docs
         </a>
       </div>
@@ -234,7 +233,7 @@ export function Home(): JSX.Element {
   return (
     <>
       <Header page="home" />
-      <main>
+      <main id="main">
         <Hero />
         <section class="section" id="build">
           <h2 class="section-title">
