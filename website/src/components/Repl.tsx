@@ -7,7 +7,7 @@ import { createEditor, createFileState } from '../lib/editor';
 import { highlight } from '../lib/highlight';
 import type * as PipelineModule from '../repl/pipeline';
 import { PRESETS } from '../repl/presets';
-import { DEFAULT_OPTIONS, HASH_PREFIX, encodeShared, readShared } from '../repl/share';
+import { DEFAULT_OPTIONS, HASH_PREFIX, encodeShared, isShared, readShared } from '../repl/share';
 import type {
   Lowered,
   PipelineFailure,
@@ -21,6 +21,29 @@ type Status = 'waiting' | 'loading' | 'running' | 'ready';
 
 /** Where the REPL keeps the split between its panes. */
 const SPLIT_KEY = 'repl-split';
+
+/** Where the REPL keeps its example, options and edited files between visits. */
+const STATE_KEY = 'repl-state';
+
+/** How long a toast stays, and how long it takes to leave. */
+const TOAST_MS = 5000;
+const TOAST_LEAVE_MS = 220;
+
+/** What the REPL keeps between visits. Files are kept only once they are edited. */
+interface Saved {
+  origin: string;
+  options: PipelineOptions;
+  files?: VirtualFile[];
+}
+
+/** The files, the tab and the example of the REPL, to put back on Undo. */
+interface Snapshot {
+  states: Map<string, EditorState>;
+  names: string[];
+  active: string;
+  preset: string;
+  origin: string;
+}
 
 const STAGES: { id: Stage; label: string }[] = [
   { id: 'bundle', label: 'Bundle' },
@@ -52,6 +75,35 @@ function findPreset(id: string): (typeof PRESETS)[number] | undefined {
     }
   }
   return undefined;
+}
+
+function readSaved(): Saved | undefined {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(STATE_KEY) ?? 'null');
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !('origin' in value) ||
+      typeof value.origin !== 'string' ||
+      !findPreset(value.origin) ||
+      !('options' in value)
+    ) {
+      return undefined;
+    }
+    // The rest has the shape of a shared link. An example kept unedited has no files.
+    const rest = { files: 'files' in value ? value.files : [], options: value.options };
+    if (!isShared(rest)) {
+      return undefined;
+    }
+    return {
+      origin: value.origin,
+      options: rest.options,
+      files: rest.files.length > 0 ? rest.files : undefined,
+    };
+  } catch {
+    // Storage is blocked or holds something else: the REPL starts at the first example.
+    return undefined;
+  }
 }
 
 function formatBytes(bytes: number): string {
@@ -105,6 +157,11 @@ export function Repl(): JSX.Element {
   const [failure, setFailure] = createSignal<PipelineFailure>();
   const [renaming, setRenaming] = createSignal<string>();
   const [linkCopied, setLinkCopied] = createSignal(false);
+  // The example the files came from, which Reset brings back.
+  const [origin, setOrigin] = createSignal(PRESETS[0].id);
+  const [toast, setToast] = createSignal<{ text: string; undo: () => void }>();
+  const [toastOpen, setToastOpen] = createSignal(false);
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Each file keeps its own editor state, so switching tabs keeps its undo history.
   const states = new Map<string, EditorState>();
@@ -145,7 +202,32 @@ export function Repl(): JSX.Element {
   // Signal writes settle after the current task, so every run is deferred.
   function schedule(delay = 0): void {
     clearTimeout(timer);
-    timer = setTimeout(startRun, delay);
+    timer = setTimeout(() => {
+      save();
+      startRun();
+    }, delay);
+  }
+
+  /** Keeps the example and the options, and the files once they are edited, for the next visit. */
+  function save(): void {
+    const files = readFiles();
+    const edited = preset() === '';
+    // A shared link in the address bar that no longer matches the files would bring old files back on reload.
+    if (
+      location.hash.startsWith(HASH_PREFIX) &&
+      location.hash.slice(HASH_PREFIX.length) !== encodeShared({ files, options: options() })
+    ) {
+      history.replaceState(null, '', `${location.pathname}${location.search}`);
+    }
+    const saved: Saved = { origin: origin(), options: options() };
+    if (edited) {
+      saved.files = files;
+    }
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify(saved));
+    } catch {
+      // Storage is blocked or full: the files stay on this page only.
+    }
   }
 
   async function run(): Promise<void> {
@@ -199,11 +281,79 @@ export function Repl(): JSX.Element {
     }
   }
 
+  /** Loads an example. Edits it replaces come back with Undo. */
   function loadPreset(id: string): void {
     const found = findPreset(id);
-    if (found) {
-      showFiles(found.files, id);
+    if (!found) {
+      return;
     }
+    const before = preset() === '' ? takeSnapshot() : undefined;
+    showFiles(found.files, id);
+    if (before) {
+      showToast(id === before.origin ? 'Example reset' : 'Edits replaced', () => {
+        restore(before);
+      });
+    }
+  }
+
+  function takeSnapshot(): Snapshot {
+    if (view) {
+      states.set(active(), view.state);
+    }
+    return {
+      states: new Map(states),
+      names: names(),
+      active: active(),
+      preset: preset(),
+      origin: origin(),
+    };
+  }
+
+  // Each file gets its editor state back, with its undo history.
+  function restore(snapshot: Snapshot): void {
+    states.clear();
+    for (const [name, state] of snapshot.states) {
+      states.set(name, state);
+    }
+    setNames(snapshot.names);
+    setActive(snapshot.active);
+    setPreset(snapshot.preset);
+    setOrigin(snapshot.origin);
+    const state = states.get(snapshot.active);
+    if (view && state) {
+      view.setState(state);
+    }
+    schedule();
+  }
+
+  /** Shows one toast with Undo. A new one replaces the old. */
+  function showToast(text: string, undo: () => void): void {
+    clearTimeout(toastTimer);
+    setToast({ text, undo });
+    // Two frames, so the toast is drawn closed before it opens.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setToastOpen(true);
+      });
+    });
+    armToast();
+  }
+
+  function armToast(): void {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, TOAST_MS);
+  }
+
+  function pauseToast(): void {
+    clearTimeout(toastTimer);
+  }
+
+  function hideToast(): void {
+    clearTimeout(toastTimer);
+    setToastOpen(false);
+    toastTimer = setTimeout(() => {
+      setToast(undefined);
+    }, TOAST_LEAVE_MS);
   }
 
   /** Replaces every file, and marks the preset they come from, or none. */
@@ -213,6 +363,9 @@ export function Repl(): JSX.Element {
     setNames(getFileNames(files));
     setActive(first);
     setPreset(presetId);
+    if (presetId !== '') {
+      setOrigin(presetId);
+    }
     const state = states.get(first);
     if (view && state) {
       view.setState(state);
@@ -406,10 +559,21 @@ export function Repl(): JSX.Element {
   });
 
   onSettled(() => {
+    // A shared link wins over what the last visit left.
     const shared = readShared();
+    const saved = shared ? undefined : readSaved();
     if (shared) {
       setOptions({ ...DEFAULT_OPTIONS, ...shared.options });
       showFiles(shared.files, '');
+    } else if (saved) {
+      setOptions({ ...DEFAULT_OPTIONS, ...saved.options });
+      const example = findPreset(saved.origin);
+      if (saved.files) {
+        setOrigin(saved.origin);
+        showFiles(saved.files, '');
+      } else if (example) {
+        showFiles(example.files, saved.origin);
+      }
     }
     // The compilers are several megabytes of WebAssembly, so they load once
     // the REPL comes near the screen.
@@ -430,6 +594,7 @@ export function Repl(): JSX.Element {
     return () => {
       observer.disconnect();
       clearTimeout(timer);
+      clearTimeout(toastTimer);
       view?.destroy();
     };
   });
@@ -516,6 +681,19 @@ export function Repl(): JSX.Element {
               )}
             </Show>
           </span>
+          <button
+            type="button"
+            class="icon-button"
+            data-size="sm"
+            aria-label="Reset the example"
+            title="Reset the example"
+            disabled={preset() !== ''}
+            onClick={() => {
+              loadPreset(origin());
+            }}
+          >
+            <Icon name="rotate-ccw" />
+          </button>
           <button type="button" class="ghost-button" onClick={share}>
             {linkCopied() ? 'Link copied' : 'Share'}
           </button>
@@ -736,6 +914,40 @@ export function Repl(): JSX.Element {
             </details>
           </Show>
         </section>
+      </div>
+
+      <div class="repl-toasts">
+        <Show when={toast()}>
+          {(current) => (
+            <div
+              class="toast"
+              role="status"
+              data-state={toastOpen() ? 'open' : 'closed'}
+              onPointerEnter={pauseToast}
+              onPointerLeave={armToast}
+              onFocusIn={pauseToast}
+              onFocusOut={armToast}
+            >
+              <Icon name="rotate-ccw" />
+              <span class="toast-text">{current().text}</span>
+              <button
+                type="button"
+                class="button"
+                data-variant="primary"
+                onClick={() => {
+                  current().undo();
+                  hideToast();
+                }}
+              >
+                <Icon name="undo-2" />
+                Undo
+              </button>
+              <button type="button" class="icon-button" aria-label="Dismiss" onClick={hideToast}>
+                <Icon name="x" />
+              </button>
+            </div>
+          )}
+        </Show>
       </div>
     </div>
   );

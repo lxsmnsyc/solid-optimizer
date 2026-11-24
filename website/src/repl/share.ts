@@ -24,7 +24,7 @@ export function encodeShared(value: Shared): string {
   return btoa(latin1).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
-function isShared(value: unknown): value is Shared {
+export function isShared(value: unknown): value is Shared {
   return (
     typeof value === 'object' &&
     value !== null &&
