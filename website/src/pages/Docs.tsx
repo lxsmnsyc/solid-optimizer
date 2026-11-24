@@ -1579,7 +1579,7 @@ export function Docs(): JSX.Element {
             </For>
           </nav>
         </details>
-        <main class="docs-content">
+        <main id="main" class="docs-content">
           <h1 class="docs-title">Documentation</h1>
           <GettingStarted />
           <h2 class="docs-part">Vite plugin</h2>

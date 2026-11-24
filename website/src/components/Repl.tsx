@@ -1,6 +1,7 @@
 import type { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type { JSX } from '@solidjs/web';
+import { Icon } from './Icon';
 import { For, Show, createMemo, createSignal, onSettled } from 'solid-js';
 import { createEditor, createFileState } from '../lib/editor';
 import { highlight } from '../lib/highlight';
@@ -69,7 +70,9 @@ function Metric(props: {
         <span class="metric-label">{props.label}</span>
         <span class="metric-values">
           <span class="metric-before">{format(props.before)}</span>
-          <span class="metric-arrow">→</span>
+          <span class="metric-arrow">
+            <Icon name="arrow-right" />
+          </span>
           <span class="metric-after">{format(props.after)}</span>
           <Show when={delta() !== 0}>
             <span class={['metric-delta', { worse: delta() > 0 }]}>
@@ -492,14 +495,14 @@ export function Repl(): JSX.Element {
                         removeFile(name);
                       }}
                     >
-                      ×
+                      <Icon name="x" />
                     </button>
                   </Show>
                 </div>
               )}
             </For>
             <button type="button" class="tab-add" aria-label="Add a file" onClick={addFile}>
-              +
+              <Icon name="plus" />
             </button>
           </div>
           <div
@@ -561,7 +564,7 @@ export function Repl(): JSX.Element {
               when={shown()}
               fallback={
                 <div class="output-empty">
-                  <span class="spinner" />
+                  <Icon name="loader" class="spin" />
                   {status() === 'waiting' ? 'Waiting' : 'Loading the compilers (WebAssembly)'}
                 </div>
               }

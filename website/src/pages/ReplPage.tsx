@@ -6,7 +6,7 @@ export function ReplPage(): JSX.Element {
   return (
     <div class="repl-page">
       <Header page="repl" />
-      <main class="repl-main">
+      <main id="main" class="repl-main">
         <Repl />
       </main>
     </div>
