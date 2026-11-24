@@ -19,6 +19,9 @@ import type {
 type Stage = 'bundle' | 'optimized' | 'output';
 type Status = 'waiting' | 'loading' | 'running' | 'ready';
 
+/** Where the REPL keeps the split between its panes. */
+const SPLIT_KEY = 'repl-split';
+
 const STAGES: { id: Stage; label: string }[] = [
   { id: 'bundle', label: 'Bundle' },
   { id: 'optimized', label: 'Optimize' },
@@ -341,6 +344,66 @@ export function Repl(): JSX.Element {
   });
 
   let root: HTMLDivElement | undefined;
+  let panes: HTMLDivElement | undefined;
+
+  // The editor pane's share of the width, in percent. Banig's Playground keeps it between 20 and 80.
+  const [split, setSplit] = createSignal(50);
+  const [dragging, setDragging] = createSignal(false);
+
+  function resize(percent: number): void {
+    const clamped = Math.min(80, Math.max(20, Math.round(percent)));
+    setSplit(clamped);
+    try {
+      localStorage.setItem(SPLIT_KEY, String(clamped));
+    } catch {
+      // The split still holds on this page.
+    }
+  }
+
+  function dragSplit(event: PointerEvent): void {
+    if (!panes) {
+      return;
+    }
+    const box = panes.getBoundingClientRect();
+    // Panes stack below 48rem, where the handle moves along the height.
+    const stacked = getComputedStyle(panes).gridTemplateRows.split(' ').length > 1;
+    const percent = stacked
+      ? ((event.clientY - box.top) / box.height) * 100
+      : ((event.clientX - box.left) / box.width) * 100;
+    resize(percent);
+  }
+
+  function startDrag(event: PointerEvent): void {
+    if (!(event.currentTarget instanceof HTMLElement)) {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  }
+
+  function moveSplitByKey(event: KeyboardEvent): void {
+    const width = panes?.getBoundingClientRect().width ?? 1000;
+    // Arrow keys move the handle 16px.
+    const step = (16 / width) * 100;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      resize(split() - step);
+    } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      resize(split() + step);
+    }
+  }
+
+  onSettled(() => {
+    try {
+      const saved = Number(localStorage.getItem(SPLIT_KEY));
+      if (saved >= 20 && saved <= 80) {
+        setSplit(saved);
+      }
+    } catch {
+      // Storage is blocked: the panes start even.
+    }
+  });
 
   onSettled(() => {
     const shared = readShared();
@@ -374,6 +437,7 @@ export function Repl(): JSX.Element {
   return (
     <div
       class="repl"
+      data-dragging={dragging() ? '' : undefined}
       ref={(element) => {
         root = element;
       }}
@@ -427,13 +491,44 @@ export function Repl(): JSX.Element {
               )}
             </For>
           </div>
+          <span class="repl-status" role="status" data-tone={failure() ? 'danger' : undefined}>
+            <Show
+              when={failure()}
+              fallback={
+                <Show
+                  when={status() === 'ready' && result()}
+                  fallback={
+                    <>
+                      <Icon name="loader" class="spin" />
+                      {status() === 'running' ? 'Compiling' : 'Loading the compilers'}
+                    </>
+                  }
+                >
+                  {(current) => <>Compiled in {current().ms.toFixed(1)} ms</>}
+                </Show>
+              }
+            >
+              {(current) => (
+                <>
+                  <Icon name="circle-x" />
+                  {current().stage} failed
+                </>
+              )}
+            </Show>
+          </span>
           <button type="button" class="ghost-button" onClick={share}>
             {linkCopied() ? 'Link copied' : 'Share'}
           </button>
         </div>
       </div>
 
-      <div class="repl-panes">
+      <div
+        class="repl-panes"
+        style={{ '--split-a': `${String(split())}fr`, '--split-b': `${String(100 - split())}fr` }}
+        ref={(element) => {
+          panes = element;
+        }}
+      >
         <section class="pane" aria-label="Files">
           <div class="tabs">
             <For each={names()}>
@@ -516,7 +611,32 @@ export function Repl(): JSX.Element {
           />
         </section>
 
-        <section class="pane" aria-label="Output">
+        <div
+          class="repl-split"
+          role="separator"
+          tabindex="0"
+          aria-label="Resize the panes"
+          aria-orientation="vertical"
+          aria-valuemin={20}
+          aria-valuemax={80}
+          aria-valuenow={split()}
+          data-dragging={dragging() ? '' : undefined}
+          onPointerDown={startDrag}
+          onPointerMove={(event) => {
+            if (dragging()) {
+              dragSplit(event);
+            }
+          }}
+          onPointerUp={() => {
+            setDragging(false);
+          }}
+          onPointerCancel={() => {
+            setDragging(false);
+          }}
+          onKeyDown={moveSplitByKey}
+        />
+
+        <section class="pane" aria-label="Output" data-tone={failure() ? 'danger' : undefined}>
           <div class="tabs stages">
             <For each={STAGES}>
               {(item, index) => (

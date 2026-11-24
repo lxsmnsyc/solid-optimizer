@@ -191,9 +191,6 @@ button {
   min-height: 0;
 }
 
-.pane + .pane {
-}
-
 .tabs {
   display: flex;
   flex: none;
@@ -845,18 +842,6 @@ button {
 }
 
 @media (max-width: 900px) {
-  .repl-panes {
-    grid-template-columns: minmax(0, 1fr);
-    height: auto;
-  }
-
-  .pane {
-    height: 520px;
-  }
-
-  .pane + .pane {
-  }
-
   .passes,
   .usage {
     grid-template-columns: minmax(0, 1fr);
@@ -1696,4 +1681,120 @@ button {
 /* A blank line of highlighted code is an empty element; give it a line's height. */
 .hero-line-text .l:empty::after {
   content: ' ';
+}
+
+/* REPL as Banig's Playground: an app tile, a bar, two surface panes split by a
+   draggable handle. These rules come after the REPL's own and set its shape. */
+
+.repl-main {
+  padding: 0 12px 12px;
+}
+
+.repl {
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+}
+
+.repl-toolbar {
+  padding: 8px;
+  background: none;
+}
+
+.repl-panes {
+  grid-template-columns: minmax(0, var(--split-a, 1fr)) 12px minmax(0, var(--split-b, 1fr));
+  padding: 0 8px 8px;
+}
+
+.pane {
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.pane[data-tone='danger'] {
+  background: var(--danger-tint);
+}
+
+.tabs,
+.metrics {
+  background: none;
+}
+
+.tab.selected {
+  background: var(--bg-elevated);
+}
+
+.repl-split {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.repl-split::before {
+  content: '';
+  position: absolute;
+  inset: 35% 4px;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+  transition:
+    background-color var(--duration-fast),
+    inset var(--duration-fast) var(--ease);
+}
+
+.repl-split:hover::before,
+.repl-split:focus-visible::before,
+.repl-split[data-dragging]::before {
+  inset: 20% 4px;
+  background: var(--accent-strong);
+}
+
+.repl-split:focus-visible {
+  outline: none;
+}
+
+.repl[data-dragging] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.repl[data-dragging] .pane {
+  pointer-events: none;
+}
+
+.repl-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font: 400 12px var(--font-mono);
+}
+
+.repl-status .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.repl-status[data-tone='danger'] {
+  color: var(--danger);
+}
+
+@media (max-width: 48rem) {
+  .repl-panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, var(--split-a, 1fr)) 12px minmax(0, var(--split-b, 1fr));
+  }
+
+  .repl-split {
+    cursor: row-resize;
+  }
+
+  .repl-split::before {
+    inset: 4px 35%;
+  }
+
+  .repl-split:hover::before,
+  .repl-split:focus-visible::before,
+  .repl-split[data-dragging]::before {
+    inset: 4px 20%;
+  }
 }
