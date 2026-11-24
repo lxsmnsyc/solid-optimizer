@@ -17,13 +17,20 @@ button {
   height: 26px;
 }
 
-/* The header theme button shows the theme it switches to. */
+/* The header theme button shows the theme it switches to. Each icon sits in a
+   span, which centers it in the button like a bare icon would be. */
+.theme-icon-moon,
+.theme-icon-sun {
+  display: grid;
+  place-items: center;
+}
+
 .theme-icon-sun {
   display: none;
 }
 
 :root[data-theme='dark'] .theme-icon-sun {
-  display: contents;
+  display: grid;
 }
 
 :root[data-theme='dark'] .theme-icon-moon {
@@ -32,7 +39,7 @@ button {
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .theme-icon-sun {
-    display: contents;
+    display: grid;
   }
 
   :root:not([data-theme='light']) .theme-icon-moon {
