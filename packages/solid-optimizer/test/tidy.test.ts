@@ -231,3 +231,20 @@ describe('any string', () => {
     tidyAndCheck(code);
   });
 });
+
+describe('what the second review found', () => {
+  it('keeps the children of an element that has a children attribute or a spread', () => {
+    // An empty `{}` child overrides a `children` attribute, so it has to stay.
+    const code = tidyAndCheck(
+      "const K = 1;\nexport const a = <b>{K}</b>;\nexport const v = <p children={'x'}>{}</p>;\nexport const w = (s) => <p {...s}>{}</p>;\nexport const c = <C children={K}>{}</C>;",
+    );
+    expect(code).toContain('<p children="x">{}</p>');
+    expect(code).toContain('<p {...s}>{}</p>');
+  });
+
+  it('keeps any attribute that starts with on in braces', () => {
+    expect(
+      tidyAndCheck("const H = 'go()';\nexport const v = <p onclick={H} title={H} />;"),
+    ).toContain('onclick={"go()"} title="go()"');
+  });
+});

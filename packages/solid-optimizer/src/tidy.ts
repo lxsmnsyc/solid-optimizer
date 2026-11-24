@@ -218,7 +218,8 @@ function isPlainAttribute(value: string): boolean {
 /**
  * Attributes whose string Solid's JSX transform treats differently once it
  * is written as a plain value: it moves a static `style` last, and `ref`,
- * `classList`, event handlers and namespaced attributes do not take a string.
+ * `classList`, event handlers (`on` in any case) and namespaced attributes do
+ * not take a string.
  */
 function isTidyAttribute(attribute: JSXAttribute): boolean {
   const { name } = attribute;
@@ -227,8 +228,25 @@ function isTidyAttribute(attribute: JSXAttribute): boolean {
     name.name !== 'style' &&
     name.name !== 'ref' &&
     name.name !== 'classList' &&
-    !/^on[A-Z]/.test(name.name)
+    !name.name.startsWith('on')
   );
+}
+
+/**
+ * Whether an element can get children from an attribute: a `children`
+ * attribute or a spread. Its own children then decide whether those show, so
+ * even an empty `{}` among them counts, and they stay as they are.
+ */
+function hasChildrenAttribute(element: JSXElement): boolean {
+  for (const attribute of element.openingElement.attributes) {
+    if (
+      attribute.type === 'JSXSpreadAttribute' ||
+      (attribute.name.type === 'JSXIdentifier' && attribute.name.name === 'children')
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -354,7 +372,8 @@ export function tidyJSX(context: PassContext): boolean {
         return;
       }
     }
-    if (node.type === 'JSXElement' || node.type === 'JSXFragment') {
+    const childrenFixed = node.type === 'JSXElement' && hasChildrenAttribute(node);
+    if ((node.type === 'JSXElement' || node.type === 'JSXFragment') && !childrenFixed) {
       const inElement = node.type === 'JSXElement' && isIntrinsic(node);
       if (tidyChildren(node.children, inElement, context)) {
         changed = true;
