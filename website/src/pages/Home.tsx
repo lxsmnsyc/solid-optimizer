@@ -1,78 +1,49 @@
 import type { JSX } from '@solidjs/web';
 import { For } from 'solid-js';
 import { Benchmarks } from '../components/Benchmarks';
-import { Code, CopyButton } from '../components/Code';
-import { Footer, Header, INSTALL, NPM } from '../components/Layout';
+import { Code } from '../components/Code';
+import { HeroSteps } from '../components/HeroSteps';
+import { Icon } from '../components/Icon';
+import { InstallCommand } from '../components/InstallCommand';
+import { Footer, Header } from '../components/Layout';
 import { Showcase } from '../components/Showcase';
 
-/** Five templates fold into one, the result of the Components preset. */
-function TemplateStack(): JSX.Element {
-  const rows = ['<span>', '<button>', '<p class=counter>', '<pre>debug panel', '<main><h1>Hello'];
+/** Banig's SectionHead: the row title and its lead, on the page above the row's tiles. */
+function SectionHead(props: { title: string; lead: string }): JSX.Element {
   return (
-    <div class="stack" aria-hidden="true">
-      <div class="stack-column">
-        <span class="stack-label">@solidjs/compiler</span>
-        <For each={rows}>
-          {(row, index) => (
-            <div class="stack-row" style={{ '--i': index() }}>
-              <span class="stack-var">_tmpl${index() + 1}</span>
-              <code>{row}</code>
-            </div>
-          )}
-        </For>
-        <span class="stack-count">5 templates</span>
-      </div>
-      <div class="stack-arrow">
-        <span />
-      </div>
-      <div class="stack-column optimized">
-        <span class="stack-label">solid-optimizer → @solidjs/compiler</span>
-        <div class="stack-row merged">
-          <span class="stack-var">_tmpl$</span>
-          <code>
-            {
-              '<main><h1>Hello</h1><p class=counter>Clicks: <!> <button type=button><span class="icon icon-plus"></span>Add'
-            }
-          </code>
-        </div>
-        <span class="stack-count">1 template</span>
-      </div>
-    </div>
+    <header class="section-head">
+      <h2 class="row-title">{props.title}</h2>
+      <p class="row-lead">{props.lead}</p>
+    </header>
   );
 }
 
 function Hero(): JSX.Element {
   return (
     <section class="hero" id="top">
-      <div class="hero-grid" aria-hidden="true" />
-      <div class="hero-glow" aria-hidden="true" />
-      <a class="eyebrow" href={NPM} target="_blank" rel="noopener noreferrer">
-        <span class="pulse" />
-        1.0 · SolidJS 2.0
-      </a>
-      <h1>
-        Fewer templates.
-        <br />
-        <span class="gradient-text">Same app.</span>
-      </h1>
-      <p class="lede">
-        A compile-time optimizer that inlines components, removes context providers, and folds
-        control flow before Solid's JSX transform runs. More markup lands in fewer templates.
-      </p>
-      <div class="hero-actions">
-        <a class="button primary" href="/docs/">
-          Get started
-        </a>
-        <a class="button secondary" href="/repl/">
-          Open the REPL
-        </a>
-        <div class="install">
-          <span class="prompt">$</span>
-          <code>{INSTALL}</code>
-          <CopyButton text={INSTALL} />
+      <div class="hero-copy">
+        <h1 class="hero-title">
+          Same Solid app. <em>2× faster</em> server rendering.
+          <a class="footnote-ref" href="#bench-note" aria-label="How this was measured">
+            1
+          </a>
+        </h1>
+        <p class="hero-tagline">
+          A build-time optimizer for SolidJS 2.0. It inlines your components, so the server and the
+          browser run less code.
+        </p>
+        <div class="hero-actions">
+          <a class="button" data-variant="primary" href="/docs/">
+            Get started
+            <Icon name="arrow-right" class="icon-arrow" />
+          </a>
+          <a class="button" data-variant="quiet" href="/repl/">
+            Open the REPL
+          </a>
         </div>
+        <InstallCommand />
       </div>
-      <TemplateStack />
+      <HeroSteps />
     </section>
   );
 }
@@ -129,10 +100,11 @@ const PASSES: Pass[] = [
 
 function Passes(): JSX.Element {
   return (
-    <section class="section" id="passes">
-      <h2 class="section-title">
-        Four passes, <span class="gradient-text">repeated until nothing changes</span>
-      </h2>
+    <section class="landing-row" id="passes">
+      <SectionHead
+        title="Four passes, run until nothing changes"
+        lead="Each pass can expose work for the next."
+      />
       <div class="passes">
         <For each={PASSES}>
           {(pass, index) => (
@@ -144,8 +116,8 @@ function Passes(): JSX.Element {
               <p>{pass.text}</p>
               <div class="pass-code">
                 <Code code={pass.before} />
-                <span class="pass-arrow" aria-hidden="true">
-                  ↓
+                <span class="pass-arrow">
+                  <Icon name="arrow-down" />
                 </span>
                 <Code code={pass.after} class="after" />
               </div>
@@ -166,65 +138,132 @@ export default defineConfig({
   plugins: [solid()],
 });`;
 
-const API_USAGE = `import { compile } from 'solid-optimizer';
+interface Row {
+  label: string;
+  solid: string;
+  hand: string;
+  optimizer: string;
+}
 
-const result = compile(code, { filename: 'app.tsx' });
+const COMPARISON: Row[] = [
+  {
+    label: 'Components join their parent’s template',
+    solid: 'No',
+    hand: 'Yes',
+    optimizer: 'Yes',
+  },
+  { label: 'Your source keeps its components', solid: 'Yes', hand: 'No', optimizer: 'Yes' },
+  {
+    label: 'Providers go when every reader is known',
+    solid: 'No',
+    hand: 'By hand',
+    optimizer: 'Yes',
+  },
+  { label: 'Constant branches fold', solid: 'With optimize', hand: 'By hand', optimizer: 'Yes' },
+  { label: 'Lists what it left alone', solid: 'No', hand: 'No', optimizer: 'Yes' },
+];
 
-result.code; // JSX, ready for Solid's JSX transform
-result.map;  // a source map, or null when nothing changed`;
-
-function Usage(): JSX.Element {
+function Comparison(): JSX.Element {
   return (
-    <section class="section" id="usage">
-      <h2 class="section-title">
-        Drop-in for <span class="gradient-text">Vite</span>
-      </h2>
-      <p class="section-lede">
-        One import changes. The plugin wraps @solidjs/vite-plugin, so SSR, server functions, and HMR
-        keep working.
-      </p>
-      <div class="usage">
-        <div class="window">
-          <div class="window-bar">
-            <span class="dots" />
-            vite.config.ts
-          </div>
-          <Code code={VITE_USAGE} />
-        </div>
-        <div class="window">
-          <div class="window-bar">
-            <span class="dots" />
-            compile.ts
-          </div>
-          <Code code={API_USAGE} />
-        </div>
-      </div>
-      <div class="section-links">
-        <a href="/docs/#vite-options">Vite plugin options</a>
-        <a href="/docs/#compile-options">compile options</a>
-        <a href="/docs/#report">Why a component stays</a>
+    <section class="landing-row" id="compare">
+      <SectionHead
+        title="Why not inline by hand?"
+        lead="You would trade readable components for speed. solid-optimizer keeps both."
+      />
+      <div class="tile table-scroll">
+        <table class="table compare-table">
+          <thead>
+            <tr>
+              <th scope="col">
+                <span class="visually-hidden">Feature</span>
+              </th>
+              <th scope="col">Solid alone</th>
+              <th scope="col">By hand</th>
+              <th scope="col">solid-optimizer</th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={COMPARISON}>
+              {(row) => (
+                <tr>
+                  <th scope="row">{row.label}</th>
+                  <td>{row.solid}</td>
+                  <td>{row.hand}</td>
+                  <td data-best>{row.optimizer}</td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
       </div>
     </section>
   );
 }
 
-function Closing(): JSX.Element {
+interface Question {
+  question: string;
+  answer: JSX.Element;
+}
+
+const QUESTIONS: Question[] = [
+  {
+    question: 'Is it ready to use?',
+    answer: <>Version 1.0 is out for SolidJS 2.0, under the MIT license.</>,
+  },
+  {
+    question: 'Does it work with Solid 1?',
+    answer: (
+      <>
+        Use <code>solid-optimizer@0</code>. It gets fixes only.
+      </>
+    ),
+  },
+  {
+    question: 'Can it break hydration?',
+    answer: (
+      <>
+        The Vite plugin compiles the server and client builds the same way, so both render the same
+        tree. See <a href="/docs/concepts/hydration/">Hydration</a>.
+      </>
+    ),
+  },
+  {
+    question: 'Will my bundle grow?',
+    answer: (
+      <>
+        A component only inlines where its copies are no larger than its calls. See{' '}
+        <a href="/docs/concepts/component-inlining/#only-where-smaller">Only where it is smaller</a>
+        .
+      </>
+    ),
+  },
+  {
+    question: 'Why did a component stay a component?',
+    answer: (
+      <>
+        Turn on <code>optimizer.report</code>. It lists what stayed as written and why. See{' '}
+        <a href="/docs/guides/report/">Report</a>.
+      </>
+    ),
+  },
+];
+
+function Faq(): JSX.Element {
   return (
-    <section class="section closing">
-      <h2 class="section-title">
-        Try it on <span class="gradient-text">your components</span>
-      </h2>
-      <p class="section-lede">
-        The REPL runs solid-optimizer and Solid’s JSX transform in your browser, as WebAssembly.
-        Paste a few modules and compare the output, the templates, and the size.
-      </p>
-      <div class="hero-actions">
-        <a class="button primary" href="/repl/">
-          Open the REPL
-        </a>
-        <a class="button secondary" href="/docs/">
-          Read the docs
-        </a>
+    <section class="landing-row" id="faq">
+      <SectionHead title="Questions" lead="What people ask before they add it." />
+      <div class="tile faq">
+        <For each={QUESTIONS}>
+          {(item) => (
+            <details class="faq-item">
+              <summary>
+                {item.question}
+                <Icon name="chevron-down" />
+              </summary>
+              <p>{item.answer}</p>
+            </details>
+          )}
+        </For>
       </div>
     </section>
   );
@@ -234,27 +273,55 @@ export function Home(): JSX.Element {
   return (
     <>
       <Header page="home" />
-      <main>
+      <main id="main" class="landing">
         <Hero />
-        <section class="section" id="build">
-          <h2 class="section-title">
-            What changes <span class="gradient-text">in the build</span>
-          </h2>
-          <p class="section-lede">
-            Six small apps, compiled by Solid’s JSX transform alone and with solid-optimizer first.
-            Pick one to compare the JSX, the client code, and the HTML the server sends.
-          </p>
+        <section class="landing-row" id="benchmarks">
+          <SectionHead
+            title="Half the server render time"
+            lead="Two real apps, rendered with and without solid-optimizer. Lower is better."
+          />
+          <div class="tile">
+            <Benchmarks />
+          </div>
+        </section>
+        <section class="landing-row" id="build">
+          <SectionHead
+            title="Less code in every build"
+            lead="Six small apps. Pick one to compare Solid’s output with and without it."
+          />
           <Showcase />
         </section>
-        <Passes />
-        <section class="section" id="benchmarks">
-          <h2 class="section-title">
-            Less work <span class="gradient-text">at runtime</span>
-          </h2>
-          <Benchmarks />
+        <section class="landing-row" id="usage">
+          <SectionHead
+            title="One import changes"
+            lead="It wraps @solidjs/vite-plugin, so SSR, server functions and HMR keep working."
+          />
+          <div class="tile usage-tile">
+            <div class="code-block">
+              <Code code={VITE_USAGE} />
+            </div>
+            <a class="usage-link" href="/docs/guides/vite-plugin/">
+              Set up the Vite plugin
+              <Icon name="arrow-right" class="icon-arrow" />
+            </a>
+          </div>
         </section>
-        <Usage />
-        <Closing />
+        <Passes />
+        <Comparison />
+        <Faq />
+        <section class="tile closing" data-tone="ink">
+          <h2 class="row-title">Try it on your components</h2>
+          <p class="hero-tagline">The REPL runs both compilers in your browser.</p>
+          <div class="hero-actions">
+            <a class="button" data-variant="primary" href="/repl/">
+              Open the REPL
+              <Icon name="arrow-right" class="icon-arrow" />
+            </a>
+            <a class="button" data-variant="quiet" href="/docs/">
+              Read the docs
+            </a>
+          </div>
+        </section>
       </main>
       <Footer />
     </>

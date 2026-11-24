@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && node scripts/prerender.ts",
+    "build": "vite build && node scripts/prerender.ts && node scripts/word-budget.ts",
     "dev": "vite",
     "preview": "vite preview",
     "og": "node scripts/og.ts",
@@ -15,8 +15,6 @@
     "@codemirror/language": "^6.13.1",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0",
     "@lezer/highlight": "^1.2.5",
     "@oxc-parser/binding-wasm32-wasi": "0.151.0",
     "@solidjs/compiler-wasm32-wasi": "2.0.0",
@@ -34,6 +32,7 @@
     "@solidjs/compiler": "2.0.0",
     "@solidjs/vite-plugin": "3.0.0",
     "@types/node": "^26.6.3",
+    "marked": "^18.2.1",
     "oxfmt": "^0.71.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"

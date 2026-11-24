@@ -43,7 +43,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 
 ### Options
 
-- `filename` sets the parser and the source map source. `.ts` and `.tsx` parse as TypeScript. Anything else parses as JSX. Defaults to `input.jsx`.
+- `filename` sets the parser and the source map source. `.ts`, `.tsx`, `.mts`, and `.cts` parse as TypeScript. Anything else parses as JSX. Defaults to `input.jsx`.
 - `fold` turns constant folding and control-flow resolution on or off. Defaults to `true`.
 - `inline` turns component inlining on or off. Defaults to `true`.
 - `alwaysInline` inlines every component that can be, even where the copies are larger than the calls they replace. Defaults to `false`. See [Only where it is smaller](#only-where-it-is-smaller).
@@ -54,7 +54,10 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `conditionals` turns `<Show>` and `<Switch>` lowering on or off. A `<Show>` without `keyed` becomes a ternary, which Solid's JSX transform compiles to one memo instead of a component and three memos. A callback child like `{(user) => <b>{user().name}</b>}` becomes its body, with `user()` read as `when` again, when `when` reads names, members, and signal or memo getters. A `<Switch>` of such `<Match>`es becomes a chain of ternaries. Defaults to `true`.
 - `builtIns` lists the names of Solid's built-in components. A tag only folds when it is one of them. An empty list turns control-flow folding off.
 - `moduleSources` lists the modules Solid's built-ins are imported from. Defaults to `['solid-js', '@solidjs/web']`.
+- `builtInAliases` maps top-level names that refer to Solid's built-ins to the built-in's name, like `{ Show$1: 'Show' }`. A bundler can rename a built-in in a chunk, or declare it instead of importing it.
+- `constantVars` treats a top-level `var` that nothing writes to as a constant. Bundlers turn top-level `const` into `var`, so turn this on for bundled chunks. Defaults to `false`.
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
+- `importedContexts` lists the exports of imported modules that are contexts made by `createContext`, keyed by the import specifier as the code writes it. A provider of an imported context can then be removed like a local one.
 - `globalConstants` holds values of global names and paths, such as `{ __DEV__: false, 'import.meta.env.MODE': 'production' }`. A path starts at `import.meta` or at a name the module does not declare, and folds like a constant.
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
 - `sourceMap` turns the source map on or off. Defaults to `true`.
@@ -95,7 +98,7 @@ export default defineConfig({
 });
 ```
 
-`@solidjs/vite-plugin` and `vite` are peer dependencies.
+`@solidjs/vite-plugin` and `vite` are optional peer dependencies. Only `solid-optimizer/vite` needs them.
 
 The plugin optimizes in one of two modes.
 
@@ -133,18 +136,9 @@ solid-optimizer: what stays as written in client
   inline   no-host           1  Home
 ```
 
-Each line is a pass, a reason, how many times it happened, and the names it happened to. A package's own modules are compiled too, but what they leave alone is not reported, since the app cannot change it. The app's calls of a package's components are. In chunk mode, a chunk is reported as a whole, so it also lists the package code bundled into it. The reasons for the inline pass:
+Each line is a pass, a reason, how many times it happened, and the names it happened to. A package's own modules are compiled too, but what they leave alone is not reported, since the app cannot change it. The app's calls of a package's components are. In chunk mode, a chunk is reported as a whole, so it also lists the package code bundled into it.
 
-- `props-use` and `view-use` mean the component uses its props in a way other than `props.name`, a spread onto an element, or a `merge()` or `omit()` view, such as passing them to a function.
-- `component-params`, `component-body`, `component-return`, `component-async`, `component-recursive`, and `component-this` mean the component's own shape is not supported.
-- `component-write` means the component's statements assign to something declared outside it, like a counter at the top of the module. A copy's statements run before the JSX around the call, so that JSX would see the write too early.
-- `call-spread` and `call-namespace` mean the call site passes a spread or a namespaced attribute. `call-ref` means its `ref` is an expression other than a name, a function, or an array of them, and `ref-use` means the component uses `props.ref` other than as a `ref`.
-- `no-host` means the component has statements, and the call is not in JSX that a component or one of Solid's callbacks returns. A `<Show>` child or a `fallback` is one such place.
-- `size` means the copies would be larger than the calls.
-- `lazy`, `imported`, `nested`, and `not-a-function` mean the tag is not a component declared at the top of the same module or chunk.
-- A reason that starts with `copy-` is about copying a component from another module. `copy-package` means it comes from a package in `node_modules` that `optimizer.packages` does not list, `copy-cycle` means the component's module imports the importer back, directly or through other modules, a listed package, or a virtual module, `copy-virtual` means the copy would import a virtual module that its specifier does not reach from the importer, `copy-wrapper` means the component only returns a call of another component in its module, and `copy-size` means the copy was larger.
-
-The provider pass reports `open-component`, `open-call`, `open-new`, `open-spread`, and `open-outer` for code under the provider that it cannot see into, and `provider-value`, `provider-undefined`, and `provider-shape` for a value or provider it cannot handle. The memo pass reports `memo-reads`, `memo-read-place`, `memo-constant`, and a few more for a memo it keeps, and `signal-constant` for a signal that nothing writes but that is used other than by calling it.
+`skip.pass` is `'inline'`, `'contexts'` for the provider pass, or `'memos'`. The [Report reasons](https://solid-optimizer.vercel.app/docs/reference/reasons/) page of the docs lists every reason code and what it means.
 
 ### Limits
 
@@ -152,7 +146,7 @@ The provider pass reports `open-component`, `open-call`, `open-new`, `open-sprea
 - An export named `__so_local$name` is added to a module for each local binding its exported components need, so a copy in another module can import it. In chunk mode, entry modules get none.
 - A component used in several chunks is copied into each of them, where each copy is no larger than its call.
 - Components from dependencies in `node_modules` are only copied from the packages `optimizer.packages` lists.
-- `.tsrx` modules are lowered by the official plugin and are not optimized.
+- The plugin optimizes the modules the official plugin lowers: `.jsx` and `.tsx` (with their `.m` and `.c` forms), plus the `extensions` it registers, such as `.mdx`, filtered by `include` and `exclude`. `.tsrx` modules are the exception: the official plugin lowers them on its own path, and they are not optimized.
 
 ## Features
 

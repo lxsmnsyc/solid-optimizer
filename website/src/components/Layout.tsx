@@ -1,11 +1,16 @@
 import type { JSX } from '@solidjs/web';
-import { For } from 'solid-js';
+import { For, Show, createSignal, onSettled } from 'solid-js';
+import pkg from 'solid-optimizer/package.json';
+import { DocsNav } from './DocsNav';
+import { Icon } from './Icon';
 
 export const REPOSITORY = 'https://github.com/lxsmnsyc/solid-optimizer';
 export const NPM = 'https://www.npmjs.com/package/solid-optimizer';
 export const INSTALL = 'npm i -D solid-optimizer';
+export const CHANGELOG = `${REPOSITORY}/blob/main/packages/solid-optimizer/CHANGELOG.md`;
+const VERSION = pkg.version;
 
-export type Page = 'home' | 'docs' | 'repl';
+export type Page = 'home' | 'docs' | 'repl' | 'not-found';
 
 const LINKS: { page: Page; href: string; label: string }[] = [
   { page: 'docs', href: '/docs/', label: 'Docs' },
@@ -28,77 +33,249 @@ export function Mark(): JSX.Element {
   );
 }
 
-function GitHubIcon(): JSX.Element {
+/** Banig's header theme button: moon in light mode, sun in dark mode. */
+function ThemeButton(): JSX.Element {
+  // The server cannot know the theme, so the label settles once the page runs.
+  const [dark, setDark] = createSignal<boolean | undefined>(undefined);
+
+  function isDark(): boolean {
+    const chosen = document.documentElement.dataset.theme;
+    if (chosen) {
+      return chosen === 'dark';
+    }
+    return matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  onSettled(() => {
+    setDark(isDark());
+  });
+
+  function toggle(): void {
+    const next = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      // The choice still holds for this page.
+    }
+    setDark(next === 'dark');
+  }
+
+  const label = (): string => {
+    const value = dark();
+    if (value === undefined) {
+      return 'Switch the theme';
+    }
+    return value ? 'Switch to light theme' : 'Switch to dark theme';
+  };
+
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" class="icon">
-      <path
-        fill="currentColor"
-        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
-      />
-    </svg>
+    <button
+      type="button"
+      class="icon-button theme-button"
+      aria-label={label()}
+      title={label()}
+      onClick={toggle}
+    >
+      <span class="theme-icon-moon">
+        <Icon name="moon" />
+      </span>
+      <span class="theme-icon-sun">
+        <Icon name="sun" />
+      </span>
+    </button>
   );
 }
 
-export function Header(props: { page: Page }): JSX.Element {
+/**
+ * Banig's MobileDrawer: below 48rem the nav links hide and this holds them,
+ * with the docs sections on docs pages. It stays mounted, so opening and
+ * closing reverse from wherever they are.
+ */
+function MenuDrawer(props: { page: Page; slug?: string }): JSX.Element {
+  const [open, setOpen] = createSignal(false);
+  let drawer: HTMLElement | undefined;
+  let opener: HTMLButtonElement | undefined;
+
+  function show(): void {
+    setOpen(true);
+    requestAnimationFrame(() => {
+      drawer?.querySelector<HTMLElement>('a, button')?.focus();
+    });
+  }
+
+  function hide(): void {
+    setOpen(false);
+    opener?.focus();
+  }
+
+  onSettled(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && open()) {
+        hide();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+    };
+  });
+
   return (
-    <header class="nav">
-      <a class="brand" href="/">
-        <Mark />
-        <span>solid-optimizer</span>
-      </a>
-      <nav class="nav-links">
-        <For each={LINKS}>
-          {(link) => (
-            <a
-              href={link.href}
-              class={{ current: link.page === props.page }}
-              aria-current={link.page === props.page ? 'page' : undefined}
-            >
-              {link.label}
+    <>
+      <button
+        type="button"
+        class="icon-button menu-button"
+        aria-label="Open menu"
+        title="Open menu"
+        aria-expanded={open() ? 'true' : 'false'}
+        aria-controls="menu-drawer"
+        onClick={show}
+        ref={(element) => {
+          opener = element;
+        }}
+      >
+        <Icon name="menu" />
+      </button>
+      <div
+        id="menu-drawer"
+        class="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        data-state={open() ? 'open' : 'closed'}
+        inert={!open()}
+        ref={(element) => {
+          drawer = element;
+        }}
+      >
+        <div class="drawer-head">
+          <span class="wordmark drawer-wordmark">solid-optimizer</span>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close menu"
+            title="Close menu"
+            onClick={hide}
+          >
+            <Icon name="x" />
+          </button>
+        </div>
+        <ul class="sidebar-list drawer-links">
+          <li>
+            <a href="/" aria-current={props.page === 'home' ? 'page' : undefined}>
+              Home
             </a>
-          )}
-        </For>
-        <a
-          class="nav-icon"
-          href={REPOSITORY}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="GitHub"
-        >
-          <GitHubIcon />
-        </a>
-      </nav>
-    </header>
+          </li>
+          <For each={LINKS}>
+            {(link) => (
+              <li>
+                <a
+                  href={link.href}
+                  aria-current={link.page === props.page && !props.slug ? 'page' : undefined}
+                >
+                  {link.label}
+                </a>
+              </li>
+            )}
+          </For>
+        </ul>
+        <Show when={props.page === 'docs'}>
+          <DocsNav slug={props.slug} />
+        </Show>
+      </div>
+      <div class="scrim" data-for="drawer" data-state={open() ? 'open' : 'closed'} onClick={hide} />
+    </>
+  );
+}
+
+/** The platform of the system: the client hints where there are any, else the user agent. */
+function readPlatform(): string {
+  // `userAgentData` is not in every browser or in the DOM types of every TypeScript version.
+  const hints: unknown = Reflect.get(navigator, 'userAgentData');
+  const platform: unknown =
+    typeof hints === 'object' && hints !== null ? Reflect.get(hints, 'platform') : '';
+  return typeof platform === 'string' && platform !== '' ? platform : navigator.userAgent;
+}
+
+export function Header(props: { page: Page; slug?: string }): JSX.Element {
+  // The search key hint names the key of the system, once the page knows it.
+  const [shortcut, setShortcut] = createSignal('Ctrl K');
+  onSettled(() => {
+    if (/mac|iphone|ipad/i.test(readPlatform())) {
+      setShortcut('⌘K');
+    }
+  });
+  return (
+    <>
+      <a class="skip" href="#main">
+        Skip to content
+      </a>
+      <header class="site-header">
+        <div class="site-header-inner">
+          <a class="wordmark" href="/">
+            <Mark />
+            solid-optimizer
+            <span class="wordmark-version">v{VERSION}</span>
+          </a>
+          <div class="site-header-slot">
+            {/* src/search/bind.ts opens the search bar from this button, `/` and Ctrl or Cmd+K. */}
+            <button
+              type="button"
+              class="search-trigger"
+              aria-haspopup="dialog"
+              aria-keyshortcuts="Control+K Meta+K /"
+              aria-label="Search the docs"
+            >
+              <Icon name="search" />
+              <span>Search docs</span>
+              <kbd class="kbd">{shortcut()}</kbd>
+            </button>
+          </div>
+          <nav class="pills site-nav" aria-label="Site">
+            <For each={LINKS}>
+              {(link) => (
+                <a
+                  href={link.href}
+                  class="pill"
+                  aria-current={link.page === props.page ? 'page' : undefined}
+                >
+                  {link.label}
+                </a>
+              )}
+            </For>
+            <a
+              class="icon-button"
+              href={REPOSITORY}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="solid-optimizer on GitHub"
+              title="solid-optimizer on GitHub"
+            >
+              <Icon name="github" />
+            </a>
+            <ThemeButton />
+            <MenuDrawer page={props.page} slug={props.slug} />
+          </nav>
+        </div>
+      </header>
+    </>
   );
 }
 
 export function Footer(): JSX.Element {
   return (
-    <footer class="footer">
-      <a class="brand" href="/">
-        <Mark />
-        <span>solid-optimizer</span>
-      </a>
-      <span>MIT © lxsmnsyc</span>
-      <span class="footer-note">
-        This site is prerendered and built with{' '}
-        <a
-          href={`${REPOSITORY}/blob/main/website/vite.config.ts`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          solid-optimizer
-        </a>
-        .
-      </span>
-      <nav>
-        <a href="/docs/">Docs</a>
-        <a href="/repl/">REPL</a>
+    <footer class="site-footer">
+      <span>MIT © Alexis Munsayac</span>
+      <nav aria-label="Footer">
         <a href={REPOSITORY} target="_blank" rel="noopener noreferrer">
           GitHub
         </a>
         <a href={NPM} target="_blank" rel="noopener noreferrer">
           npm
+        </a>
+        <a href={CHANGELOG} target="_blank" rel="noopener noreferrer">
+          Changelog
         </a>
       </nav>
     </footer>

@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "types": ["vite/client", "node", "@solidjs/vite-plugin/virtual-modules"]
   },
-  "include": ["src", "scripts", "vite.config.ts"]
+  "include": ["src", "scripts", "plugins", "vite.config.ts"]
 }

@@ -2,6 +2,9 @@ import type { JSX } from '@solidjs/web';
 import { HydrationScript } from '@solidjs/web';
 import type { Route } from './routes';
 
+const THEME_SCRIPT =
+  "try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch{}";
+
 /**
  * The whole HTML document of a page. The server renders it around the page,
  * and the client hydrates it, so the head is the same on both.
@@ -15,7 +18,17 @@ export function Document(props: { route: Route; children: JSX.Element }): JSX.El
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#070b14" />
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ebebee" />
+        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#08080a" />
+        {/* Sets the saved theme before the first paint, so a page never flashes the other one. */}
+        <script innerHTML={THEME_SCRIPT} />
+        <link
+          rel="preload"
+          href="/fonts/bricolage-grotesque.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin=""
+        />
         <title>{props.route.title}</title>
         <meta name="description" content={props.route.description} />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -28,7 +41,10 @@ export function Document(props: { route: Route; children: JSX.Element }): JSX.El
         <meta property="og:image" content={image} />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="solid-optimizer: Fewer templates. Same app." />
+        <meta
+          property="og:image:alt"
+          content="solid-optimizer: Same Solid app. 2× faster server rendering."
+        />
         <meta name="twitter:card" content="summary_large_image" />
         <HydrationScript />
         {/* The server rewrites this path to the built entry. */}
