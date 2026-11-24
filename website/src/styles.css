@@ -1750,18 +1750,9 @@ button {
   white-space: pre;
 }
 
-.hero-line-text.tmpl {
-  color: var(--accent-strong);
-  font-weight: 700;
-}
-
 .hero-line[data-tint='gone'] {
   background: var(--danger-tint);
   color: var(--danger);
-}
-
-.hero-line[data-tint='gone'] .tmpl {
-  color: inherit;
 }
 
 .hero-line[data-tint='new'] {
@@ -1982,4 +1973,9 @@ button {
   .site-nav .pill:not(.icon-pill) {
     display: inline-flex;
   }
+}
+
+/* A blank line of highlighted code is an empty element; give it a line's height. */
+.hero-line-text .l:empty::after {
+  content: ' ';
 }

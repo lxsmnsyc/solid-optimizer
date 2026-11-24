@@ -9,6 +9,7 @@
  * DOM of the visual once it is on screen, and leaves it alone with reduced motion.
  */
 import hero from '../hero.json';
+import { highlight } from './highlight';
 import { slideThumb } from './thumb';
 
 export type HeroExample = (typeof hero)[number];
@@ -58,24 +59,46 @@ export function listStates(example: HeroExample): string[] {
   return [...example.steps.map((step) => step.label), OUTPUT_LABEL];
 }
 
-/** Solid's template lines, the part solid-optimizer merges. */
-export function isTemplateLine(text: string): boolean {
-  return /_\$template\(|^\s*`</.test(text);
-}
-
 export function countLines(text: string): number {
   return text.split('\n').length;
+}
+
+/**
+ * Highlights code and returns the HTML of each line. twinkleplop wraps each
+ * line in its own element and closes every token at the end of a line, so a
+ * token that spans lines, like a template string, keeps its color on each.
+ */
+export function highlightLines(code: string): string[] {
+  const html = highlight(code, 'tsx');
+  const start = html.indexOf('<code>') + '<code>'.length;
+  const end = html.lastIndexOf('</code>');
+  const lines = html.slice(start, end).split('\n');
+  // Fall back to plain text if the lines do not match, so the diff stays right.
+  if (lines.length !== countLines(code)) {
+    return code.split('\n').map(escapeHTML);
+  }
+  return lines;
+}
+
+function escapeHTML(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 type Kind = 'same' | 'gone' | 'new';
 
 interface Row {
   text: string;
+  html: string;
   kind: Kind;
 }
 
 /** A line diff by longest common subsequence: the lines that go and the lines that come. */
-function diffLines(before: string[], after: string[]): Row[] {
+function diffLines(
+  before: string[],
+  after: string[],
+  beforeHTML: string[],
+  afterHTML: string[],
+): Row[] {
   const table: Int32Array[] = [];
   for (let i = 0; i <= before.length; i += 1) {
     table.push(new Int32Array(after.length + 1));
@@ -93,14 +116,14 @@ function diffLines(before: string[], after: string[]): Row[] {
   let j = 0;
   while (i < before.length || j < after.length) {
     if (i < before.length && j < after.length && before[i] === after[j]) {
-      rows.push({ text: before[i], kind: 'same' });
+      rows.push({ text: before[i], html: beforeHTML[i], kind: 'same' });
       i += 1;
       j += 1;
     } else if (j < after.length && (i === before.length || table[i][j + 1] >= table[i + 1][j])) {
-      rows.push({ text: after[j], kind: 'new' });
+      rows.push({ text: after[j], html: afterHTML[j], kind: 'new' });
       j += 1;
     } else {
-      rows.push({ text: before[i], kind: 'gone' });
+      rows.push({ text: before[i], html: beforeHTML[i], kind: 'gone' });
       i += 1;
     }
   }
@@ -139,7 +162,8 @@ function findPart(root: HTMLElement, name: string): HTMLElement {
   return element;
 }
 
-function makeLine(text: string, kind?: Kind): HTMLElement {
+/** One line of the code window. `html` is the line as `highlightLines` writes it. */
+function makeLine(html: string, kind?: Kind): HTMLElement {
   const line = document.createElement('span');
   line.className = 'hero-line';
   if (kind) {
@@ -149,10 +173,18 @@ function makeLine(text: string, kind?: Kind): HTMLElement {
     line.toggleAttribute('data-hidden', true);
   }
   const inner = document.createElement('span');
-  inner.className = isTemplateLine(text) ? 'hero-line-text tmpl' : 'hero-line-text';
-  inner.textContent = text || ' ';
+  inner.className = 'hero-line-text';
+  inner.innerHTML = html || ' ';
   line.append(inner);
   return line;
+}
+
+function makeLines(code: string): HTMLElement[] {
+  const lines: HTMLElement[] = [];
+  for (const html of highlightLines(code)) {
+    lines.push(makeLine(html));
+  }
+  return lines;
 }
 
 /**
@@ -282,8 +314,13 @@ export function playHero(root: HTMLElement): () => void {
   }
 
   async function playChanges(before: string, after: string, mine: number): Promise<void> {
-    const rows = diffLines(before.split('\n'), after.split('\n'));
-    const lines = rows.map((row) => makeLine(row.text, row.kind));
+    const rows = diffLines(
+      before.split('\n'),
+      after.split('\n'),
+      highlightLines(before),
+      highlightLines(after),
+    );
+    const lines = rows.map((row) => makeLine(row.html, row.kind));
     parts.code.replaceChildren(...lines);
     await wait(300, mine);
     for (const block of groupBlocks(lines)) {
@@ -324,7 +361,7 @@ export function playHero(root: HTMLElement): () => void {
     parts.stage.toggleAttribute('data-enter', true);
     buildPasses(example);
     const source = example.steps[0];
-    parts.code.replaceChildren(...source.jsx.split('\n').map((text) => makeLine(text)));
+    parts.code.replaceChildren(...makeLines(source.jsx));
     parts.code.scrollTop = 0;
     parts.caption.textContent = captionFor(example, source.label);
     paintStep(0);
@@ -352,7 +389,7 @@ export function playHero(root: HTMLElement): () => void {
     await setCaption(captionFor(example, OUTPUT_LABEL), mine);
     parts.code.toggleAttribute('data-swap', true);
     await wait(240, mine);
-    parts.code.replaceChildren(...example.output.split('\n').map((text) => makeLine(text)));
+    parts.code.replaceChildren(...makeLines(example.output));
     parts.code.scrollTop = 0;
     paintFile(example.output, true);
     parts.code.removeAttribute('data-swap');

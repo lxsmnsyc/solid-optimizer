@@ -6,7 +6,7 @@ import {
   OUTPUT_LABEL,
   captionFor,
   countLines,
-  isTemplateLine,
+  highlightLines,
   listStates,
   playHero,
 } from '../lib/hero-player';
@@ -126,13 +126,11 @@ export function HeroSteps(): JSX.Element {
             <span data-part="file">Compiled by Solid · App.js</span>
             <span data-part="count">{String(countLines(example().output))} lines</span>
           </div>
-          <pre class="hero-code" data-part="code" aria-hidden="true">
-            <For each={example().output.split('\n')}>
-              {(line) => (
+          <pre class="hero-code twinkleplop" data-part="code" aria-hidden="true">
+            <For each={highlightLines(example().output)}>
+              {(html) => (
                 <span class="hero-line">
-                  <span class={isTemplateLine(line) ? 'hero-line-text tmpl' : 'hero-line-text'}>
-                    {line || ' '}
-                  </span>
+                  <span class="hero-line-text" innerHTML={html || ' '} />
                 </span>
               )}
             </For>
