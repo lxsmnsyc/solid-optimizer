@@ -1761,10 +1761,14 @@ button {
   pointer-events: none;
 }
 
+/* The status keeps one width, so its text changing never rewraps the bar and moves the panes. */
 .repl-status {
   display: inline-flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 6px;
+  min-width: 24ch;
+  white-space: nowrap;
   color: var(--muted);
   font: 400 12px var(--font-mono);
 }
