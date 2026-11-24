@@ -8,7 +8,11 @@
  * - A fragment that holds one element, with only line breaks around it,
  *   becomes that element.
  *
- * Solid's JSX transform lowers the result to the same code. The tests check that.
+ * Each edit follows a model of how Solid's JSX transform reads JSX: its
+ * whitespace rule, which strings it writes as they are, and where a fragment
+ * around one element lowers the same as the element. Anything outside the
+ * model, such as unusual whitespace, stays as it is. The tests lower the
+ * tidied and untidied output and expect the same code.
  */
 import type {
   JSXAttribute,
@@ -34,14 +38,23 @@ export function cleanText(raw: string): string {
   if (text.includes('\n')) {
     const kept: string[] = [];
     for (const [index, line] of text.split('\n').entries()) {
-      const trimmed = index === 0 ? line : line.replace(/^\s+/, '');
-      if (/\S/.test(trimmed)) {
+      const trimmed = index === 0 ? line : line.replace(/^[ \t]+/, '');
+      if (/[^ \t]/.test(trimmed)) {
         kept.push(trimmed);
       }
     }
     text = kept.join(' ');
   }
-  return text.replaceAll(/\s+/g, ' ');
+  return text.replaceAll(/[ \t\n]+/g, ' ');
+}
+
+/**
+ * Whether a text holds whitespace or format characters other than space,
+ * tab and line breaks, such as U+0085 or a byte order mark. Solid's JSX
+ * transform and JavaScript disagree on some of them, so such text stays as it is.
+ */
+function hasUnusualSpace(text: string): boolean {
+  return /(?![ \t\n\r])[\s\p{White_Space}\p{Cf}]/u.test(text);
 }
 
 /**
@@ -65,6 +78,13 @@ function readString(container: JSXExpressionContainer, code: string): string | u
   if (value === undefined || code.slice(expression.start + 1, expression.end - 1) !== value) {
     return undefined;
   }
+  // Braces that hold a comment beside the string keep it.
+  const around =
+    code.slice(container.start + 1, expression.start) +
+    code.slice(expression.end, container.end - 1);
+  if (around.trim() !== '') {
+    return undefined;
+  }
   return value;
 }
 
@@ -79,17 +99,26 @@ function unwrapString(
   context: PassContext,
 ): void {
   const { expression } = container;
-  const { s } = context;
-  // Removing keeps the mapping of the string's characters; only quotes are written.
-  if (before === '') {
-    s.remove(container.start, expression.start + 1);
+  const { code, s } = context;
+  // Removing keeps the mapping of the string's characters, and of quotes
+  // that stay. Only a quote that changes is written.
+  s.remove(container.start, expression.start);
+  s.remove(expression.end, container.end);
+  const open = code[expression.start];
+  const close = code[expression.end - 1];
+  if (before === open) {
+    // The quote stays.
+  } else if (before === '') {
+    s.remove(expression.start, expression.start + 1);
   } else {
-    s.overwrite(container.start, expression.start + 1, s.written(before, container.start));
+    s.overwrite(expression.start, expression.start + 1, s.written(before, expression.start));
   }
-  if (after === '') {
-    s.remove(expression.end - 1, container.end);
+  if (after === close) {
+    // The quote stays.
+  } else if (after === '') {
+    s.remove(expression.end - 1, expression.end);
   } else {
-    s.overwrite(expression.end - 1, container.end, s.written(after, expression.end - 1));
+    s.overwrite(expression.end - 1, expression.end, s.written(after, expression.end - 1));
   }
 }
 
@@ -173,12 +202,33 @@ function isIntrinsic(element: JSXElement): boolean {
 
 /** A string that can be written as JSX text: no syntax, no entities, no line breaks. */
 function isPlainText(value: string): boolean {
-  return value !== '' && !/[{}<>&\r\n]/.test(value) && value.trim() === value;
+  return (
+    value !== '' &&
+    !/[{}<>&\r\n\t]/.test(value) &&
+    !hasUnusualSpace(value) &&
+    value.trim() === value
+  );
 }
 
 /** A string that can be written as a JSX attribute in double quotes. */
 function isPlainAttribute(value: string): boolean {
-  return !/["&\r\n]/.test(value);
+  return !/["&\r\n]/.test(value) && !hasUnusualSpace(value);
+}
+
+/**
+ * Attributes whose string Solid's JSX transform treats differently once it
+ * is written as a plain value: it moves a static `style` last, and `ref`,
+ * `classList`, event handlers and namespaced attributes do not take a string.
+ */
+function isTidyAttribute(attribute: JSXAttribute): boolean {
+  const { name } = attribute;
+  return (
+    name.type === 'JSXIdentifier' &&
+    name.name !== 'style' &&
+    name.name !== 'ref' &&
+    name.name !== 'classList' &&
+    !/^on[A-Z]/.test(name.name)
+  );
 }
 
 /**
@@ -192,6 +242,11 @@ function tidyChildren(
   context: PassContext,
 ): boolean {
   const { code, s } = context;
+  for (const child of children) {
+    if (child.type === 'JSXText' && hasUnusualSpace(code.slice(child.start, child.end))) {
+      return false;
+    }
+  }
   const parts: (Part | undefined)[] = [];
   for (const [index, child] of children.entries()) {
     if (child.type === 'JSXText') {
@@ -243,7 +298,7 @@ function findOnlyElement(fragment: JSXFragment, code: string): JSXElement | unde
       only = child;
     } else if (child.type === 'JSXText') {
       // Spaces without a line break are text: `<> <b /></>` renders a space.
-      if (cleanText(child.value) !== '') {
+      if (!/^[ \t\r\n]*$/.test(child.value) || cleanText(child.value) !== '') {
         return undefined;
       }
     } else if (!(child.type === 'JSXExpressionContainer' && isEmpty(child, code))) {
@@ -255,7 +310,7 @@ function findOnlyElement(fragment: JSXFragment, code: string): JSXElement | unde
 
 function tidyAttribute(attribute: JSXAttribute, context: PassContext): boolean {
   const { value } = attribute;
-  if (value?.type !== 'JSXExpressionContainer') {
+  if (value?.type !== 'JSXExpressionContainer' || !isTidyAttribute(attribute)) {
     return false;
   }
   const text = readString(value, context.code);
@@ -266,10 +321,29 @@ function tidyAttribute(attribute: JSXAttribute, context: PassContext): boolean {
   return true;
 }
 
+/**
+ * Whether a fragment is a branch of `? :`, or the right side of `&&`, `||`
+ * or `??`, where the lowering of `<Show>` and `<Switch>` leaves them. There a
+ * fragment around one element lowers the same as the element. Elsewhere,
+ * such as a function's return, Solid's JSX transform writes different code.
+ */
+function isBranch(fragment: JSXFragment, context: PassContext): boolean {
+  let node: Node = fragment;
+  let parent = context.parents.get(node);
+  while (parent?.type === 'ParenthesizedExpression') {
+    node = parent;
+    parent = context.parents.get(node);
+  }
+  if (parent?.type === 'ConditionalExpression') {
+    return parent.consequent === node || parent.alternate === node;
+  }
+  return parent?.type === 'LogicalExpression' && parent.right === node;
+}
+
 export function tidyJSX(context: PassContext): boolean {
   let changed = false;
   const visit = (node: Node): void => {
-    if (node.type === 'JSXFragment') {
+    if (node.type === 'JSXFragment' && isBranch(node, context)) {
       const only = findOnlyElement(node, context.code);
       if (only) {
         // Everything around the element is line breaks or empty braces, so it all goes.

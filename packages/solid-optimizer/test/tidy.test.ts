@@ -3,7 +3,8 @@
  * fragment around one element goes. Each case also checks that Solid's JSX
  * transform lowers the tidied output to the same code as the untidied one.
  */
-import { describe, expect, it } from 'vitest';
+import { fc, it } from '@fast-check/vitest';
+import { describe, expect } from 'vitest';
 import { cleanText } from '../src/tidy';
 import { lower, optimize } from './utils';
 
@@ -158,5 +159,75 @@ describe('when it runs', () => {
     expect(
       optimize("const T = 'dark';\nexport const v = <p class={T}>x</p>;", { tidy: false }),
     ).toContain('class={"dark"}');
+  });
+});
+
+describe('what the review found', () => {
+  it('keeps a fragment outside a branch, where Solid lowers it differently', () => {
+    expect(
+      tidyAndCheck(
+        'const F = true;\nexport function f(x) { return <>{F}<b>{x()}</b></>; }\nexport const g = (x) => <div>{<><b>{x()}</b></>}</div>;',
+      ),
+    ).toContain('{<><b>{x()}</b></>}');
+  });
+
+  it('unwraps a fragment that is a branch, with dynamic content, a spread or a ref', () => {
+    const code = tidyAndCheck(
+      'const F = true;\nexport const v = (c, x, a, r) => <div>{F}{c() ? <><b>{x()}</b></> : null}{c() && <><i {...a} /></>}{c() || <><u ref={r} /></>}</div>;',
+    );
+    expect(code).toContain('? <b>{x()}</b> :');
+    expect(code).toContain('&& <i {...a} />');
+    expect(code).toContain('|| <u ref={r} />');
+  });
+
+  it('keeps strings with whitespace Solid and JavaScript read differently', () => {
+    const code = tidyAndCheck(
+      "const N = '\\u0085';\nconst B = '\\uFEFF';\nconst S = '\\u00A0';\nexport const v = <p title={N}>{N}x{B}<b>{S}</b></p>;",
+    );
+    expect(code).not.toContain('<p title="');
+  });
+
+  it('keeps a fragment whose text is a byte order mark', () => {
+    tidyAndCheck(
+      'const F = true;\nexport const v = (c) => <div>{F}{c() ? <>\uFEFF\n<b /></> : null}</div>;',
+    );
+  });
+
+  it('keeps a static style in braces, which Solid would move last', () => {
+    expect(
+      tidyAndCheck(
+        "const C = 'color:red';\nexport const v = <p style={C} id={'x'} class={'c'} />;",
+      ),
+    ).toContain('style={"color:red"} id="x" class="c"');
+  });
+
+  it('keeps a comment beside a string', () => {
+    expect(tidyAndCheck("const A = 'a';\nexport const v = <p>{A}{/* note */ 'b'}</p>;")).toContain(
+      "/* note */ 'b'",
+    );
+  });
+});
+
+describe('any string', () => {
+  // Strings of any characters, in each place a string can sit, tidy to the same lowered code.
+  const SHAPES = [
+    (value: string) => `export const v = <p>{V}</p>;`.replace('V', value),
+    (value: string) => `export const v = <p>a{V}b</p>;`.replace('V', value),
+    (value: string) => `export const v = <p title={V} />;`.replace('V', value),
+    (value: string) => `export const v = <p>\n  {V}\n  <b />\n</p>;`.replace('V', value),
+    (value: string) =>
+      `export const v = (c) => <p>{c() ? <>{V}</> : null}</p>;`.replace('V', value),
+    (value: string) => `export const v = <C>{V}x</C>;`.replace('V', value),
+    (value: string) => `export const v = <p>{V}{}{V}</p>;`.replaceAll('V', value),
+    (value: string) => `export const v = <p> {V} </p>;`.replace('V', value),
+  ];
+
+  it.prop([
+    fc.string({ unit: 'binary', maxLength: 6 }),
+    fc.integer({ min: 0, max: SHAPES.length - 1 }),
+  ])('tidies to the same lowered code', (value, shape) => {
+    // A folded constant makes the module change, so the tidy step runs.
+    const code = `const V = ${JSON.stringify(value)};\n${SHAPES[shape]('V')}`;
+    tidyAndCheck(code);
   });
 });
