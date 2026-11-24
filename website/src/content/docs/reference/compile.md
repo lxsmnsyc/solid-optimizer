@@ -56,6 +56,7 @@ interface CompileOptions {
   alwaysInline?: boolean;
   alwaysInlineComponents?: readonly string[];
   maxPasses?: number;
+  tidy?: boolean;
   sourceMap?: boolean;
   report?: boolean;
 }
@@ -196,6 +197,24 @@ Type: `number`
 Default: `10`
 
 The most rounds to run. One round can expose work for the next, such as an inlined component whose props now fold. Compilation stops early once a round changes nothing.
+
+### tidy {#tidy}
+
+Type: `boolean`
+
+Default: `true`
+
+Tidies the JSX the passes write: drops empty `{}` children, writes strings in braces such as `class={'card'}` or `{'Hello'}` as plain JSX, and unwraps a fragment that holds one element in a branch of `? :`, `&&`, `||` or `??`. Solid's JSX transform lowers the tidied JSX to the same code, so this only changes how the output reads. It runs only on a module the passes changed.
+
+```tsx compare="input"
+<p class={'card card-dark'}>{'Hello'}</p>
+```
+
+```tsx compare="output"
+<p class="card card-dark">Hello</p>
+```
+
+An edit that could change what renders is left out. The children of an element with a `children` attribute or a spread stay as they are, and so do strings holding `&`, quotes, line breaks or spaces at their ends, and the strings of `style`, `ref`, `classList` and `on` attributes.
 
 ### sourceMap {#source-map}
 
