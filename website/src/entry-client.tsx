@@ -6,6 +6,7 @@ import { NOT_FOUND, findRoute } from './routes';
 import './styles/tokens.css';
 import './styles/banig.css';
 import './styles.css';
+import './search/bind';
 
 // Each page is its own chunk, so the landing page and the docs never load the REPL.
 const PAGES: Record<Exclude<Route['id'], 'docs'>, () => Promise<() => JSX.Element>> = {

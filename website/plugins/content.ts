@@ -6,13 +6,18 @@
  *   HTML and headings.
  * - `virtual:docs-manifest` lists every doc's slug, title, description and
  *   type, without the HTML, for the sidebar, the pager and the page head.
+ * - The client build gets `search-index.json` for the search bar, and for
+ *   agents `llms.txt`, `llms-full.txt` and a Markdown copy of every doc at its
+ *   address with `.md`, like `/docs/guides/report.md`.
  */
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Marked } from 'marked';
 import type { Tokens } from 'marked';
 import type { Plugin, ViteDevServer } from 'vite';
+import { SIDEBAR } from '../src/content/sidebar.ts';
 import { highlight } from '../src/lib/highlight.ts';
+import { buildSearchIndex } from './search-index.ts';
 import type { Language } from '../src/lib/highlight.ts';
 
 export interface Heading {
@@ -314,8 +319,98 @@ export async function loadDocs(): Promise<RenderedDoc[]> {
   return docs;
 }
 
-/** The Vite plugin. */
-export function content(): Plugin {
+interface SourceDoc {
+  doc: RenderedDoc;
+  /** The Markdown of the doc without its frontmatter. */
+  body: string;
+  section: string;
+}
+
+/** Every doc in sidebar order, with its Markdown and its section. */
+async function loadOrderedDocs(): Promise<SourceDoc[]> {
+  const bySlug = new Map<string, { doc: RenderedDoc; body: string }>();
+  for (const file of await listDocFiles()) {
+    const source = await readFile(file, 'utf8');
+    const doc = await renderDoc(source, file);
+    bySlug.set(doc.slug, { doc, body: source.replace(/^---\n[\s\S]*?\n---\n/, '').trim() });
+  }
+  const ordered: SourceDoc[] = [];
+  for (const section of SIDEBAR) {
+    for (const slug of section.slugs) {
+      const found = bySlug.get(slug);
+      if (found) {
+        ordered.push({ ...found, section: section.title });
+      }
+    }
+  }
+  return ordered;
+}
+
+/** Where the Markdown copy of a doc is served: `docs/guides/report.md`, or `docs/index.md`. */
+function markdownPathOf(slug: string): string {
+  return slug === '' ? 'docs/index.md' : `docs/${slug}.md`;
+}
+
+/** A doc as Markdown for agents: its title, its lead, and links that point at the other copies. */
+function buildMarkdownCopy(source: SourceDoc, site: string): string {
+  const file = path.join(REPOSITORY_ROOT, source.doc.file);
+  const body = source.body.replaceAll(
+    /\]\(([^)\s]+?\.md)(#[^)\s]*)?\)/g,
+    (match, target: string, hash?: string) => {
+      if (/^[a-z]+:/i.test(target)) {
+        return match;
+      }
+      const absolute = path.resolve(path.dirname(file), target);
+      if (!absolute.startsWith(DOCS_DIR)) {
+        return match;
+      }
+      return `](${site}/${markdownPathOf(slugOf(absolute))}${hash ?? ''})`;
+    },
+  );
+  return `# ${source.doc.title}\n\n> ${source.doc.description}\n\n${body}\n`;
+}
+
+/** `llms.txt`: what the site is, and a link to the Markdown of every doc, by section. */
+function buildLLMsText(docs: readonly SourceDoc[], site: string): string {
+  const lines = [
+    '# solid-optimizer',
+    '',
+    '> A build-time optimizer for SolidJS 2.0. It rewrites JSX before Solid’s JSX transform: it inlines components, removes context providers, inlines memos, lowers Show and Switch, and folds control flow whose outcome is known at build time. It ships as `compile()` and a Vite plugin that replaces @solidjs/vite-plugin.',
+    '',
+    `The docs as one file: ${site}/llms-full.txt`,
+  ];
+  let section = '';
+  for (const source of docs) {
+    if (source.section !== section) {
+      section = source.section;
+      lines.push('', `## ${section}`, '');
+    }
+    lines.push(
+      `- [${source.doc.title}](${site}/${markdownPathOf(source.doc.slug)}): ${source.doc.description}`,
+    );
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** The files the client build gets besides the pages, by path. */
+async function buildDocFiles(site: string): Promise<Map<string, string>> {
+  const docs = await loadOrderedDocs();
+  const files = new Map<string, string>();
+  const index = buildSearchIndex(docs.map((source) => source.doc));
+  files.set('search-index.json', JSON.stringify(index));
+  files.set('llms.txt', buildLLMsText(docs, site));
+  const copies: string[] = [];
+  for (const source of docs) {
+    const copy = buildMarkdownCopy(source, site);
+    files.set(markdownPathOf(source.doc.slug), copy);
+    copies.push(copy);
+  }
+  files.set('llms-full.txt', copies.join('\n---\n\n'));
+  return files;
+}
+
+/** The Vite plugin. `site` is the site's origin, for the absolute links agents read. */
+export function content(site: string): Plugin {
   let server: ViteDevServer | undefined;
   return {
     name: 'solid-optimizer-docs',
@@ -323,6 +418,40 @@ export function content(): Plugin {
     configureServer(devServer) {
       server = devServer;
       devServer.watcher.add(DOCS_DIR);
+      // In dev, the search index and the files for agents are built on request.
+      devServer.middlewares.use((request, response, next) => {
+        const wanted = (request.url ?? '').split('?')[0].replace(/^\//, '');
+        if (!/^(?:search-index\.json|llms(?:-full)?\.txt|docs\/.*\.md)$/.test(wanted)) {
+          next();
+          return;
+        }
+        buildDocFiles(site).then(
+          (files) => {
+            const file = files.get(wanted);
+            if (file === undefined) {
+              next();
+              return;
+            }
+            response.setHeader(
+              'Content-Type',
+              wanted.endsWith('.json') ? 'application/json' : 'text/plain; charset=utf-8',
+            );
+            response.end(file);
+          },
+          (error: unknown) => {
+            next(error);
+          },
+        );
+      });
+    },
+    async generateBundle() {
+      // Only the client build is served; the server build only renders pages.
+      if (this.environment.name !== 'client') {
+        return;
+      }
+      for (const [fileName, source] of await buildDocFiles(site)) {
+        this.emitFile({ type: 'asset', fileName, source });
+      }
     },
     handleHotUpdate(context) {
       // A change to any doc can change the manifest.
