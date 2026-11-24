@@ -1,9 +1,11 @@
 /**
- * Plays the hero: each example starts as the JSX you write, then Solid's
- * compiled output, then goes through the optimizer's passes one step at a time. In each step, the blocks of Solid's output that change turn red, fold
- * away, and their replacements come in, one block after another.
+ * Plays the hero: each example starts as the JSX you write, then goes through
+ * the optimizer's passes one at a time. solid-optimizer works on JSX, so each
+ * step shows the JSX it writes: the blocks that change turn red, fold away,
+ * and their replacements come in, one block after another. The last step is
+ * what Solid's JSX transform makes of the result.
  *
- * The page renders the last step of the first example. This takes over the
+ * The page renders that last step for the first example. This takes over the
  * DOM of the visual once it is on screen, and leaves it alone with reduced motion.
  */
 import hero from '../hero.json';
@@ -14,39 +16,46 @@ export type HeroStep = HeroExample['steps'][number];
 
 export const HERO_EXAMPLES: HeroExample[] = hero;
 
+/** The last step: Solid's JSX transform compiles the optimized JSX. */
+export const OUTPUT_LABEL = 'Solid compiles it';
+
 /** What each step does to its example, in a few words. Keyed by example, then step label. */
-export const HERO_CAPTIONS: Record<string, Record<string, string>> = {
+const CAPTIONS: Record<string, Record<string, string>> = {
   context: {
     'Your code': 'A theme provider, and a card and a badge that read it.',
-    'Solid alone': 'Solid compiles each component and the provider on its own.',
-    'Inline components': 'Card and Badge join App: one template, the theme read as "dark".',
+    'Inline components': 'Card and Badge become plain JSX in App, with the theme read as "dark".',
     'Remove providers': 'Nothing reads Theme at runtime now, so its provider goes.',
-    'Fold constants': 'The copies of the theme are constants nothing reads, so they go too.',
+    'Fold constants': 'The theme folds into the class names.',
   },
   flags: {
     'Your code': 'Build-time flags decide what Show, Switch and Dynamic render.',
-    'Solid alone': 'Show, Switch and Dynamic each become a component call.',
     'Lower Show and Switch': 'Show and Switch become ternaries, with no component behind them.',
-    'Fold constants': 'The flags are constants, so every branch resolves: one static template.',
+    'Fold constants': 'The flags are constants, so each branch resolves and Dynamic becomes an h2.',
   },
   components: {
     'Your code': 'Small components, and a debug panel behind a flag.',
-    'Solid alone': 'Four components, five templates.',
-    'Inline components': 'Counter, Button and Icon join App’s template.',
+    'Inline components': 'Counter, Button and Icon become plain JSX in App.',
     'Lower Show and Switch': 'The debug Show becomes a ternary.',
-    'Fold constants': 'DEBUG is false, so the debug branch and its template go.',
+    'Fold constants': 'DEBUG is false, so the debug branch goes.',
   },
 };
 
-export const SOURCE_LABEL = 'Your code';
-
-export function captionFor(example: HeroExample, label: string): string {
-  return HERO_CAPTIONS[example.id]?.[label] ?? label;
+function pluralize(count: number, word: string): string {
+  return `${String(count)} ${word}${count === 1 ? '' : 's'}`;
 }
 
-/** The states of an example in order: its source, Solid's output, then each pass. */
+export function captionFor(example: HeroExample, label: string): string {
+  if (label === OUTPUT_LABEL) {
+    const first = example.steps[0];
+    const last = example.steps[example.steps.length - 1];
+    return `Solid compiles it to ${pluralize(last.templates, 'template')} and ${pluralize(last.components, 'component call')}, down from ${String(first.templates)} and ${String(first.components)}.`;
+  }
+  return CAPTIONS[example.id]?.[label] ?? label;
+}
+
+/** The labels of an example's steps in order: its source, each pass, then Solid's output. */
 export function listStates(example: HeroExample): string[] {
-  return [SOURCE_LABEL, ...example.steps.map((step) => step.label)];
+  return [...example.steps.map((step) => step.label), OUTPUT_LABEL];
 }
 
 /** Solid's template lines, the part solid-optimizer merges. */
@@ -54,8 +63,8 @@ export function isTemplateLine(text: string): boolean {
   return /_\$template\(|^\s*`</.test(text);
 }
 
-export function countLines(step: HeroStep): number {
-  return step.code.split('\n').length;
+export function countLines(text: string): number {
+  return text.split('\n').length;
 }
 
 type Kind = 'same' | 'gone' | 'new';
@@ -110,9 +119,8 @@ function describeState(index: number, at: number): 'done' | 'now' | 'todo' {
 class Stopped extends Error {}
 
 interface Parts {
-  root: HTMLElement;
   picker: HTMLElement;
-  pause: HTMLButtonElement;
+  pause: HTMLElement;
   stage: HTMLElement;
   passes: HTMLElement;
   code: HTMLElement;
@@ -120,7 +128,7 @@ interface Parts {
   count: HTMLElement;
   caption: HTMLElement;
   templates: HTMLElement;
-  lines: HTMLElement;
+  components: HTMLElement;
 }
 
 function findPart(root: HTMLElement, name: string): HTMLElement {
@@ -147,14 +155,37 @@ function makeLine(text: string, kind?: Kind): HTMLElement {
   return line;
 }
 
+/**
+ * Groups changed lines into blocks that play one after another. Changes with
+ * at most one unchanged line between them are one block, so a pass reads as a
+ * few edits instead of many flickers.
+ */
+function groupBlocks(lines: HTMLElement[]): HTMLElement[][] {
+  const blocks: HTMLElement[][] = [];
+  let lastChange = -10;
+  for (const [index, line] of lines.entries()) {
+    if (line.dataset.kind === 'same') {
+      continue;
+    }
+    const block = blocks.at(-1);
+    if (block && index - lastChange <= 2) {
+      for (let between = lastChange + 1; between < index; between += 1) {
+        block.push(lines[between]);
+      }
+      block.push(line);
+    } else {
+      blocks.push([line]);
+    }
+    lastChange = index;
+  }
+  return blocks;
+}
+
 /** Starts the hero in `root`. Returns a function that stops it. */
 export function playHero(root: HTMLElement): () => void {
   const parts: Parts = {
-    root,
     picker: findPart(root, 'picker'),
-    pause:
-      root.querySelector<HTMLButtonElement>('[data-part="pause"]') ??
-      document.createElement('button'),
+    pause: findPart(root, 'pause'),
     stage: findPart(root, 'stage'),
     passes: findPart(root, 'passes'),
     code: findPart(root, 'code'),
@@ -162,7 +193,7 @@ export function playHero(root: HTMLElement): () => void {
     count: findPart(root, 'count'),
     caption: findPart(root, 'caption'),
     templates: findPart(root, 'templates'),
-    lines: findPart(root, 'lines'),
+    components: findPart(root, 'components'),
   };
   let run = 0;
   let pausedByReader = false;
@@ -183,8 +214,31 @@ export function playHero(root: HTMLElement): () => void {
     });
   }
 
-  /** Marks state `at` of the example: 0 is its source, 1 Solid's output, then one per pass. */
-  function paintState(example: HeroExample, at: number): void {
+  function buildPasses(example: HeroExample): void {
+    const thumb = parts.passes.querySelector(':scope > .seg-thumb');
+    parts.passes.replaceChildren();
+    parts.passes.removeAttribute('data-ready');
+    if (thumb) {
+      parts.passes.append(thumb);
+    }
+    const labels = listStates(example);
+    // The passes are numbered; the source and Solid's output are not.
+    for (const [index, label] of labels.entries()) {
+      const item = document.createElement('li');
+      item.className = 'hero-pass';
+      if (index > 0 && index < labels.length - 1) {
+        const number = document.createElement('span');
+        number.className = 'hero-pass-number';
+        number.textContent = String(index);
+        item.append(number);
+      }
+      item.append(label);
+      parts.passes.append(item);
+    }
+  }
+
+  /** Marks step `at` in the step list. */
+  function paintStep(at: number): void {
     const items = [...parts.passes.querySelectorAll<HTMLElement>('.hero-pass')];
     for (const [index, item] of items.entries()) {
       item.dataset.state = describeState(index, at);
@@ -197,41 +251,17 @@ export function playHero(root: HTMLElement): () => void {
     slideThumb(parts.passes, items[at]);
   }
 
-  /** Shows the counts of state `at`. A pass's counts show once its changes have played. */
+  /** Shows what Solid's output holds after step `at`. A step's counts show once its changes have played. */
   function paintCounts(example: HeroExample, at: number): void {
     const first = example.steps[0];
-    const now = example.steps[Math.max(0, at - 1)];
+    const now = example.steps[Math.min(at, example.steps.length - 1)];
     parts.templates.textContent = `${String(first.templates)} → ${String(now.templates)}`;
-    parts.lines.textContent = `${String(countLines(first))} → ${String(countLines(now))}`;
-    if (at === 0) {
-      parts.file.textContent = 'Your code · App.tsx';
-      parts.count.textContent = `${String(example.source.split('\n').length)} lines`;
-    } else {
-      parts.file.textContent = 'Compiled by Solid · App.js';
-      parts.count.textContent = `${String(countLines(now))} lines`;
-    }
+    parts.components.textContent = `${String(first.components)} → ${String(now.components)}`;
   }
 
-  function buildPasses(example: HeroExample): void {
-    const thumb = parts.passes.querySelector(':scope > .seg-thumb');
-    parts.passes.replaceChildren();
-    parts.passes.removeAttribute('data-ready');
-    if (thumb) {
-      parts.passes.append(thumb);
-    }
-    // The source and Solid's output lead; the passes are numbered.
-    for (const [index, label] of listStates(example).entries()) {
-      const item = document.createElement('li');
-      item.className = 'hero-pass';
-      if (index >= 2) {
-        const number = document.createElement('span');
-        number.className = 'hero-pass-number';
-        number.textContent = String(index - 1);
-        item.append(number);
-      }
-      item.append(label);
-      parts.passes.append(item);
-    }
+  function paintFile(text: string, isOutput: boolean): void {
+    parts.file.textContent = isOutput ? 'Compiled by Solid · App.js' : 'App.tsx';
+    parts.count.textContent = `${String(countLines(text))} lines`;
   }
 
   async function setCaption(text: string, mine: number): Promise<void> {
@@ -241,8 +271,43 @@ export function playHero(root: HTMLElement): () => void {
     parts.caption.removeAttribute('data-out');
   }
 
-  function scrollCode(top: number): void {
-    parts.code.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  /** Scrolls the code window to `top`, and waits for the scroll to settle. */
+  async function scrollCode(top: number, mine: number): Promise<void> {
+    const target = Math.max(0, Math.min(top, parts.code.scrollHeight - parts.code.clientHeight));
+    if (Math.abs(parts.code.scrollTop - target) < 4) {
+      return;
+    }
+    parts.code.scrollTo({ top: target, behavior: 'smooth' });
+    await wait(420, mine);
+  }
+
+  async function playChanges(before: string, after: string, mine: number): Promise<void> {
+    const rows = diffLines(before.split('\n'), after.split('\n'));
+    const lines = rows.map((row) => makeLine(row.text, row.kind));
+    parts.code.replaceChildren(...lines);
+    await wait(300, mine);
+    for (const block of groupBlocks(lines)) {
+      const gone = block.filter((line) => line.dataset.kind === 'gone');
+      const added = block.filter((line) => line.dataset.kind === 'new');
+      await scrollCode(block[0].offsetTop - 80, mine);
+      for (const line of gone) {
+        line.dataset.tint = 'gone';
+      }
+      if (gone.length > 0) {
+        await wait(700, mine);
+        for (const line of gone) {
+          line.toggleAttribute('data-hidden', true);
+        }
+        await wait(400, mine);
+      }
+      for (const line of added) {
+        line.dataset.tint = 'new';
+        line.removeAttribute('data-hidden');
+      }
+      if (added.length > 0) {
+        await wait(600, mine);
+      }
+    }
   }
 
   async function playExample(index: number, mine: number): Promise<void> {
@@ -258,78 +323,40 @@ export function playHero(root: HTMLElement): () => void {
     parts.stage.removeAttribute('data-leave');
     parts.stage.toggleAttribute('data-enter', true);
     buildPasses(example);
-    parts.code.replaceChildren(...example.source.split('\n').map((text) => makeLine(text)));
+    const source = example.steps[0];
+    parts.code.replaceChildren(...source.jsx.split('\n').map((text) => makeLine(text)));
     parts.code.scrollTop = 0;
-    parts.caption.textContent = captionFor(example, SOURCE_LABEL);
-    paintState(example, 0);
+    parts.caption.textContent = captionFor(example, source.label);
+    paintStep(0);
     paintCounts(example, 0);
+    paintFile(source.jsx, false);
     // Lay the new content out at its start position, then slide it in.
     parts.stage.getBoundingClientRect();
     parts.stage.removeAttribute('data-enter');
-    await wait(2800, mine);
-    // Solid compiles it: the source gives way to Solid's output.
-    const first = example.steps[0];
-    parts.code.toggleAttribute('data-swap', true);
-    paintState(example, 1);
-    paintCounts(example, 1);
-    await setCaption(captionFor(example, first.label), mine);
-    await wait(120, mine);
-    parts.code.replaceChildren(...first.code.split('\n').map((text) => makeLine(text)));
-    parts.code.scrollTop = 0;
-    parts.code.removeAttribute('data-swap');
-    await wait(2400, mine);
+    await wait(3000, mine);
     for (let at = 1; at < example.steps.length; at += 1) {
       const step = example.steps[at];
-      paintState(example, at + 1);
+      paintStep(at);
       await setCaption(captionFor(example, step.label), mine);
-      const rows = diffLines(example.steps[at - 1].code.split('\n'), step.code.split('\n'));
-      const lines = rows.map((row) => makeLine(row.text, row.kind));
-      parts.code.replaceChildren(...lines);
-      // Changed lines next to each other form a block. Blocks play one after another.
-      const blocks: HTMLElement[][] = [];
-      let last = -2;
-      for (const [i, line] of lines.entries()) {
-        if (line.dataset.kind === 'same') {
-          continue;
-        }
-        if (i === last + 1) {
-          blocks.at(-1)?.push(line);
-        } else {
-          blocks.push([line]);
-        }
-        last = i;
-      }
-      await wait(400, mine);
-      for (const block of blocks) {
-        const gone = block.filter((line) => line.dataset.kind === 'gone');
-        const added = block.filter((line) => line.dataset.kind === 'new');
-        scrollCode(block[0].offsetTop - 60);
-        for (const line of gone) {
-          line.dataset.tint = 'gone';
-        }
-        if (gone.length > 0) {
-          await wait(520, mine);
-          for (const line of gone) {
-            line.toggleAttribute('data-hidden', true);
-          }
-          await wait(380, mine);
-        }
-        for (const line of added) {
-          line.dataset.tint = 'new';
-          line.removeAttribute('data-hidden');
-        }
-        if (added.length > 0) {
-          await wait(420, mine);
-        }
-      }
-      paintCounts(example, at + 1);
-      scrollCode(0);
-      await wait(1800, mine);
-      for (const line of lines) {
+      await playChanges(example.steps[at - 1].jsx, step.jsx, mine);
+      paintCounts(example, at);
+      paintFile(step.jsx, false);
+      await scrollCode(0, mine);
+      await wait(1600, mine);
+      for (const line of parts.code.querySelectorAll<HTMLElement>('.hero-line')) {
         delete line.dataset.tint;
       }
     }
-    await wait(2600, mine);
+    // Solid's JSX transform compiles the optimized JSX.
+    paintStep(example.steps.length);
+    await setCaption(captionFor(example, OUTPUT_LABEL), mine);
+    parts.code.toggleAttribute('data-swap', true);
+    await wait(240, mine);
+    parts.code.replaceChildren(...example.output.split('\n').map((text) => makeLine(text)));
+    parts.code.scrollTop = 0;
+    paintFile(example.output, true);
+    parts.code.removeAttribute('data-swap');
+    await wait(4200, mine);
   }
 
   async function loop(start: number): Promise<void> {
@@ -356,12 +383,10 @@ export function playHero(root: HTMLElement): () => void {
 
   function togglePause(): void {
     pausedByReader = !pausedByReader;
+    const label = pausedByReader ? 'Play the animation' : 'Pause the animation';
     parts.pause.dataset.state = pausedByReader ? 'on' : 'off';
-    parts.pause.setAttribute(
-      'aria-label',
-      pausedByReader ? 'Play the animation' : 'Pause the animation',
-    );
-    parts.pause.title = parts.pause.getAttribute('aria-label') ?? '';
+    parts.pause.setAttribute('aria-label', label);
+    parts.pause.title = label;
   }
 
   function placeThumbs(): void {

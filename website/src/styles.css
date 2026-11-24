@@ -1966,6 +1966,10 @@ button {
   }
 }
 
+.hero-pause[hidden] {
+  display: none;
+}
+
 /* Banig puts icons straight into .swap. Here each sits in a span, so center the spans too. */
 .swap > * {
   display: grid;

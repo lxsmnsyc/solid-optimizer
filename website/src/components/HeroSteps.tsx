@@ -3,6 +3,7 @@ import { For, Show, createSignal, onSettled } from 'solid-js';
 import type { HeroExample, HeroStep } from '../lib/hero-player';
 import {
   HERO_EXAMPLES,
+  OUTPUT_LABEL,
   captionFor,
   countLines,
   isTemplateLine,
@@ -13,29 +14,33 @@ import { slideThumb } from '../lib/thumb';
 import { Icon } from './Icon';
 
 /**
- * The hero visual: an example's JSX, then Solid's compiled output, then the
- * optimizer's passes one step at a time. The page shows the last step, which
- * is also what reduced motion and no JavaScript keep. With motion, the player
- * in `lib/hero-player.ts` takes over once the visual is on screen.
+ * The hero visual: an example's JSX, the JSX after each optimizer pass, then
+ * what Solid's JSX transform makes of it. The page shows that last step,
+ * which is also what reduced motion and no JavaScript keep. With motion, the
+ * player in `lib/hero-player.ts` takes over once the visual is on screen.
  */
 export function HeroSteps(): JSX.Element {
   const [index, setIndex] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
   const example = (): HeroExample => HERO_EXAMPLES[index()];
-  const last = (): HeroStep => example().steps[example().steps.length - 1];
   const first = (): HeroStep => example().steps[0];
+  const last = (): HeroStep => example().steps[example().steps.length - 1];
+  const labels = (): string[] => listStates(example());
   let root: HTMLElement | undefined;
   let picker: HTMLElement | undefined;
+
+  function placePicker(): void {
+    if (picker) {
+      slideThumb(picker, picker.querySelector<HTMLElement>('[aria-pressed="true"]') ?? undefined);
+    }
+  }
 
   onSettled(() => {
     if (!root) {
       return undefined;
     }
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      slideThumb(
-        picker ?? root,
-        picker?.querySelector<HTMLElement>('[aria-pressed="true"]') ?? undefined,
-      );
+      placePicker();
       return undefined;
     }
     setPlaying(true);
@@ -70,10 +75,7 @@ export function HeroSteps(): JSX.Element {
                   // The player handles picks while it runs.
                   if (!playing()) {
                     setIndex(i());
-                    slideThumb(
-                      picker ?? document.body,
-                      picker?.querySelectorAll<HTMLElement>('button')[i()],
-                    );
+                    requestAnimationFrame(placePicker);
                   }
                 }}
               >
@@ -82,37 +84,37 @@ export function HeroSteps(): JSX.Element {
             )}
           </For>
         </div>
-        <Show when={playing()}>
-          <button
-            type="button"
-            class="icon-button hero-pause"
-            data-part="pause"
-            data-state="off"
-            aria-label="Pause the animation"
-            title="Pause the animation"
-          >
-            <span class="swap">
-              <span data-off>
-                <Icon name="pause" />
-              </span>
-              <span data-on>
-                <Icon name="play" />
-              </span>
+        <button
+          type="button"
+          class="icon-button hero-pause"
+          data-part="pause"
+          data-state="off"
+          aria-label="Pause the animation"
+          title="Pause the animation"
+          hidden={!playing()}
+        >
+          <span class="swap">
+            <span data-off>
+              <Icon name="pause" />
             </span>
-          </button>
-        </Show>
+            <span data-on>
+              <Icon name="play" />
+            </span>
+          </span>
+        </button>
       </div>
       <div class="hero-stage" data-part="stage">
         <ol class="hero-passes" data-part="passes" aria-label="Steps">
           <span class="seg-thumb" />
-          <For each={listStates(example())}>
+          <For each={labels()}>
             {(label, i) => (
               <li
                 class="hero-pass"
-                data-state={i() === listStates(example()).length - 1 ? 'now' : 'done'}
+                data-state={label === OUTPUT_LABEL ? 'now' : 'done'}
+                aria-current={label === OUTPUT_LABEL ? 'step' : undefined}
               >
-                <Show when={i() >= 2}>
-                  <span class="hero-pass-number">{String(i() - 1)}</span>
+                <Show when={i() > 0 && i() < labels().length - 1}>
+                  <span class="hero-pass-number">{String(i())}</span>
                 </Show>
                 {label}
               </li>
@@ -122,10 +124,10 @@ export function HeroSteps(): JSX.Element {
         <div class="hero-window">
           <div class="hero-window-head">
             <span data-part="file">Compiled by Solid · App.js</span>
-            <span data-part="count">{String(countLines(last()))} lines</span>
+            <span data-part="count">{String(countLines(example().output))} lines</span>
           </div>
           <pre class="hero-code" data-part="code" aria-hidden="true">
-            <For each={last().code.split('\n')}>
+            <For each={example().output.split('\n')}>
               {(line) => (
                 <span class="hero-line">
                   <span class={isTemplateLine(line) ? 'hero-line-text tmpl' : 'hero-line-text'}>
@@ -137,7 +139,7 @@ export function HeroSteps(): JSX.Element {
           </pre>
         </div>
         <p class="hero-caption" data-part="caption">
-          {captionFor(example(), last().label)}
+          {captionFor(example(), OUTPUT_LABEL)}
         </p>
         <div class="hero-counts">
           <span class="hero-count">
@@ -145,15 +147,16 @@ export function HeroSteps(): JSX.Element {
             <b data-part="templates">{`${String(first().templates)} → ${String(last().templates)}`}</b>
           </span>
           <span class="hero-count">
-            lines{' '}
-            <b data-part="lines">{`${String(countLines(first()))} → ${String(countLines(last()))}`}</b>
+            component calls{' '}
+            <b data-part="components">{`${String(first().components)} → ${String(last().components)}`}</b>
           </span>
         </div>
       </div>
       <figcaption class="visually-hidden">
-        {example().title}: Solid compiles the example to {String(countLines(first()))} lines and{' '}
-        {String(first().templates)} templates. With solid-optimizer first, it compiles to{' '}
-        {String(countLines(last()))} lines and {String(last().templates)} template.
+        {example().title}: solid-optimizer rewrites the JSX in {String(example().steps.length - 1)}{' '}
+        passes. Solid then compiles it to {String(last().templates)} templates and{' '}
+        {String(last().components)} component calls, down from {String(first().templates)} and{' '}
+        {String(first().components)}.
       </figcaption>
     </figure>
   );

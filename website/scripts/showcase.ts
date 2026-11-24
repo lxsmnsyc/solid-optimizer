@@ -5,9 +5,10 @@
  * `compile` first. Both versions are also rendered on the server, so the
  * page can show the hydration keys. The results go into `src/showcase.json`.
  *
- * The hero plays a few of them pass by pass: each step is the example compiled
- * with the passes so far switched on, then lowered by Solid's JSX transform.
- * Those steps go into `src/hero.json`.
+ * The hero plays a few of them pass by pass: each step is the JSX the optimizer
+ * writes with the passes so far switched on, with what Solid's JSX transform
+ * makes of it. The last frame is Solid's output for the optimized JSX. Those
+ * go into `src/hero.json`.
  *
  * Run it after a change to the optimizer: `pnpm --filter website showcase`.
  */
@@ -263,13 +264,30 @@ function foldImports(code: string): string {
 
 interface HeroStep {
   label: string;
-  code: string;
+  /** The JSX the optimizer writes with the passes so far, or the source for the first step. */
+  jsx: string;
+  /** What Solid's JSX transform makes of that JSX. */
   templates: number;
+  components: number;
 }
 
-async function heroStep(label: string, code: string): Promise<HeroStep> {
-  const dom = lower(code, 'dom');
-  return { label, code: foldImports(await tidy(dom)), templates: count(dom, /_\$template\(/g) };
+/** Formats JSX for the hero, narrower than the showcase so it fits beside the copy. */
+async function tidyNarrow(code: string): Promise<string> {
+  const result = await format(FILENAME, code, { singleQuote: true, printWidth: 72 });
+  if (result.errors.length > 0) {
+    throw new Error(`could not format:\n${code}`);
+  }
+  return result.code.trimEnd();
+}
+
+async function heroStep(label: string, jsx: string): Promise<HeroStep> {
+  const dom = lower(jsx, 'dom');
+  return {
+    label,
+    jsx: await tidyNarrow(jsx),
+    templates: count(dom, /_\$template\(/g),
+    components: count(dom, /_\$createComponent\(/g),
+  };
 }
 
 const hero = [];
@@ -278,20 +296,22 @@ for (const id of HERO_EXAMPLES) {
   if (!example) {
     throw new Error(`no example ${id}`);
   }
-  const steps = [await heroStep('Solid alone', example.code)];
+  const steps = [await heroStep('Your code', example.code)];
   const on = { ...NO_PASSES };
+  let last = example.code;
   for (const [pass, label] of HERO_PASSES) {
     on[pass] = true;
-    const step = await heroStep(
-      label,
-      compile(example.code, { filename: FILENAME, sourceMap: false, ...on }).code,
-    );
+    const jsx = compile(example.code, { filename: FILENAME, sourceMap: false, ...on }).code;
+    const step = await heroStep(label, jsx);
     // A pass that changes nothing in this example is not a step.
-    if (step.code !== steps.at(-1)?.code) {
+    if (step.jsx !== steps.at(-1)?.jsx) {
       steps.push(step);
+      last = jsx;
     }
   }
-  hero.push({ id, title: example.title, source: example.code.trimEnd(), steps });
+  // The last frame: what Solid's JSX transform makes of the optimized JSX.
+  const output = foldImports(await tidy(lower(last, 'dom')));
+  hero.push({ id, title: example.title, steps, output });
 }
 
 writeFileSync(HERO_OUTPUT, `${JSON.stringify(hero, null, 2)}\n`);
