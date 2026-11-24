@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && node scripts/prerender.ts",
+    "build": "vite build && node scripts/prerender.ts && node scripts/word-budget.ts",
     "dev": "vite",
     "preview": "vite preview",
     "og": "node scripts/og.ts",

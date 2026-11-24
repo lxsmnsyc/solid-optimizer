@@ -5,6 +5,10 @@
  * `compile` first. Both versions are also rendered on the server, so the
  * page can show the hydration keys. The results go into `src/showcase.json`.
  *
+ * The hero plays a few of them pass by pass: each step is the example compiled
+ * with the passes so far switched on, then lowered by Solid's JSX transform.
+ * Those steps go into `src/hero.json`.
+ *
  * Run it after a change to the optimizer: `pnpm --filter website showcase`.
  */
 import { rmSync, writeFileSync } from 'node:fs';
@@ -18,6 +22,27 @@ import { EXAMPLES } from './examples.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT = path.join(HERE, '..', 'src', 'showcase.json');
+const HERO_OUTPUT = path.join(HERE, '..', 'src', 'hero.json');
+
+/** The examples the hero plays, in order. */
+const HERO_EXAMPLES = ['context', 'flags', 'components'];
+
+/** The passes in the order the hero switches them on, each with its step label. */
+const HERO_PASSES: [keyof typeof NO_PASSES, string][] = [
+  ['inline', 'Inline components'],
+  ['contexts', 'Remove providers'],
+  ['memos', 'Inline memos'],
+  ['conditionals', 'Lower Show and Switch'],
+  ['fold', 'Fold constants'],
+];
+
+const NO_PASSES = {
+  inline: false,
+  contexts: false,
+  memos: false,
+  conditionals: false,
+  fold: false,
+};
 const FILENAME = 'App.tsx';
 
 function lower(code: string, generate: 'dom' | 'ssr'): string {
@@ -221,3 +246,53 @@ for (const example of EXAMPLES) {
 
 writeFileSync(OUTPUT, `${JSON.stringify(results, null, 2)}\n`);
 process.stdout.write(`Wrote ${OUTPUT}\n`);
+
+/** Solid's `@solidjs/web` imports as one comment line, so the hero starts at what changes. */
+function foldImports(code: string): string {
+  const kept: string[] = [];
+  let imports = 0;
+  for (const line of code.trimEnd().split('\n')) {
+    if (/^import .* from '@solidjs\/web';$/.test(line)) {
+      imports += 1;
+    } else {
+      kept.push(line);
+    }
+  }
+  return [`// ${String(imports)} imports from @solidjs/web`, ...kept].join('\n');
+}
+
+interface HeroStep {
+  label: string;
+  code: string;
+  templates: number;
+}
+
+async function heroStep(label: string, code: string): Promise<HeroStep> {
+  const dom = lower(code, 'dom');
+  return { label, code: foldImports(await tidy(dom)), templates: count(dom, /_\$template\(/g) };
+}
+
+const hero = [];
+for (const id of HERO_EXAMPLES) {
+  const example = EXAMPLES.find((item) => item.id === id);
+  if (!example) {
+    throw new Error(`no example ${id}`);
+  }
+  const steps = [await heroStep('Solid alone', example.code)];
+  const on = { ...NO_PASSES };
+  for (const [pass, label] of HERO_PASSES) {
+    on[pass] = true;
+    const step = await heroStep(
+      label,
+      compile(example.code, { filename: FILENAME, sourceMap: false, ...on }).code,
+    );
+    // A pass that changes nothing in this example is not a step.
+    if (step.code !== steps.at(-1)?.code) {
+      steps.push(step);
+    }
+  }
+  hero.push({ id, title: example.title, source: example.code.trimEnd(), steps });
+}
+
+writeFileSync(HERO_OUTPUT, `${JSON.stringify(hero, null, 2)}\n`);
+process.stdout.write(`Wrote ${HERO_OUTPUT}\n`);

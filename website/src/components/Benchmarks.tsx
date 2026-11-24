@@ -40,12 +40,13 @@ interface App {
   results: Results;
 }
 
+// The two real apps first. The demo app is written to show each pass, so it comes last.
 const APPS: App[] = [
   {
-    id: 'demo',
-    label: 'Demo',
-    note: 'The demo app with every page rendered at once. It is written to show each pass.',
-    results: demo,
+    id: 'tracker',
+    label: 'Tracker',
+    note: 'An issue tracker with 40 rows, data under <Loading>, and narrowing <Show> callbacks.',
+    results: tracker,
   },
   {
     id: 'hackernews',
@@ -54,21 +55,20 @@ const APPS: App[] = [
     results: hackernews,
   },
   {
-    id: 'tracker',
-    label: 'Tracker',
-    note: 'An issue tracker with 40 rows, data under <Loading>, and narrowing <Show> callbacks.',
-    results: tracker,
+    id: 'demo',
+    label: 'Demo',
+    note: 'The demo app with every page rendered at once. It is written to show each pass.',
+    results: demo,
   },
 ];
 
 // Lower is better for every chart, so each bar's length is its share of the plain build.
-function chartsOf(results: Results): Chart[] {
+function collectCharts(results: Results): Chart[] {
   const charts: Chart[] = [];
   const titles: [string, string, Chart['unit']][] = [
     ['ssr', 'renderToString', 'time'],
     ['hydrate', 'Hydration', 'time'],
-    ['coldMount', 'First render', 'time'],
-    ['mount', 'Render, warm', 'time'],
+    ['mount', 'Client render', 'time'],
     ['heap', 'Heap per app', 'bytes'],
   ];
   for (const [key, title, unit] of titles) {
@@ -76,10 +76,8 @@ function chartsOf(results: Results): Chart[] {
     charts.push({ title, unit, pair: entry, noise: entry.noise });
   }
   const counts: [string, string][] = [
-    ['nodesCloned', 'Templates cloned'],
     ['owners', 'Owners'],
     ['computations', 'Computations'],
-    ['edges', 'Dependency edges'],
   ];
   for (const [key, title] of counts) {
     charts.push({ title, unit: 'count', pair: results.client[key] });
@@ -216,7 +214,7 @@ export function Benchmarks(): JSX.Element {
       <div class="bench-legend">
         <span>
           <i class="bench-key plain" />
-          @solidjs/vite-plugin
+          Solid alone
         </span>
         <span>
           <i class="bench-key optimized" />
@@ -224,7 +222,7 @@ export function Benchmarks(): JSX.Element {
         </span>
       </div>
       <div class="bench-grid">
-        <For each={chartsOf(app().results)}>
+        <For each={collectCharts(app().results)}>
           {(chart) => (
             <figure class="bench-card">
               <figcaption>
@@ -232,7 +230,7 @@ export function Benchmarks(): JSX.Element {
                 <span class="bench-change">{formatChange(chart.pair)}</span>
               </figcaption>
               <Bar
-                name="@solidjs/vite-plugin"
+                name="Solid alone"
                 variant="plain"
                 value={chart.pair.plain}
                 share={1}
@@ -255,7 +253,7 @@ export function Benchmarks(): JSX.Element {
           <thead>
             <tr>
               <th scope="col">Measure</th>
-              <th scope="col">@solidjs/vite-plugin</th>
+              <th scope="col">Solid alone</th>
               <th scope="col">solid-optimizer</th>
               <th scope="col">Change</th>
             </tr>
@@ -283,9 +281,9 @@ export function Benchmarks(): JSX.Element {
           </For>
         </table>
       </details>
-      <p class="bench-note">
-        {app().note} {app().results.date}. Median of {String(app().results.runs)} runs on{' '}
-        {app().results.cpu}, Chromium {app().results.browser.split('.')[0]} and Node{' '}
+      <p class="bench-note" id="bench-note">
+        <sup>1</sup> {app().note} {app().results.date}. Median of {String(app().results.runs)} runs
+        on {app().results.cpu}, Chromium {app().results.browser.split('.')[0]} and Node{' '}
         {app().results.node}.
       </p>
     </div>
