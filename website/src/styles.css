@@ -1847,3 +1847,17 @@ button {
 .landing-hero .chip {
   text-decoration: none;
 }
+
+/* Banig puts icons straight into .swap. Here each sits in a span, so center the spans too. */
+.swap > * {
+  display: grid;
+  place-items: center;
+}
+
+/* Banig hides the nav links below 48rem and moves them into the mobile drawer.
+   The drawer comes with the docs split; until then the links stay in the nav. */
+@media (max-width: 48rem) {
+  .site-nav .pill:not(.icon-pill) {
+    display: inline-flex;
+  }
+}

@@ -100,7 +100,7 @@ export function Header(props: { page: Page }): JSX.Element {
             <span class="wordmark-version">v{VERSION}</span>
           </a>
           <div class="site-header-slot" />
-          <nav class="pills" aria-label="Site">
+          <nav class="pills site-nav" aria-label="Site">
             <For each={LINKS}>
               {(link) => (
                 <a
@@ -112,18 +112,18 @@ export function Header(props: { page: Page }): JSX.Element {
                 </a>
               )}
             </For>
+            <a
+              class="icon-button"
+              href={REPOSITORY}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="solid-optimizer on GitHub"
+              title="solid-optimizer on GitHub"
+            >
+              <Icon name="github" />
+            </a>
+            <ThemeButton />
           </nav>
-          <a
-            class="icon-button"
-            href={REPOSITORY}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="solid-optimizer on GitHub"
-            title="solid-optimizer on GitHub"
-          >
-            <Icon name="github" />
-          </a>
-          <ThemeButton />
         </div>
       </header>
     </>
