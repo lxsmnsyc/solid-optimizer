@@ -216,3 +216,35 @@ test.prop([program])(
   },
   TIMEOUT,
 );
+
+/** Solid's lowered code for both builds, or the error the JSX transform throws. */
+function lowerBoth(code: string): string {
+  const lowered: string[] = [];
+  for (const generate of ['dom', 'ssr'] as const) {
+    try {
+      lowered.push(
+        transform(code, {
+          filename: 'output.jsx',
+          moduleName: '@solidjs/web',
+          generate,
+          hydratable: true,
+        }).code,
+      );
+    } catch (error) {
+      lowered.push(`throws ${String(error)}`);
+    }
+  }
+  return lowered.join('\n----\n');
+}
+
+test.prop([program])(
+  'the tidied module lowers to the same code as the untidied one',
+  (code) => {
+    for (const alwaysInline of [false, true]) {
+      const tidied = optimize(code, { alwaysInline });
+      const untidied = optimize(code, { alwaysInline, tidy: false });
+      expect(lowerBoth(tidied)).toBe(lowerBoth(untidied));
+    }
+  },
+  TIMEOUT,
+);

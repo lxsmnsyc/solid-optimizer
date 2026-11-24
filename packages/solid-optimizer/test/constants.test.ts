@@ -97,7 +97,7 @@ describe('importedConstants', () => {
               return (
                 <main>
                   <p>hidden</p>
-                  <p class={'dark'} />
+                  <p class="dark" />
                 </main>
               );
             }
@@ -197,8 +197,8 @@ describe('global constants', () => {
     );
     expect(output).toBe(`export const view = <main>
   {null}
-  <p>{"production"}</p>
-  <a href={"https://example.com"} />
+  <p>production</p>
+  <a href="https://example.com" />
 </main>;`);
   });
 
@@ -207,7 +207,7 @@ describe('global constants', () => {
       'declare const __DEV__: boolean;\nexport const view = <p>{__DEV__ ? "a" : "b"}</p>;',
       { filename: 'input.tsx', globalConstants },
     );
-    expect(output).toContain('<p>{"b"}</p>');
+    expect(output).toContain('<p>b</p>');
   });
 
   it('leaves a name the module declares, and paths it does not hold', () => {

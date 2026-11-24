@@ -17,7 +17,7 @@ describe('providers', () => {
     expect(
       contexts(`const Theme = createContext('light');
 export const App = () => <main><Theme value="dark"><span>{useContext(Theme)}</span></Theme></main>;`),
-    ).toContain('<main><span>{"dark"}</span></main>');
+    ).toContain('<main><span>dark</span></main>');
   });
 
   it('moves a consumer that reads in a statement out through the provider', () => {
@@ -31,7 +31,7 @@ export function App() {
 }`);
     // The read folds to the value, and the unread `theme$1` is then removed.
     expect(code).not.toContain('theme$1');
-    expect(code).toContain('<main><span class={"dark"}>label</span></main>');
+    expect(code).toContain('<main><span class="dark">label</span></main>');
     expect(code).not.toContain('<Theme');
   });
 
@@ -68,7 +68,7 @@ export function App() {
 }`);
     expect(code).not.toContain('<Tabs');
     expect(code).toMatch(
-      /<button class=\{tabs\$1\.active\(\) === 0 \? 'on' : ''\} tone=\{"plain"\} title=\{"first"\}\s*>One<\/button>/,
+      /<button class=\{tabs\$1\.active\(\) === 0 \? 'on' : ''\} tone="plain" title="first"\s*>One<\/button>/,
     );
   });
 
@@ -110,13 +110,13 @@ export function App(props) {
     const code = contexts(`const Theme = createContext();
 const Label = () => <span>{useContext(Theme)}</span>;
 export const App = () => <main><Theme value="outer"><Theme value="inner"><Label /></Theme><Label /></Theme></main>;`);
-    expect(code).toContain('<main><span>{"inner"}</span><span>{"outer"}</span></main>');
+    expect(code).toContain('<main><span>inner</span><span>outer</span></main>');
   });
 
   it('leaves a read in an event handler, which runs with no owner', () => {
     const code = contexts(`const Theme = createContext();
 export const App = () => <Theme value="dark"><button onClick={() => useContext(Theme)} /></Theme>;`);
-    expect(code).toContain('<><button onClick={() => useContext(Theme)} /></>');
+    expect(code).toContain('<button onClick={() => useContext(Theme)} />');
   });
 
   it('removes a provider nothing reads', () => {

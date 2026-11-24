@@ -57,6 +57,7 @@ The input and the output both keep their JSX. Run the JSX transform after `compi
 - `importedConstants` holds the constants of imported modules, keyed by the import specifier as the code writes it, then by export name. An import of one of them folds like a local `const`. See [Constants from other modules](#constants-from-other-modules).
 - `globalConstants` holds values of global names and paths, such as `{ __DEV__: false, 'import.meta.env.MODE': 'production' }`. A path starts at `import.meta` or at a name the module does not declare, and folds like a constant.
 - `maxPasses` limits how many rounds run. Compilation stops early once a round changes nothing. Defaults to `10`.
+- `tidy` tidies the output JSX: it drops empty `{}` children, writes strings in braces such as `class={'card'}` as plain JSX, and unwraps a fragment that holds one element. Solid's JSX transform lowers the tidied JSX to the same code. It only runs on a module the passes changed. Defaults to `true`.
 - `sourceMap` turns the source map on or off. Defaults to `true`.
 - `report` records what the inline, provider, and memo passes leave alone, and why. The result lists them in `skipped`, each with its pass, a reason code, and a name. Defaults to `false`.
 
