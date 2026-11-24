@@ -1,8 +1,10 @@
 <!doctype html>
 <!--
-  Banig's OgImage, rendered to public/og.png by scripts/og.ts: an ink tile with
-  the name and the hero's claim, an accent tile with a second measured number, so it adds to the claim instead of repeating it, and
-  the address. It uses the site's tokens and fonts, in the light theme.
+  The link preview image, rendered to public/og.png by scripts/og.ts: one ink
+  tile with the name, the hero's claim, the install command and the address,
+  in the site's tokens and fonts and the light theme. Banig's OgImage puts a
+  measured number beside the claim; here the claim is already the measurement,
+  and a number from one benchmark app means nothing to someone who never saw it.
 -->
 <html lang="en" data-theme="light">
   <head>
@@ -33,25 +35,24 @@
         width: 44px;
         height: 44px;
       }
-      .og-number {
-        display: grid;
-        gap: 12px;
+      .og {
+        grid-template-columns: minmax(0, 1fr);
       }
-      .og-number strong {
-        font: 800 120px/0.9 var(--font-sans);
-        letter-spacing: -0.05em;
+      .og-main {
+        gap: 32px;
       }
-      .og-number span {
-        font-size: 26px;
-        font-weight: 600;
-        line-height: 1.25;
+      .og-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
       }
-      .og-address {
-        padding: 24px 32px;
-      }
-      .og-address span {
-        color: var(--muted);
-        font: 400 22px var(--font-mono);
+      .og-install {
+        padding: 14px 20px;
+        border-radius: var(--radius-full);
+        background: var(--accent-fill);
+        color: var(--on-accent);
+        font: 500 26px var(--font-mono);
       }
     </style>
   </head>
@@ -67,13 +68,10 @@
           solid-optimizer
         </span>
         <h1 class="og-title">Same Solid app. <em>2× faster</em> server rendering.</h1>
-      </div>
-      <div class="og-side">
-        <div class="tile og-number" data-tone="accent">
-          <strong>−42%</strong>
-          <span>memory per app on the Tracker benchmark</span>
+        <div class="og-foot">
+          <code class="og-install">npm i -D solid-optimizer</code>
+          <span class="og-url">solid-optimizer.vercel.app</span>
         </div>
-        <div class="tile og-address"><span>solid-optimizer.vercel.app</span></div>
       </div>
     </div>
   </body>
