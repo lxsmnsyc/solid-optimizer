@@ -1868,3 +1868,19 @@ button {
     display: inline-flex;
   }
 }
+
+/* On ink tiles, Banig's quiet button hovers to surface-strong, which is as
+   light as the on-ink text in dark mode and as dark in light mode. Use the
+   on-ink wash the install tabs use on ink. */
+.hero .button[data-variant='quiet']:hover,
+.not-found .button[data-variant='quiet']:hover,
+.tile[data-tone='ink'] .button[data-variant='quiet']:hover {
+  background: color-mix(in srgb, var(--on-ink) 14%, transparent);
+}
+
+/* No tooltip on the copy button. Its label is announced, and the icon swap
+   shows the result. Inline, as in the install command, the tooltip covered
+   the command. */
+.code-copy::before {
+  content: none;
+}
