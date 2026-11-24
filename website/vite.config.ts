@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import solid from 'solid-optimizer/vite';
 import type { Plugin } from 'vite';
+import { content } from './plugins/content.ts';
 import { defineConfig } from 'vite';
 
 const require = createRequire(import.meta.url);
@@ -48,7 +49,7 @@ export default defineConfig({
   // The site is built with the optimizer it shows. Start mode renders each
   // page on the server, and `scripts/prerender.ts` writes them out as HTML,
   // which the client hydrates. See src/entry-server.tsx and src/entry-client.tsx.
-  plugins: [solid({ ssr: true, start: true }), isolatePreview()],
+  plugins: [content(), solid({ ssr: true, start: true }), isolatePreview()],
   define: {
     'import.meta.env.SITE_URL': JSON.stringify(SITE_URL),
   },

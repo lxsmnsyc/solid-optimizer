@@ -8,22 +8,37 @@ import './styles/banig.css';
 import './styles.css';
 
 // Each page is its own chunk, so the landing page and the docs never load the REPL.
-const PAGES: Record<Route['id'], () => Promise<() => JSX.Element>> = {
+const PAGES: Record<Exclude<Route['id'], 'docs'>, () => Promise<() => JSX.Element>> = {
   home: async () => (await import('./pages/Home')).Home,
-  docs: async () => (await import('./pages/Docs')).Docs,
   repl: async () => (await import('./pages/ReplPage')).ReplPage,
   'not-found': async () => (await import('./pages/NotFound')).NotFound,
 };
 
-const route = findRoute(location.pathname) ?? NOT_FOUND;
-{
-  const Page = await PAGES[route.id]();
-  hydrate(
-    () => (
-      <Document route={route}>
-        <Page />
-      </Document>
-    ),
-    document,
-  );
+/** The page for a route, as the server resolved it. A docs page loads only its own doc. */
+async function resolvePage(route: Route): Promise<{ route: Route; Page: () => JSX.Element }> {
+  if (route.id !== 'docs') {
+    return { route, Page: await PAGES[route.id]() };
+  }
+  const [{ loadDoc }, { DocsPage }] = await Promise.all([
+    import('./lib/docs'),
+    import('./pages/Docs'),
+  ]);
+  const doc = await loadDoc(route.slug ?? '');
+  if (!doc) {
+    return { route: NOT_FOUND, Page: await PAGES['not-found']() };
+  }
+  return {
+    route: { ...route, title: `${doc.title} · solid-optimizer docs`, description: doc.description },
+    Page: () => <DocsPage doc={doc} />,
+  };
 }
+
+const { route, Page } = await resolvePage(findRoute(location.pathname) ?? NOT_FOUND);
+hydrate(
+  () => (
+    <Document route={route}>
+      <Page />
+    </Document>
+  ),
+  document,
+);
